@@ -1,4 +1,4 @@
-# PalmTLS API 10
+# PalmTLS API
 
 Include `include/palm_tls.h`, locate `PALM_TLS_LIB_NAME`, and load creator
 `PALM_TLS_LIB_CREATOR` with type `sysFileTLibrary` if it is not already loaded.
@@ -11,16 +11,11 @@ sleep/wake handling rather than using them as request operations.
 
 ## Discovery
 
-`PalmTlsLibGetApiVersion(refNum, &version)` returns the installed ABI version.
-This distribution exposes only API 10. Applications must require
-`PALM_TLS_API_VERSION` exactly and use the current structure sizes from the
-public header.
-
-Capabilities report only the protocol engines present in the installed build,
-plus the available verification modes, streaming, timings, sessions, engine
-caching, resumption, and cooperative I/O. Their names and bit values are
-defined in the public header. Applications must populate protocol selectors
-from these bits and must not assume all three engines are installed.
+`PalmTlsLibGetCapabilities` reports only the protocol engines present in the
+installed build, plus the available verification modes, streaming, timings,
+sessions, engine caching, resumption, and cooperative I/O. Their names and bit
+values are defined in the public header. Applications must populate protocol
+selectors from these bits and must not assume all three engines are installed.
 
 The network-free `PalmTlsLibRunSelfTest` entry point also exposes ARM self-test
 capability flags. Before using native math, the library checks a carry-heavy
@@ -28,8 +23,7 @@ capability flags. Before using native math, the library checks a carry-heavy
 a known P-256 public key through the real ASN.1 and on-curve paths in each
 installed TLS 1.2/TLS 1.3 engine. A failure disables the ARM hook and leaves the
 safe 68K implementation active. Its result includes per-protocol load,
-key-generation, shared-secret, and signature-verification timings. Older
-result layouts are not accepted.
+key-generation, shared-secret, and signature-verification timings.
 
 Applications should not select a different code path for the ARM variant. Use
 the normal PalmTLS calls and treat the capability as diagnostics. All

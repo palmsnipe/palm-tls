@@ -35,7 +35,7 @@ Consumer applications include `include/palm_tls.h`, load creator `PTLS` as a
 system library, call `PalmTlsLibOpen`, and pass an already-connected NetLib
 socket plus `palmTlsProtocolTls11`, `palmTlsProtocolTls12`, or
 `palmTlsProtocolTls13` to
-`PalmTlsLibExchange`. The current API provides bounded-buffer and streaming
+`PalmTlsLibExchange`. PalmTLS provides bounded-buffer and streaming
 operations plus incremental sessions:
 `PalmTlsLibSessionOpen`, `PalmTlsLibSessionWrite`, `PalmTlsLibSessionRead`, and
 `PalmTlsLibSessionClose`, with cooperative handshake/I/O and explicit
@@ -47,10 +47,9 @@ nonzero value aborts the request and reports that value as `sinkError`.
 The examples under `../examples/network` demonstrate incremental-session
 use without depending on a particular application.
 
-API 10 includes a deterministic, network-free native-ARM self-test and
+PalmTLS includes a deterministic, network-free native-ARM self-test and
 per-protocol timings for engine load, P-256 key generation, shared-secret
-calculation, and signature verification. Older structure layouts are not
-accepted; applications must be compiled against the matching public header.
+calculation, and signature verification.
 
 The complete API contract, lifecycle, error model, cooperative state handling,
 and cache rules are documented in [API.md](API.md). Small consumers that are
@@ -70,8 +69,8 @@ resumption state when no session is active.
 
 Initialize every parameter and result structure to zero, set its `structSize`,
 and check both the trap's Palm `Err` return and the result `status`. Applications
-must require API 10 exactly and test required capability bits. The
-library permits one active or opening session. The one-shot exchange calls
+must test the capability bits they require. The library permits one active or
+opening session. The one-shot exchange calls
 remain synchronous; sessions may instead be advanced cooperatively. The
 caller still owns DNS, the connected socket, UI event policy, HTTP framing,
 output storage, cancellation policy, and cleanup.

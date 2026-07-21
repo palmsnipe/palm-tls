@@ -160,14 +160,6 @@ Err PalmTlsLibWake(UInt16 refNum)
     return errNone;
 }
 
-Err PalmTlsLibGetApiVersion(UInt16 refNum, UInt16 *versionP)
-{
-    (void)refNum;
-    if (versionP == 0) return sysErrParamErr;
-    *versionP = PALM_TLS_API_VERSION;
-    return errNone;
-}
-
 Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
 {
     UInt32 processor = 0;

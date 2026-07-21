@@ -8,8 +8,7 @@
 
 #define PALM_TLS_LIB_NAME "Palm TLS"
 #define PALM_TLS_LIB_CREATOR 'PTLS'
-#define PALM_TLS_API_VERSION 10
-/* API 10 is strict: callers must pass these exact current structure sizes. */
+/* Callers must pass the exact current structure sizes below. */
 #define PALM_TLS_EXCHANGE_PARAMS_SIZE 42
 #define PALM_TLS_EXCHANGE_RESULT_SIZE 12
 #define PALM_TLS_STREAM_PARAMS_SIZE 46
@@ -203,8 +202,7 @@ typedef struct PalmTlsSessionIoResult {
 #include <PalmOS.h>
 
 enum PalmTlsLibTrap {
-    palmTlsLibTrapGetApiVersion = 0xA805,
-    palmTlsLibTrapGetCapabilities,
+    palmTlsLibTrapGetCapabilities = 0xA805,
     palmTlsLibTrapExchange,
     palmTlsLibTrapExchangeStream,
     palmTlsLibTrapSessionOpen,
@@ -227,8 +225,6 @@ Err PalmTlsLibOpen(UInt16 refNum) PALM_TLS_TRAP(sysLibTrapOpen);
 Err PalmTlsLibClose(UInt16 refNum) PALM_TLS_TRAP(sysLibTrapClose);
 Err PalmTlsLibSleep(UInt16 refNum) PALM_TLS_TRAP(sysLibTrapSleep);
 Err PalmTlsLibWake(UInt16 refNum) PALM_TLS_TRAP(sysLibTrapWake);
-Err PalmTlsLibGetApiVersion(UInt16 refNum, UInt16 *versionP)
-    PALM_TLS_TRAP(palmTlsLibTrapGetApiVersion);
 Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
     PALM_TLS_TRAP(palmTlsLibTrapGetCapabilities);
 Err PalmTlsLibExchange(UInt16 refNum, const PalmTlsExchangeParams *paramsP,

@@ -1,10 +1,9 @@
-syslib { "Palm TLS" PTLS version=10 }
+syslib { "Palm TLS" PTLS }
 export {
     PalmTlsLibOpen
     PalmTlsLibClose
     PalmTlsLibSleep
     PalmTlsLibWake
-    PalmTlsLibGetApiVersion
     PalmTlsLibGetCapabilities
     PalmTlsLibExchange
     PalmTlsLibExchangeStream

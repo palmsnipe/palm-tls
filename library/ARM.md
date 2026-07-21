@@ -99,8 +99,8 @@ a bit-256 carry,
 single-block and eight-block SHA-256 compression vectors, NIST AES-GCM encrypt
 and decrypt vectors, and a multi-update AES-GCM vector with AAD, the linked
 position-independent ARM image, PRC resource identity/alignment, and both Palm
-library layouts. On Palm OS 5, TLS Tester
-calls API 10's `PalmTlsLibRunSelfTest` during startup and displays a pass or
+library layouts. On Palm OS 5, TLS Tester calls
+`PalmTlsLibRunSelfTest` during startup and displays a pass or
 failure result. This invokes the real ARMlet through `PceNativeCall` and runs
 deterministic P-256 ECDHE key-generation/shared-secret and ECDSA verification
 vectors in each installed TLS 1.2/TLS 1.3 engine. It does not open NetLib or

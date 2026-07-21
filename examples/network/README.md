@@ -4,7 +4,7 @@ These examples are deliberately small integration units rather than separate
 installable applications. `make test` compiles all of them with the Palm ABI,
 so API changes that break the documentation are caught by the build.
 
-- `library_lifecycle.c`: safely find/load, open, version-check, close, and
+- `library_lifecycle.c`: safely find/load, open, capability-check, close, and
   unload PalmTLS.
 - `cooperative_tls.c`: advance one connected TLS request without owning the
   Palm event loop.

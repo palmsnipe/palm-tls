@@ -17,7 +17,6 @@ void ExampleTlsLibraryClose(ExampleTlsLibrary *libraryP)
 
 Err ExampleTlsLibraryOpen(ExampleTlsLibrary *libraryP)
 {
-    UInt16 version;
     UInt32 capabilities;
     Err error;
     MemSet(libraryP, sizeof(*libraryP), 0);
@@ -32,11 +31,6 @@ Err ExampleTlsLibraryOpen(ExampleTlsLibrary *libraryP)
     error = PalmTlsLibOpen(libraryP->refNum);
     if (error != errNone) goto failed;
     libraryP->open = true;
-    error = PalmTlsLibGetApiVersion(libraryP->refNum, &version);
-    if (error != errNone || version != PALM_TLS_API_VERSION) {
-        error = sysErrParamErr;
-        goto failed;
-    }
     error = PalmTlsLibGetCapabilities(libraryP->refNum, &capabilities);
     if (error != errNone ||
         (capabilities & PALM_TLS_CAP_COOPERATIVE_IO) == 0) {

@@ -46,9 +46,8 @@ Set `PALM_TOOLCHAIN_ROOT` or `PALM_TOOLCHAIN_PREFIX` if your layout differs.
 
 ## PalmTLS API and HTTP component
 
-TLS Tester requires exactly PalmTLS API 10 and checks the protocol, session,
-cache, resumption, and cooperative-I/O capability bits it needs. PalmTLS is the
-only shared-library dependency.
+TLS Tester checks the protocol, session, cache, resumption, and cooperative-I/O
+capability bits it needs. PalmTLS is the only shared-library dependency.
 
 The **Test** action owns its DNS lookup and TCP socket, uses the PalmTLS session
 API for a synchronous `HEAD` request, and reads the result directly. Plain HTTP

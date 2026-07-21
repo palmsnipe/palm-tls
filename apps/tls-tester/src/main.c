@@ -1199,7 +1199,6 @@ static Boolean HandleEvent(EventType *eventP, AppState *state)
 static Err OpenTlsLibrary(AppState *state)
 {
     Err error;
-    UInt16 version;
     error = SysLibFind(PALM_TLS_LIB_NAME, &state->tlsRefNum);
     if (error != errNone) {
         error = SysLibLoad(sysFileTLibrary, PALM_TLS_LIB_CREATOR,
@@ -1210,9 +1209,6 @@ static Err OpenTlsLibrary(AppState *state)
     error = PalmTlsLibOpen(state->tlsRefNum);
     if (error != errNone) return error;
     state->tlsOpen = true;
-    error = PalmTlsLibGetApiVersion(state->tlsRefNum, &version);
-    if (error != errNone || version != PALM_TLS_API_VERSION)
-        return sysErrParamErr;
     {
         UInt32 capabilities = 0;
         error = PalmTlsLibGetCapabilities(state->tlsRefNum, &capabilities);
