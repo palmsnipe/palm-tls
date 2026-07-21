@@ -3,9 +3,9 @@ SHELL := /bin/bash
 include app.mk
 
 ROOT := $(CURDIR)
-REPO := $(abspath $(ROOT)/../..)
+REPO := $(abspath $(ROOT)/..)
 PREFIX := $(if $(PALM_TOOLCHAIN_PREFIX),$(PALM_TOOLCHAIN_PREFIX),$(abspath $(REPO)/../palm-toolchain/.toolchain/prefix))
-NETWORK_PREFIX := $(if $(PALM_NETWORK_PREFIX),$(PALM_NETWORK_PREFIX),$(REPO)/.network/prefix)
+DEPS_PREFIX := $(if $(PALM_TLS_DEPS_PREFIX),$(PALM_TLS_DEPS_PREFIX),$(REPO)/.palm-tls/prefix)
 SDK := $(PREFIX)/palmdev/sdk-5r3/include
 WOLFSSL_SETTINGS := $(REPO)/wolfssl/user_settings.h
 CC := $(PREFIX)/bin/m68k-none-elf-gcc
@@ -53,21 +53,21 @@ ABI_FLAGS := -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -
 WARN_FLAGS := -Wall -Wextra -Wsign-compare -Wno-unused-parameter -Wno-old-style-declaration -Wno-error=cpp
 COMMON_FLAGS := $(ABI_FLAGS) $(WARN_FLAGS) -Os -ffunction-sections -fdata-sections \
 	-DPALMOS -DPALM_TLS_LIB_BUILD -DWOLFSSL_USER_SETTINGS -Iinclude -Isrc \
-	-I$(REPO)/wolfssl -I$(NETWORK_PREFIX)/include $(SDK_INCLUDES)
+	-I$(REPO)/wolfssl -I$(DEPS_PREFIX)/include $(SDK_INCLUDES)
 LDFLAGS := $(ABI_FLAGS) -Os -nostartfiles -Wl,--gc-sections \
-	-Wl,-T,toolchain/linker.lkr -L$(NETWORK_PREFIX)/lib
+	-Wl,-T,toolchain/linker.lkr -L$(DEPS_PREFIX)/lib
 TLS12_ARCHIVE_68K := -Wl,-l:libwolfssl.a
 TLS13_ARCHIVE_68K := -Wl,-l:libwolfssl-tls13.a
 TLS11_ARCHIVE_68K := -Wl,-l:libwolfssl-tls11.a
 TLS12_ARCHIVE_ARM := -Wl,-l:libwolfssl-armlet.a
 TLS13_ARCHIVE_ARM := -Wl,-l:libwolfssl-tls13-armlet.a
 TLS11_ARCHIVE_ARM := -Wl,-l:libwolfssl-tls11-armlet.a
-TLS12_ARCHIVE_FILE_68K := $(NETWORK_PREFIX)/lib/libwolfssl.a
-TLS13_ARCHIVE_FILE_68K := $(NETWORK_PREFIX)/lib/libwolfssl-tls13.a
-TLS11_ARCHIVE_FILE_68K := $(NETWORK_PREFIX)/lib/libwolfssl-tls11.a
-TLS12_ARCHIVE_FILE_ARM := $(NETWORK_PREFIX)/lib/libwolfssl-armlet.a
-TLS13_ARCHIVE_FILE_ARM := $(NETWORK_PREFIX)/lib/libwolfssl-tls13-armlet.a
-TLS11_ARCHIVE_FILE_ARM := $(NETWORK_PREFIX)/lib/libwolfssl-tls11-armlet.a
+TLS12_ARCHIVE_FILE_68K := $(DEPS_PREFIX)/lib/libwolfssl.a
+TLS13_ARCHIVE_FILE_68K := $(DEPS_PREFIX)/lib/libwolfssl-tls13.a
+TLS11_ARCHIVE_FILE_68K := $(DEPS_PREFIX)/lib/libwolfssl-tls11.a
+TLS12_ARCHIVE_FILE_ARM := $(DEPS_PREFIX)/lib/libwolfssl-armlet.a
+TLS13_ARCHIVE_FILE_ARM := $(DEPS_PREFIX)/lib/libwolfssl-tls13-armlet.a
+TLS11_ARCHIVE_FILE_ARM := $(DEPS_PREFIX)/lib/libwolfssl-tls11-armlet.a
 
 TLS_PROFILE ?= full
 ifeq ($(TLS_PROFILE),tls13)

@@ -12,12 +12,12 @@ SDK_INCLUDES := -isystem$(SDK) -isystem$(SDK)/Core \
 	-isystem$(SDK)/Extensions
 CFLAGS := -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic \
 	-fshort-enums -mshort -Wall -Wextra -Werror -Os -DPALMOS \
-	-I$(ROOT)/libs/palm-tls/include -I$(ROOT)/libs/palm-http/include \
+	-I$(ROOT)/library/include -I$(ROOT)/components/http/include \
 	$(SDK_INCLUDES)
 
 .PHONY: test clean
 test: $(OBJECTS)
-	@echo "Compiled PalmTLS and PalmHTTP integration examples"
+	@echo "Compiled PalmTLS and HTTP component integration examples"
 $(BUILD):
 	@mkdir -p $@
 $(BUILD)/%.o: %.c | $(BUILD)

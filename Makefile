@@ -11,10 +11,10 @@ bootstrap: prerequisites
 	@scripts/bootstrap.sh
 
 http: prerequisites
-	@$(MAKE) -C libs/palm-http test
+	@$(MAKE) -C components/http test
 
 tls: bootstrap
-	@$(MAKE) -C libs/palm-tls test
+	@$(MAKE) -C library test
 
 examples: prerequisites
 	@$(MAKE) -C examples/network test
@@ -26,7 +26,7 @@ check: bootstrap
 	@scripts/check.sh
 
 clean:
-	@$(MAKE) -C libs/palm-http clean
-	@$(MAKE) -C libs/palm-tls clean
+	@$(MAKE) -C components/http clean
+	@$(MAKE) -C library clean
 	@$(MAKE) -C examples/network clean
 	@$(MAKE) -C examples/tls-tester clean

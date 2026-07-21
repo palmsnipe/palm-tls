@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd -P)/common.sh"
 
 require_toolchain
-mkdir -p "$SOURCES" "$BUILD" "$NETWORK_PREFIX/lib" "$NETWORK_PREFIX/include"
+mkdir -p "$SOURCES" "$BUILD" "$DEPS_PREFIX/lib" "$DEPS_PREFIX/include"
 
 wolfssl="$SOURCES/wolfssl"
 clone_at "$WOLFSSL_REPOSITORY" "$wolfssl" "$WOLFSSL_COMMIT"
@@ -20,30 +20,30 @@ patches=(
   wolfssl-preserve-peer-key-error.patch
 )
 for patch_name in "${patches[@]}"; do
-  apply_git_patch_once "$wolfssl" "$NETWORK_ROOT/patches/wolfssl/$patch_name" \
-    "$wolfssl/.palm-network-${patch_name%.patch}"
+  apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
+    "$wolfssl/.palm-tls-${patch_name%.patch}"
 done
 
 fingerprint="$({
   printf '%s\n' "$WOLFSSL_COMMIT"
-  sha256_file "$NETWORK_ROOT/scripts/bootstrap.sh"
-  sha256_file "$NETWORK_ROOT/wolfssl/user_settings.h"
+  sha256_file "$PALM_TLS_ROOT/scripts/bootstrap.sh"
+  sha256_file "$PALM_TLS_ROOT/wolfssl/user_settings.h"
   for patch_name in "${patches[@]}"; do
-    sha256_file "$NETWORK_ROOT/patches/wolfssl/$patch_name"
+    sha256_file "$PALM_TLS_ROOT/patches/wolfssl/$patch_name"
   done
   printf '%s\n' 'wolfssl-cflags:-O2-fno-strict-aliasing-fwrapv'
 } | shasum -a 256 | awk '{print $1}')"
-stamp="$NETWORK_PREFIX/.wolfssl-build.sha256"
+stamp="$DEPS_PREFIX/.wolfssl-build.sha256"
 archives=(libwolfssl.a libwolfssl-armlet.a libwolfssl-tls11.a \
   libwolfssl-tls11-armlet.a libwolfssl-tls13.a libwolfssl-tls13-armlet.a)
 
 complete=true
 for archive in "${archives[@]}"; do
-  [[ -f "$NETWORK_PREFIX/lib/$archive" ]] || complete=false
+  [[ -f "$DEPS_PREFIX/lib/$archive" ]] || complete=false
 done
-if [[ "$complete" == true && -f "$NETWORK_PREFIX/include/wolfssl/ssl.h" \
+if [[ "$complete" == true && -f "$DEPS_PREFIX/include/wolfssl/ssl.h" \
       && -f "$stamp" && "$(cat "$stamp")" == "$fingerprint" ]]; then
-  echo "Palm wolfSSL dependencies are already installed in $NETWORK_PREFIX"
+  echo "Palm wolfSSL dependencies are already installed in $DEPS_PREFIX"
   exit 0
 fi
 
@@ -62,9 +62,9 @@ build_variant() {
     AR="$TOOLCHAIN_PREFIX/bin/m68k-none-elf-ar" \
     RANLIB="$TOOLCHAIN_PREFIX/bin/m68k-none-elf-ranlib" \
     CFLAGS='-O2 -fno-strict-aliasing -fwrapv -m68000 -mno-align-int -fshort-enums -mshort -ffunction-sections -fdata-sections' \
-    CPPFLAGS="$defines -I$NETWORK_ROOT/wolfssl" \
+    CPPFLAGS="$defines -I$PALM_TLS_ROOT/wolfssl" \
       "$wolfssl/configure" \
-        --host=m68k-none-elf --prefix="$NETWORK_PREFIX" --enable-usersettings \
+        --host=m68k-none-elf --prefix="$DEPS_PREFIX" --enable-usersettings \
         --disable-shared --enable-static --disable-examples --disable-crypttests \
         --enable-16bit --enable-singlethreaded --enable-smallstack \
         --disable-filesystem --disable-tls13 "$oldtls" \
@@ -77,7 +77,7 @@ build_variant() {
     if [[ "$install_mode" == install ]]; then
       make install
     else
-      cp src/.libs/libwolfssl.a "$NETWORK_PREFIX/lib/$destination"
+      cp src/.libs/libwolfssl.a "$DEPS_PREFIX/lib/$destination"
     fi
   )
 }
@@ -102,4 +102,4 @@ build_variant wolfssl-palm-tls11-armlet \
   --enable-oldtls libwolfssl-tls11-armlet.a copy
 
 printf '%s\n' "$fingerprint" >"$stamp"
-echo "Palm wolfSSL dependencies installed in $NETWORK_PREFIX"
+echo "Palm wolfSSL dependencies installed in $DEPS_PREFIX"

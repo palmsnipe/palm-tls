@@ -25,4 +25,4 @@ if ! xcrun -f clang >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Palm network prerequisites are installed."
+echo "PalmTLS prerequisites are installed."

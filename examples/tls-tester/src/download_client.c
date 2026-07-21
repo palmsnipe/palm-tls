@@ -1,6 +1,6 @@
 #include "download_client.h"
 #include "download_store.h"
-#include "http_download.h"
+#include "http.h"
 
 #define DOWNLOAD_IO_CAPACITY 2048
 #define DOWNLOAD_REQUEST_CAPACITY 768
@@ -73,7 +73,7 @@ static Boolean SendPlain(UInt16 netRefNum, NetSocketRef socket,
 }
 
 static Boolean OpenTls(UInt16 netRefNum, NetSocketRef socket,
-                       const HttpDownloadUrl *urlP,
+                       const HttpUrl *urlP,
                        const DownloadClientConfig *configP,
                        DownloadClientResult *resultP, UInt32 *sessionIdP)
 {
@@ -278,7 +278,7 @@ static Boolean SendTls(UInt32 sessionId, const Char *requestP, UInt16 length,
     return true;
 }
 
-static Boolean AcceptHeaders(HttpDownloadParser *parserP,
+static Boolean AcceptHeaders(HttpParser *parserP,
                              DownloadStore *storeP,
                              DownloadClientResult *resultP)
 {
@@ -304,7 +304,7 @@ static Boolean AcceptHeaders(HttpDownloadParser *parserP,
     return true;
 }
 
-static Boolean FeedResponse(HttpDownloadParser *parserP,
+static Boolean FeedResponse(HttpParser *parserP,
                             DownloadStore *storeP, const UInt8 *dataP,
                             UInt16 length,
                             const DownloadClientConfig *configP,
@@ -312,9 +312,9 @@ static Boolean FeedResponse(HttpDownloadParser *parserP,
 {
     UInt16 offset = 0;
     while (offset < length && !parserP->headersComplete) {
-        if (PalmHttpLibParserFeed(configP->httpRefNum, parserP,
+        if (HttpParserFeed(parserP,
                 dataP + offset, 1) !=
-                httpDownloadParseOk) {
+                httpOk) {
             resultP->status = downloadClientHttpError;
             resultP->platformError = parserP->parseStatus;
             return false;
@@ -324,11 +324,11 @@ static Boolean FeedResponse(HttpDownloadParser *parserP,
             !AcceptHeaders(parserP, storeP, resultP)) return false;
     }
     if (offset < length && !parserP->redirect &&
-        PalmHttpLibParserFeed(configP->httpRefNum, parserP, dataP + offset,
+        HttpParserFeed(parserP, dataP + offset,
             length - offset) !=
-            httpDownloadParseOk) {
+            httpOk) {
         resultP->status = parserP->parseStatus ==
-            httpDownloadParseSinkFailed ? downloadClientStorageError
+            httpSinkFailed ? downloadClientStorageError
                                         : downloadClientHttpError;
         resultP->platformError = parserP->parseStatus;
         return false;
@@ -336,7 +336,7 @@ static Boolean FeedResponse(HttpDownloadParser *parserP,
     return true;
 }
 
-static Boolean ReadTls(UInt32 sessionId, HttpDownloadParser *parserP,
+static Boolean ReadTls(UInt32 sessionId, HttpParser *parserP,
                        DownloadStore *storeP, UInt8 *bufferP,
                        const DownloadClientConfig *configP,
                        DownloadClientResult *resultP)
@@ -371,8 +371,8 @@ static Boolean ReadTls(UInt32 sessionId, HttpDownloadParser *parserP,
                     (UInt16)result.transferred, configP, resultP))
                 return false;
         } else if (result.status == palmTlsStatusOk) {
-            if (PalmHttpLibParserFinish(configP->httpRefNum, parserP) !=
-                    httpDownloadParseOk) {
+            if (HttpParserFinish(parserP) !=
+                    httpOk) {
                 resultP->status = downloadClientHttpError;
                 resultP->platformError = parserP->parseStatus;
                 return false;
@@ -397,7 +397,7 @@ static Boolean ReadTls(UInt32 sessionId, HttpDownloadParser *parserP,
 }
 
 static Boolean ReadPlain(UInt16 netRefNum, NetSocketRef socket,
-                         HttpDownloadParser *parserP,
+                         HttpParser *parserP,
                          DownloadStore *storeP, UInt8 *bufferP,
                          const DownloadClientConfig *configP,
                          DownloadClientResult *resultP)
@@ -420,8 +420,8 @@ static Boolean ReadPlain(UInt16 netRefNum, NetSocketRef socket,
                 return false;
         } else if (received == 0 || error == netErrSocketClosedByRemote ||
                    error == netErrSocketNotConnected) {
-            if (PalmHttpLibParserFinish(configP->httpRefNum, parserP) !=
-                    httpDownloadParseOk) {
+            if (HttpParserFinish(parserP) !=
+                    httpOk) {
                 resultP->status = downloadClientHttpError;
                 resultP->platformError = parserP->parseStatus;
                 return false;
@@ -459,7 +459,7 @@ void DownloadClientRun(const Char *urlTextP, Boolean defaultSecure,
 {
     DownloadStore store;
     DownloadSinkContext sink;
-    HttpDownloadUrl url;
+    HttpUrl url;
     UInt8 *bufferP = 0;
     Char *requestP = 0;
     UInt16 netRefNum = 0;
@@ -472,7 +472,7 @@ void DownloadClientRun(const Char *urlTextP, Boolean defaultSecure,
     MemSet(&store, sizeof(store), 0);
     resultP->status = downloadClientInvalidUrl;
     if (urlTextP == 0 || configP == 0 ||
-        !PalmHttpLibParseUrl(configP->httpRefNum, urlTextP, defaultSecure,
+        !HttpParseUrl(urlTextP, defaultSecure,
             &url)) return;
     Phase(configP, downloadPhaseStorage);
     error = DownloadStoreOpen(&store, urlTextP);
@@ -522,7 +522,7 @@ void DownloadClientRun(const Char *urlTextP, Boolean defaultSecure,
         UInt32 sessionId = 0;
         Boolean tlsOpen = false;
         Boolean operationOk = false;
-        HttpDownloadParser parser;
+        HttpParser parser;
         UInt16 requestLength;
         resultP->redirectCount = redirect;
         MemSet(&parser, sizeof(parser), 0);
@@ -548,10 +548,10 @@ void DownloadClientRun(const Char *urlTextP, Boolean defaultSecure,
             goto connection_cleanup;
         }
         if (store.metadata.filename[0] == '\0')
-            PalmHttpLibFilenameFromUrl(configP->httpRefNum, &url,
+            HttpFilenameFromUrl(&url,
                 store.metadata.filename,
                 sizeof(store.metadata.filename));
-        requestLength = PalmHttpLibBuildRequest(configP->httpRefNum, &url,
+        requestLength = HttpBuildGetRequest(&url,
             store.metadata.downloaded, store.metadata.etag[0] != '\0'
                 ? store.metadata.etag : store.metadata.lastModified, false,
             requestP, DOWNLOAD_REQUEST_CAPACITY);
@@ -572,7 +572,7 @@ void DownloadClientRun(const Char *urlTextP, Boolean defaultSecure,
             if (!SendPlain(netRefNum, socket, requestP, requestLength,
                     configP, resultP)) goto connection_cleanup;
         }
-        PalmHttpLibParserInit(configP->httpRefNum, &parser,
+        HttpParserInit(&parser,
             store.metadata.downloaded,
             StoreBody, &sink);
         Phase(configP, downloadPhaseTransfer);
@@ -600,7 +600,7 @@ connection_cleanup:
                 configP->stepTimeoutTicks, &error);
         if (!operationOk || !parser.redirect) break;
         if (redirect == configP->maxRedirects ||
-            !PalmHttpLibResolveRedirect(configP->httpRefNum, &url,
+            !HttpResolveRedirect(&url,
                 parser.location, &url)) {
             resultP->status = downloadClientRedirectError;
             break;
@@ -639,8 +639,8 @@ struct DownloadClientJob {
     DownloadClientResult *resultP;
     DownloadStore store;
     DownloadSinkContext sink;
-    HttpDownloadUrl url;
-    HttpDownloadParser parser;
+    HttpUrl url;
+    HttpParser parser;
     NetHostInfoBufType hostBuffer;
     NetSocketAddrINType address;
     UInt8 *bufferP;
@@ -716,8 +716,7 @@ static void JobNetworkFailure(DownloadClientJob *jobP, Err error)
 static void JobBeginRequest(DownloadClientJob *jobP)
 {
     jobP->sent = 0;
-    jobP->requestLength = PalmHttpLibBuildRequest(jobP->config.httpRefNum,
-        &jobP->url, jobP->store.metadata.downloaded,
+    jobP->requestLength = HttpBuildGetRequest(&jobP->url, jobP->store.metadata.downloaded,
         jobP->store.metadata.etag[0] != '\0' ? jobP->store.metadata.etag
             : jobP->store.metadata.lastModified,
         false, jobP->requestP, DOWNLOAD_REQUEST_CAPACITY);
@@ -752,8 +751,7 @@ Boolean DownloadClientStart(const Char *urlTextP, Boolean defaultSecure,
     jobP->config = *configP;
     jobP->resultP = resultP;
     jobP->socket = -1;
-    if (urlTextP == 0 || !PalmHttpLibParseUrl(configP->httpRefNum,
-            urlTextP, defaultSecure, &jobP->url)) {
+    if (urlTextP == 0 || !HttpParseUrl(urlTextP, defaultSecure, &jobP->url)) {
         MemPtrFree(jobP);
         return false;
     }
@@ -884,8 +882,7 @@ UInt16 DownloadClientStep(DownloadClientJob **jobPP)
                     &disabled, sizeof(disabled),
                     jobP->config.stepTimeoutTicks, &error);
                 if (jobP->store.metadata.filename[0] == '\0')
-                    PalmHttpLibFilenameFromUrl(jobP->config.httpRefNum,
-                        &jobP->url, jobP->store.metadata.filename,
+                    HttpFilenameFromUrl(&jobP->url, jobP->store.metadata.filename,
                         sizeof(jobP->store.metadata.filename));
                 JobBeginRequest(jobP);
                 if (resultP->status == downloadClientInvalidUrl)
@@ -929,8 +926,7 @@ UInt16 DownloadClientStep(DownloadClientJob **jobPP)
                     &disabled, sizeof(disabled),
                     jobP->config.stepTimeoutTicks, &optionError);
                 if (jobP->store.metadata.filename[0] == '\0')
-                    PalmHttpLibFilenameFromUrl(jobP->config.httpRefNum,
-                        &jobP->url, jobP->store.metadata.filename,
+                    HttpFilenameFromUrl(&jobP->url, jobP->store.metadata.filename,
                         sizeof(jobP->store.metadata.filename));
                 JobBeginRequest(jobP);
                 if (resultP->status == downloadClientInvalidUrl)
@@ -1059,8 +1055,7 @@ UInt16 DownloadClientStep(DownloadClientJob **jobPP)
                 }
             }
             if (jobP->sent == jobP->requestLength) {
-                PalmHttpLibParserInit(jobP->config.httpRefNum,
-                    &jobP->parser, jobP->store.metadata.downloaded,
+                HttpParserInit(&jobP->parser, jobP->store.metadata.downloaded,
                     StoreBody, &jobP->sink);
                 jobP->state = jobStateRead;
                 jobP->idleStart = TimGetTicks();
@@ -1120,8 +1115,7 @@ UInt16 DownloadClientStep(DownloadClientJob **jobPP)
             if (jobP->parser.redirect) {
                 JobCloseConnection(jobP, false);
                 if (jobP->redirect >= jobP->config.maxRedirects ||
-                    !PalmHttpLibResolveRedirect(jobP->config.httpRefNum,
-                        &jobP->url, jobP->parser.location, &jobP->url)) {
+                    !HttpResolveRedirect(&jobP->url, jobP->parser.location, &jobP->url)) {
                     resultP->status = downloadClientRedirectError;
                     return JobFinish(jobPP);
                 }
@@ -1134,8 +1128,7 @@ UInt16 DownloadClientStep(DownloadClientJob **jobPP)
             }
             if (jobP->parser.connectionComplete || eof) {
                 if (!jobP->parser.connectionComplete &&
-                    PalmHttpLibParserFinish(jobP->config.httpRefNum,
-                        &jobP->parser) != palmHttpOk) {
+                    HttpParserFinish(&jobP->parser) != httpOk) {
                     resultP->status = downloadClientHttpError;
                     resultP->platformError = jobP->parser.parseStatus;
                     return JobFinish(jobPP);

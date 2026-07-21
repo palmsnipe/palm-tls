@@ -91,7 +91,7 @@ only on the first request.
 
 ## Validation
 
-`make -C libs/palm-tls test` checks known multiplication vectors, carry-heavy
+`make -C library test` checks known multiplication vectors, carry-heavy
 64-bit and 256-bit operands, three complete P-256 scalar-multiplication vectors
 (including explicit fixed-base and general-path dispatch checks), native P-256
 Jacobian-to-affine mapping, double-scalar-add vectors covering signed digits and

@@ -52,8 +52,8 @@ END
 ALERT ID LibraryMissingAlert
 ERROR
 BEGIN
-    TITLE "Libraries Required"
-    MESSAGE "Install one PalmTLS variant and PalmHTTP.prc before TLS Tester. Error: ^1"
+    TITLE "PalmTLS Required"
+    MESSAGE "Install one PalmTLS variant before TLS Tester. Error: ^1"
     BUTTONS "OK"
 END
 

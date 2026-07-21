@@ -1,98 +1,111 @@
-# Palm Network
+# PalmTLS
 
-Reusable HTTP and TLS shared libraries for Palm OS applications.
+PalmTLS provides TLS 1.1, 1.2, and 1.3 for Palm OS applications. It builds one
+installable shared-library PRC for 68K devices and one ARM-enhanced variant for
+Palm OS 5 devices.
+
+The repository also includes a small transport-independent HTTP source
+component and TLS Tester, a complete installable example. The HTTP component is
+compiled directly into applications; it is not another shared library and does
+not produce an additional PRC.
 
 ## Included
 
-- `PalmHTTP`, a Palm shared library for HTTP transfers through NetLib
-- `PalmTLS`, a Palm shared library providing TLS 1.1, 1.2, and 1.3 profiles
-- 68K and ARM-enhanced PalmTLS builds
-- a pinned, Palm-specific wolfSSL build with its compatibility patches
-- TLS Tester, an installable example application for exercising both libraries
-
-Application projects use the public headers under `libs/*/include` and install
-the generated library PRCs alongside their application PRC.
+- `library/`: the PalmTLS shared library, public API, ARMlet, and tests
+- `components/http/`: directly compiled URL, request, redirect, and response
+  parsing code
+- `examples/network/`: small compile-checked integration examples
+- `examples/tls-tester/`: an installable HTTP/HTTPS and download tester
+- `patches/wolfssl/`: Palm-specific changes to the pinned wolfSSL source
 
 ## Requirements
 
 - macOS with Xcode Command Line Tools
 - Homebrew
 - Node.js
-- ImageMagick (used to generate the TLS Tester icon)
+- ImageMagick for generating the TLS Tester icon
 - a bootstrapped `palm-toolchain` repository
 
-By default, `palm-toolchain` and `palm-network` are sibling directories:
+By default, the repositories are sibling directories:
 
 ```text
 projects/
   palm-toolchain/
-  palm-network/
+  palm-tls/
 ```
 
-Override that convention with `PALM_TOOLCHAIN_ROOT` or
-`PALM_TOOLCHAIN_PREFIX` when necessary.
+Set `PALM_TOOLCHAIN_ROOT` or `PALM_TOOLCHAIN_PREFIX` when using a different
+toolchain location.
 
 ## Setup
 
-Install the small set of host dependencies:
+Install the host dependencies:
 
 ```sh
 brew bundle
 ```
 
-Build the pinned wolfSSL variants into `.network/prefix`:
+Fetch the pinned wolfSSL revision, apply the Palm patches, and build all
+protocol variants:
 
 ```sh
 make bootstrap
 ```
 
-Build and validate both Palm shared libraries:
+Build and validate PalmTLS, the HTTP component, and all examples:
 
 ```sh
 make check
 ```
 
-Generated dependency state remains inside the repository under `.network/`,
-and generated library outputs remain under each library's ignored `build/`
-directory. Run `make clean` to remove the library and example outputs. Remove
-`.network/` manually only when a completely fresh wolfSSL rebuild is needed.
+Downloaded source and dependency builds remain inside `.palm-tls/`. Override
+that location with `PALM_TLS_STATE`, or only its installed dependency prefix
+with `PALM_TLS_DEPS_PREFIX`. Generated library and example outputs remain in
+their ignored `build/` directories. `make clean` removes project outputs but
+keeps the downloaded and compiled wolfSSL dependency state.
 
-## Outputs
+## Installable outputs
 
-The principal installable files are:
+Install exactly one PalmTLS variant appropriate for the device:
 
 ```text
-libs/palm-http/build/palm/PalmHTTP.prc
-libs/palm-tls/build/palm/PalmTLS68K.prc
-libs/palm-tls/build/palm/PalmTLSArm.prc
-examples/tls-tester/build/debug/TlsTester.prc
+library/build/palm/PalmTLS68K.prc
+library/build/palm/PalmTLSArm.prc
 ```
 
-PalmTLS also produces smaller `Modern` and `TLS13` profiles. See the library
-READMEs and API documents for selection and integration details.
+PalmTLS also produces smaller `Modern` and `TLS13` profiles. Every variant has
+the same Palm database identity, so they cannot coexist on one device. See
+`library/README.md` and `library/API.md` for selection and integration details.
 
-## TLS Tester example
+Applications compile `components/http/src/http.c` directly when they need the
+included HTTP helpers. No separate HTTP PRC is installed or distributed.
 
-Build and validate the installable example with:
+## TLS Tester
+
+Build and validate the example application with:
 
 ```sh
 make tls-tester
 ```
 
-Install one PalmTLS PRC, then `PalmHTTP.prc`, then `TlsTester.prc` on a Palm OS
-3.5 or newer device or emulator. The build and host-side parser tests run
-offline; making actual HTTP and HTTPS requests requires working Palm NetLib
-connectivity. See `examples/tls-tester/README.md` for usage and profile details.
+For an optimized application build, run:
+
+```sh
+make -C examples/tls-tester release
+```
+
+Install one PalmTLS PRC followed by `TlsTester.prc`. Actual HTTP and HTTPS
+requests require a Palm OS device or emulator with working NetLib connectivity.
+See `examples/tls-tester/README.md` for usage and trust-profile details.
 
 ## License
 
 Copyright (C) 2026 Cyril Morales.
 
 Original material in this repository is free software licensed under the GNU
-General Public License, version 3 or (at your option) any later version. You may
-use, study, modify, and redistribute it under those terms. See `LICENSE` for
-the complete GPLv3 text and `THIRD_PARTY.md` for software retaining separate
-copyright notices.
+General Public License, version 3 or (at your option) any later version. See
+`LICENSE` for the complete text and `THIRD_PARTY.md` for software retaining
+separate copyright notices.
 
 PalmTLS incorporates wolfSSL. Distributions containing PalmTLS and wolfSSL
 must comply with GPLv3 unless the distributor has obtained a suitable
@@ -108,5 +121,5 @@ wolfSSL commercial license or exception.
 ## External source
 
 wolfSSL is fetched at the exact commit recorded in `config/sources.lock`; its
-source is not vendored into this repository. Palm-specific changes are kept as
-reviewable patches under `patches/wolfssl`.
+source is not vendored into this repository. Palm-specific changes remain as
+reviewable patches under `patches/wolfssl/`.

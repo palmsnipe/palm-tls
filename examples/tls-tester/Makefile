@@ -7,8 +7,8 @@ REPO := $(abspath $(ROOT)/../..)
 TOOLCHAIN_ROOT := $(if $(PALM_TOOLCHAIN_ROOT),$(PALM_TOOLCHAIN_ROOT),$(abspath $(REPO)/../palm-toolchain))
 PREFIX := $(if $(PALM_TOOLCHAIN_PREFIX),$(PALM_TOOLCHAIN_PREFIX),$(TOOLCHAIN_ROOT)/.toolchain/prefix)
 SDK := $(PREFIX)/palmdev/sdk-5r3/include
-TLS_LIB := $(REPO)/libs/palm-tls
-HTTP_LIB := $(REPO)/libs/palm-http
+TLS_LIB := $(REPO)/library
+HTTP_COMPONENT := $(REPO)/components/http
 CC := $(PREFIX)/bin/m68k-none-elf-gcc
 OBJCOPY := $(PREFIX)/bin/m68k-none-elf-objcopy
 SIZE := $(PREFIX)/bin/m68k-none-elf-size
@@ -16,7 +16,6 @@ PILRC := $(PREFIX)/bin/pilrc
 BUILD_PRC := $(PREFIX)/bin/build-prc
 PROFILE ?= debug
 STARTUP_SELF_TEST ?= 0
-HOST_CC ?= cc
 MAGICK ?= magick
 BUILD_DIR := $(ROOT)/build/$(PROFILE)
 ELF := $(BUILD_DIR)/code0001.68k.elf
@@ -25,10 +24,9 @@ PRC := $(BUILD_DIR)/$(APP_ID).prc
 BASE_RO := $(BUILD_DIR)/$(APP_ID)-base.ro
 MAP := $(BUILD_DIR)/$(APP_ID).map
 OBJECTS := $(BUILD_DIR)/main.o $(BUILD_DIR)/download_store.o \
-	$(BUILD_DIR)/download_client.o \
+	$(BUILD_DIR)/download_client.o $(BUILD_DIR)/http.o \
 	$(BUILD_DIR)/startup.o
 DEPS := $(OBJECTS:.o=.d)
-HOST_TEST := $(ROOT)/build/host/http_download_test
 SDK_INCLUDES := -isystem$(SDK) -isystem$(SDK)/Core -isystem$(SDK)/Core/Hardware \
 	-isystem$(SDK)/Core/System -isystem$(SDK)/Core/UI -isystem$(SDK)/Dynamic \
 	-isystem$(SDK)/Libraries -isystem$(SDK)/Libraries/PalmOSGlue
@@ -36,7 +34,7 @@ ABI_FLAGS := -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -
 WARN_FLAGS := -Wall -Wextra -Wsign-compare -Wno-unused-parameter -Wno-old-style-declaration
 COMMON_FLAGS := $(ABI_FLAGS) $(WARN_FLAGS) -MMD -MP -ffunction-sections -fdata-sections \
 	-DPALMOS -I$(ROOT)/src -I$(ROOT)/resources -I$(BUILD_DIR) \
-	-I$(TLS_LIB)/include -I$(HTTP_LIB)/include $(SDK_INCLUDES)
+	-I$(TLS_LIB)/include -I$(HTTP_COMPONENT)/include $(SDK_INCLUDES)
 PROFILE_FLAGS := $(if $(filter release,$(PROFILE)),-Os,-O1 -g -ggdb)
 LDFLAGS := $(ABI_FLAGS) $(PROFILE_FLAGS) -nostartfiles -Wl,--gc-sections \
 	-Wl,-T,$(ROOT)/toolchain/linker.lkr -Wl,-Map,$(MAP)
@@ -47,7 +45,6 @@ all: debug
 library:
 	@$(MAKE) -C $(REPO) bootstrap
 	@$(MAKE) -C $(TLS_LIB) TLS_PROFILE=full test-prc
-	@$(MAKE) -C $(HTTP_LIB) test
 debug: library
 	@$(MAKE) PROFILE=debug $(ROOT)/build/debug/$(APP_ID).prc
 release: library
@@ -62,6 +59,10 @@ $(BUILD_DIR)/%.o: src/%.c app.mk | $(BUILD_DIR)
 	$(CC) $(COMMON_FLAGS) $(PROFILE_FLAGS) -DAPP_VERSION='"$(APP_VERSION)"' \
 		-DMIN_OS_MAJOR=$(MIN_OS_MAJOR) -DMIN_OS_MINOR=$(MIN_OS_MINOR) \
 		-DPALM_TLS_STARTUP_SELF_TEST=$(STARTUP_SELF_TEST) -c $< -o $@
+
+$(BUILD_DIR)/http.o: $(HTTP_COMPONENT)/src/http.c \
+		$(HTTP_COMPONENT)/include/http.h | $(BUILD_DIR)
+	$(CC) $(COMMON_FLAGS) $(PROFILE_FLAGS) -c $< -o $@
 
 $(ELF): $(OBJECTS) toolchain/linker.lkr
 	$(CC) -o $@.stage1 $(LDFLAGS) -Wl,--emit-relocs $(OBJECTS)
@@ -92,16 +93,8 @@ $(PRC): $(CODE) $(BUILD_DIR)/icon-mono.bmp $(BUILD_DIR)/icon-color.bmp resources
 
 test-prc: debug
 	node $(TOOLCHAIN_ROOT)/tools/validate-prc.mjs $(PRC) '$(APP_NAME)' $(APP_TYPE) $(APP_CREATOR)
-$(HOST_TEST): tests/http_download_test.c $(HTTP_LIB)/src/http_core.c \
-		$(HTTP_LIB)/src/http_core.h $(HTTP_LIB)/include/palm_http.h
-	@mkdir -p $(dir $@)
-	$(HOST_CC) -std=c99 -Wall -Wextra -Werror \
-		-Itests/palmos_shim -I$(HTTP_LIB)/src -I$(HTTP_LIB)/include \
-		tests/http_download_test.c \
-		$(HTTP_LIB)/src/http_core.c -o $@
 
-test: test-prc $(HOST_TEST)
-	$(HOST_TEST)
+test: test-prc
 
 clean:
 	rm -rf build

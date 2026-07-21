@@ -2,7 +2,6 @@
 
 #define PALMOS 1
 #include "palm_tls.h"
-#include "palm_http.h"
 #include "download_client.h"
 #include "download_store.h"
 #include "resource.h"
@@ -33,9 +32,6 @@ typedef struct AppState {
     UInt16 tlsRefNum;
     Boolean tlsLoaded;
     Boolean tlsOpen;
-    UInt16 httpRefNum;
-    Boolean httpLoaded;
-    Boolean httpOpen;
     UInt16 protocol;
     UInt32 tlsCapabilities;
     UInt16 protocolChoiceCount;
@@ -843,7 +839,6 @@ static void StartDownload(AppState *state)
     if (state->downloadJobP != 0) return;
     state->downloadStartTicks = TimGetTicks();
     config.tlsRefNum = state->tlsRefNum;
-    config.httpRefNum = state->httpRefNum;
     config.tlsProtocol = state->protocol == testProtocolTls11
         ? palmTlsProtocolTls11 : state->protocol == testProtocolTls13
             ? palmTlsProtocolTls13 : palmTlsProtocolTls12;
@@ -1263,46 +1258,12 @@ static Err OpenTlsLibrary(AppState *state)
     return errNone;
 }
 
-static Err OpenHttpLibrary(AppState *state)
-{
-    Err error;
-    UInt16 version = 0;
-    UInt32 capabilities = 0;
-    error = SysLibFind(PALM_HTTP_LIB_NAME, &state->httpRefNum);
-    if (error != errNone) {
-        error = SysLibLoad(sysFileTLibrary, PALM_HTTP_LIB_CREATOR,
-            &state->httpRefNum);
-        if (error != errNone) return error;
-        state->httpLoaded = true;
-    }
-    error = PalmHttpLibOpen(state->httpRefNum);
-    if (error != errNone) return error;
-    state->httpOpen = true;
-    error = PalmHttpLibGetApiVersion(state->httpRefNum, &version);
-    if (error != errNone || version < PALM_HTTP_API_VERSION)
-        return sysErrParamErr;
-    error = PalmHttpLibGetCapabilities(state->httpRefNum, &capabilities);
-    if (error != errNone || (capabilities & (PALM_HTTP_CAP_URLS |
-            PALM_HTTP_CAP_REDIRECTS | PALM_HTTP_CAP_CHUNKED |
-            PALM_HTTP_CAP_RANGES | PALM_HTTP_CAP_STREAMING)) !=
-            (PALM_HTTP_CAP_URLS | PALM_HTTP_CAP_REDIRECTS |
-             PALM_HTTP_CAP_CHUNKED | PALM_HTTP_CAP_RANGES |
-             PALM_HTTP_CAP_STREAMING)) return sysErrParamErr;
-    return errNone;
-}
-
 static void CloseTlsLibrary(AppState *state)
 {
     if (state->tlsOpen) PalmTlsLibClose(state->tlsRefNum);
     /* The tester owns one open reference and deliberately unloads the code so
      * an updated PRC is picked up on the next launch. */
     if (state->tlsLoaded) SysLibRemove(state->tlsRefNum);
-}
-
-static void CloseHttpLibrary(AppState *state)
-{
-    if (state->httpOpen) PalmHttpLibClose(state->httpRefNum);
-    if (state->httpLoaded) SysLibRemove(state->httpRefNum);
 }
 
 UInt32 PilotMain(UInt16 cmd, void *cmdPBP, UInt16 launchFlags)
@@ -1339,13 +1300,11 @@ UInt32 PilotMain(UInt16 cmd, void *cmdPBP, UInt16 launchFlags)
     MemHandleUnlock(state.addressH);
     StrCopy(state.result,
         "Ready.\nTap the underlined URL to edit.\nCertificate verification enabled.");
-    error = OpenHttpLibrary(&state);
-    if (error == errNone) error = OpenTlsLibrary(&state);
+    error = OpenTlsLibrary(&state);
     if (error != errNone) {
         StrPrintF(errorText, "%u", (UInt16)error);
         FrmCustomAlert(LibraryMissingAlert, errorText, "", "");
         CloseTlsLibrary(&state);
-        CloseHttpLibrary(&state);
         MemHandleFree(state.addressH);
         return error;
     }
@@ -1408,6 +1367,5 @@ UInt32 PilotMain(UInt16 cmd, void *cmdPBP, UInt16 launchFlags)
     state.addressH = 0;
     FrmCloseAllForms();
     CloseTlsLibrary(&state);
-    CloseHttpLibrary(&state);
     return errNone;
 }

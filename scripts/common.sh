@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 
-NETWORK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-NETWORK_STATE="${PALM_NETWORK_STATE:-$NETWORK_ROOT/.network}"
-TOOLCHAIN_ROOT="${PALM_TOOLCHAIN_ROOT:-$(cd "$NETWORK_ROOT/.." && pwd -P)/palm-toolchain}"
+PALM_TLS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PALM_TLS_STATE="${PALM_TLS_STATE:-$PALM_TLS_ROOT/.palm-tls}"
+TOOLCHAIN_ROOT="${PALM_TOOLCHAIN_ROOT:-$(cd "$PALM_TLS_ROOT/.." && pwd -P)/palm-toolchain}"
 TOOLCHAIN_PREFIX="${PALM_TOOLCHAIN_PREFIX:-$TOOLCHAIN_ROOT/.toolchain/prefix}"
 
-SOURCES="$NETWORK_STATE/src"
-BUILD="$NETWORK_STATE/build"
-NETWORK_PREFIX="${PALM_NETWORK_PREFIX:-$NETWORK_STATE/prefix}"
+SOURCES="$PALM_TLS_STATE/src"
+BUILD="$PALM_TLS_STATE/build"
+DEPS_PREFIX="${PALM_TLS_DEPS_PREFIX:-$PALM_TLS_STATE/prefix}"
 JOBS="${JOBS:-$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)}"
 
 # shellcheck source=../config/sources.lock
-source "$NETWORK_ROOT/config/sources.lock"
+source "$PALM_TLS_ROOT/config/sources.lock"
 
 sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'

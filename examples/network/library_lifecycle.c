@@ -1,77 +1,51 @@
 #include <PalmOS.h>
 #define PALMOS 1
 #include "palm_tls.h"
-#include "palm_http.h"
 
-typedef struct ExampleLibraries {
-    UInt16 tlsRefNum;
-    UInt16 httpRefNum;
-    Boolean tlsLoaded;
-    Boolean httpLoaded;
-    Boolean tlsOpen;
-    Boolean httpOpen;
-} ExampleLibraries;
+typedef struct ExampleTlsLibrary {
+    UInt16 refNum;
+    Boolean loaded;
+    Boolean open;
+} ExampleTlsLibrary;
 
-void ExampleLibrariesClose(ExampleLibraries *librariesP)
+void ExampleTlsLibraryClose(ExampleTlsLibrary *libraryP)
 {
-    if (librariesP->httpOpen)
-        PalmHttpLibClose(librariesP->httpRefNum);
-    if (librariesP->tlsOpen)
-        PalmTlsLibClose(librariesP->tlsRefNum);
-    if (librariesP->httpLoaded)
-        SysLibRemove(librariesP->httpRefNum);
-    if (librariesP->tlsLoaded)
-        SysLibRemove(librariesP->tlsRefNum);
-    MemSet(librariesP, sizeof(*librariesP), 0);
+    if (libraryP->open) PalmTlsLibClose(libraryP->refNum);
+    if (libraryP->loaded) SysLibRemove(libraryP->refNum);
+    MemSet(libraryP, sizeof(*libraryP), 0);
 }
 
-Err ExampleLibrariesOpen(ExampleLibraries *librariesP)
+Err ExampleTlsLibraryOpen(ExampleTlsLibrary *libraryP)
 {
     UInt16 version;
     UInt32 capabilities;
     Err error;
-    MemSet(librariesP, sizeof(*librariesP), 0);
+    MemSet(libraryP, sizeof(*libraryP), 0);
 
-    error = SysLibFind(PALM_TLS_LIB_NAME, &librariesP->tlsRefNum);
+    error = SysLibFind(PALM_TLS_LIB_NAME, &libraryP->refNum);
     if (error != errNone) {
         error = SysLibLoad(sysFileTLibrary, PALM_TLS_LIB_CREATOR,
-            &librariesP->tlsRefNum);
+            &libraryP->refNum);
         if (error != errNone) return error;
-        librariesP->tlsLoaded = true;
+        libraryP->loaded = true;
     }
-    error = PalmTlsLibOpen(librariesP->tlsRefNum);
+    error = PalmTlsLibOpen(libraryP->refNum);
     if (error != errNone) goto failed;
-    librariesP->tlsOpen = true;
-    error = PalmTlsLibGetApiVersion(librariesP->tlsRefNum, &version);
+    libraryP->open = true;
+    error = PalmTlsLibGetApiVersion(libraryP->refNum, &version);
     if (error != errNone || version != PALM_TLS_API_VERSION) {
         error = sysErrParamErr;
         goto failed;
     }
-    error = PalmTlsLibGetCapabilities(librariesP->tlsRefNum, &capabilities);
+    error = PalmTlsLibGetCapabilities(libraryP->refNum, &capabilities);
     if (error != errNone ||
         (capabilities & PALM_TLS_CAP_COOPERATIVE_IO) == 0) {
-        error = sysErrParamErr;
-        goto failed;
-    }
-
-    error = SysLibFind(PALM_HTTP_LIB_NAME, &librariesP->httpRefNum);
-    if (error != errNone) {
-        error = SysLibLoad(sysFileTLibrary, PALM_HTTP_LIB_CREATOR,
-            &librariesP->httpRefNum);
-        if (error != errNone) goto failed;
-        librariesP->httpLoaded = true;
-    }
-    error = PalmHttpLibOpen(librariesP->httpRefNum);
-    if (error != errNone) goto failed;
-    librariesP->httpOpen = true;
-    error = PalmHttpLibGetApiVersion(librariesP->httpRefNum, &version);
-    if (error != errNone || version != PALM_HTTP_API_VERSION) {
         error = sysErrParamErr;
         goto failed;
     }
     return errNone;
 
 failed:
-    ExampleLibrariesClose(librariesP);
+    ExampleTlsLibraryClose(libraryP);
     return error;
 }

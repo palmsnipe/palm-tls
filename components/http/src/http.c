@@ -1,4 +1,4 @@
-#include "http_core.h"
+#include "http.h"
 
 enum {
     chunkStateSize = 0,
@@ -84,37 +84,37 @@ static void CopyFilenameParameter(Char *targetP, UInt16 capacity,
     }
 }
 
-static UInt16 ParseHeaders(HttpDownloadParser *parserP)
+static UInt16 ParseHeaders(HttpParser *parserP)
 {
     const Char *cursorP = parserP->headers;
     const Char *endP = parserP->headers + parserP->headerLength;
     const Char *lineEndP = FindLineEnd(cursorP, endP);
     if (lineEndP == 0 || lineEndP - cursorP < 12 ||
         !StartsWithNoCase(cursorP, "HTTP/"))
-        return httpDownloadParseMalformed;
+        return httpMalformed;
     parserP->http11 = lineEndP - cursorP >= 8 &&
         cursorP[5] == '1' && cursorP[6] == '.' && cursorP[7] == '1';
     while (cursorP < lineEndP && *cursorP != ' ') cursorP++;
     if (cursorP + 3 >= lineEndP || cursorP[1] < '0' || cursorP[1] > '9' ||
         cursorP[2] < '0' || cursorP[2] > '9' ||
         cursorP[3] < '0' || cursorP[3] > '9')
-        return httpDownloadParseMalformed;
+        return httpMalformed;
     parserP->statusCode = (UInt16)((cursorP[1] - '0') * 100 +
         (cursorP[2] - '0') * 10 + cursorP[3] - '0');
     cursorP = lineEndP + 2;
     while (cursorP < endP) {
         const Char *colonP;
         lineEndP = FindLineEnd(cursorP, endP);
-        if (lineEndP == 0) return httpDownloadParseMalformed;
+        if (lineEndP == 0) return httpMalformed;
         if (lineEndP == cursorP) break;
         colonP = cursorP;
         while (colonP < lineEndP && *colonP != ':') colonP++;
-        if (colonP == lineEndP) return httpDownloadParseMalformed;
+        if (colonP == lineEndP) return httpMalformed;
         if ((UInt16)(colonP - cursorP) == 14 &&
             StartsWithNoCase(cursorP, "Content-Length")) {
             if (!ParseUInt32(colonP + 1, lineEndP,
                     &parserP->contentLength))
-                return httpDownloadParseMalformed;
+                return httpMalformed;
             parserP->hasContentLength = true;
         } else if ((UInt16)(colonP - cursorP) == 17 &&
                    StartsWithNoCase(cursorP, "Transfer-Encoding")) {
@@ -122,7 +122,7 @@ static UInt16 ParseHeaders(HttpDownloadParser *parserP)
             while (valueP < lineEndP && (*valueP == ' ' || *valueP == '\t'))
                 valueP++;
             if (!StartsWithNoCase(valueP, "chunked"))
-                return httpDownloadParseUnsupportedEncoding;
+                return httpUnsupportedEncoding;
             parserP->chunked = true;
         } else if ((UInt16)(colonP - cursorP) == 8 &&
                    StartsWithNoCase(cursorP, "Location")) {
@@ -153,32 +153,32 @@ static UInt16 ParseHeaders(HttpDownloadParser *parserP)
             while (valueP < lineEndP && (*valueP == ' ' || *valueP == '\t'))
                 valueP++;
             if (!StartsWithNoCase(valueP, "bytes "))
-                return httpDownloadParseMalformed;
+                return httpMalformed;
             valueP += 6;
             if (*valueP == '*') {
                 while (valueP < lineEndP && *valueP != '/') valueP++;
                 if (valueP == lineEndP || !ParseUInt32(valueP + 1,
                         lineEndP, &parserP->contentRangeTotal))
-                    return httpDownloadParseMalformed;
+                    return httpMalformed;
                 parserP->hasContentRange = true;
                 parserP->unsatisfiedRange = true;
                 cursorP = lineEndP + 2;
                 continue;
             }
             if (!ParseUInt32(valueP, lineEndP, &parserP->contentRangeStart))
-                return httpDownloadParseMalformed;
+                return httpMalformed;
             while (valueP < lineEndP && *valueP != '-') valueP++;
             if (valueP == lineEndP ||
                 !ParseUInt32(++valueP, lineEndP,
                     &parserP->contentRangeEnd))
-                return httpDownloadParseMalformed;
+                return httpMalformed;
             slashP = valueP;
             while (slashP < lineEndP && *slashP != '/') slashP++;
             if (slashP == lineEndP || slashP[1] == '*' ||
                 !ParseUInt32(slashP + 1, lineEndP,
                     &parserP->contentRangeTotal) ||
                 parserP->contentRangeEnd < parserP->contentRangeStart)
-                return httpDownloadParseMalformed;
+                return httpMalformed;
             parserP->hasContentRange = true;
         } else if ((UInt16)(colonP - cursorP) == 16 &&
                    StartsWithNoCase(cursorP, "Content-Encoding")) {
@@ -186,7 +186,7 @@ static UInt16 ParseHeaders(HttpDownloadParser *parserP)
             while (valueP < lineEndP && (*valueP == ' ' || *valueP == '\t'))
                 valueP++;
             if (!StartsWithNoCase(valueP, "identity"))
-                return httpDownloadParseUnsupportedEncoding;
+                return httpUnsupportedEncoding;
         } else if ((UInt16)(colonP - cursorP) == 10 &&
                    StartsWithNoCase(cursorP, "Connection")) {
             const Char *valueP = colonP + 1;
@@ -201,20 +201,20 @@ static UInt16 ParseHeaders(HttpDownloadParser *parserP)
         parserP->statusCode == 302 || parserP->statusCode == 303 ||
         parserP->statusCode == 307 || parserP->statusCode == 308;
     if (parserP->redirect && parserP->location[0] == '\0')
-        return httpDownloadParseMalformed;
+        return httpMalformed;
     if (parserP->statusCode == 206 && (!parserP->hasContentRange ||
         parserP->contentRangeStart != parserP->resumeOffset ||
         parserP->contentRangeEnd >= parserP->contentRangeTotal ||
         (parserP->hasContentLength && parserP->contentLength !=
             parserP->contentRangeEnd - parserP->contentRangeStart + 1UL)))
-        return httpDownloadParseMalformed;
+        return httpMalformed;
     if (parserP->statusCode == 416 && (!parserP->hasContentRange ||
-        !parserP->unsatisfiedRange)) return httpDownloadParseMalformed;
-    return httpDownloadParseOk;
+        !parserP->unsatisfiedRange)) return httpMalformed;
+    return httpOk;
 }
 
-Boolean HttpDownloadParseUrl(const Char *textP, Boolean defaultSecure,
-                             HttpDownloadUrl *urlP)
+Boolean HttpParseUrl(const Char *textP, Boolean defaultSecure,
+                             HttpUrl *urlP)
 {
     UInt16 source = 0;
     UInt16 target = 0;
@@ -253,9 +253,9 @@ Boolean HttpDownloadParseUrl(const Char *textP, Boolean defaultSecure,
     return true;
 }
 
-Boolean HttpDownloadResolveRedirect(const HttpDownloadUrl *baseP,
+Boolean HttpResolveRedirect(const HttpUrl *baseP,
                                     const Char *locationP,
-                                    HttpDownloadUrl *urlP)
+                                    HttpUrl *urlP)
 {
     const Char *slashP;
     UInt16 prefixLength;
@@ -263,7 +263,7 @@ Boolean HttpDownloadResolveRedirect(const HttpDownloadUrl *baseP,
         return false;
     if (StrNCompare(locationP, "http://", 7) == 0 ||
         StrNCompare(locationP, "https://", 8) == 0)
-        return HttpDownloadParseUrl(locationP, baseP->secure, urlP);
+        return HttpParseUrl(locationP, baseP->secure, urlP);
     *urlP = *baseP;
     if (locationP[0] == '/') {
         StrNCopy(urlP->path, locationP, sizeof(urlP->path));
@@ -278,7 +278,7 @@ Boolean HttpDownloadResolveRedirect(const HttpDownloadUrl *baseP,
     return true;
 }
 
-UInt16 HttpDownloadBuildRequest(const HttpDownloadUrl *urlP,
+UInt16 HttpBuildGetRequest(const HttpUrl *urlP,
                                 UInt32 resumeOffset, const Char *validatorP,
                                 Boolean keepAlive, Char *bufferP,
                                 UInt16 capacity)
@@ -307,7 +307,7 @@ UInt16 HttpDownloadBuildRequest(const HttpDownloadUrl *urlP,
     return StrLen(bufferP);
 }
 
-void HttpDownloadFilenameFromUrl(const HttpDownloadUrl *urlP, Char *bufferP,
+void HttpFilenameFromUrl(const HttpUrl *urlP, Char *bufferP,
                                  UInt16 capacity)
 {
     const Char *startP;
@@ -331,8 +331,8 @@ void HttpDownloadFilenameFromUrl(const HttpDownloadUrl *urlP, Char *bufferP,
     bufferP[length] = '\0';
 }
 
-void HttpDownloadParserInit(HttpDownloadParser *parserP, UInt32 resumeOffset,
-                            HttpDownloadBodyProc bodyProcP, void *contextP)
+void HttpParserInit(HttpParser *parserP, UInt32 resumeOffset,
+                            HttpBodyProc bodyProcP, void *contextP)
 {
     MemSet(parserP, sizeof(*parserP), 0);
     parserP->resumeOffset = resumeOffset;
@@ -340,17 +340,17 @@ void HttpDownloadParserInit(HttpDownloadParser *parserP, UInt32 resumeOffset,
     parserP->bodyContextP = contextP;
 }
 
-static UInt16 Deliver(HttpDownloadParser *parserP, const UInt8 *dataP,
+static UInt16 Deliver(HttpParser *parserP, const UInt8 *dataP,
                       UInt16 length)
 {
     if (length != 0 && parserP->bodyProcP != 0 &&
         parserP->bodyProcP(parserP->bodyContextP, dataP, length) != errNone)
-        return httpDownloadParseSinkFailed;
+        return httpSinkFailed;
     parserP->bodyReceived += length;
-    return httpDownloadParseOk;
+    return httpOk;
 }
 
-static void MarkComplete(HttpDownloadParser *parserP)
+static void MarkComplete(HttpParser *parserP)
 {
     parserP->connectionComplete = true;
     parserP->connectionReusable = parserP->http11 &&
@@ -366,7 +366,7 @@ static Int16 HexDigit(Char value)
     return -1;
 }
 
-static UInt16 FeedChunked(HttpDownloadParser *parserP, const UInt8 *dataP,
+static UInt16 FeedChunked(HttpParser *parserP, const UInt8 *dataP,
                           UInt16 length)
 {
     UInt16 offset = 0;
@@ -378,13 +378,13 @@ static UInt16 FeedChunked(HttpDownloadParser *parserP, const UInt8 *dataP,
                 UInt16 index;
                 UInt32 size = 0;
                 if (parserP->chunkLineLength == 0)
-                    return httpDownloadParseMalformed;
+                    return httpMalformed;
                 for (index = 0; index < parserP->chunkLineLength; index++) {
                     Int16 digit;
                     if (parserP->chunkLine[index] == ';') break;
                     digit = HexDigit(parserP->chunkLine[index]);
                     if (digit < 0 || size > 0x0fffffffUL)
-                        return httpDownloadParseMalformed;
+                        return httpMalformed;
                     size = (size << 4) | (UInt16)digit;
                 }
                 parserP->chunkLineLength = 0;
@@ -394,22 +394,22 @@ static UInt16 FeedChunked(HttpDownloadParser *parserP, const UInt8 *dataP,
             } else if (parserP->chunkLineLength + 1 <
                        sizeof(parserP->chunkLine)) {
                 parserP->chunkLine[parserP->chunkLineLength++] = value;
-            } else return httpDownloadParseMalformed;
+            } else return httpMalformed;
         } else if (parserP->chunkState == chunkStateData) {
             UInt16 available = length - offset;
             UInt16 chunk = parserP->chunkRemaining < available
                 ? (UInt16)parserP->chunkRemaining : available;
             UInt16 status = Deliver(parserP, dataP + offset, chunk);
-            if (status != httpDownloadParseOk) return status;
+            if (status != httpOk) return status;
             offset += chunk;
             parserP->chunkRemaining -= chunk;
             if (parserP->chunkRemaining == 0)
                 parserP->chunkState = chunkStateDataCr;
         } else if (parserP->chunkState == chunkStateDataCr) {
-            if (dataP[offset++] != '\r') return httpDownloadParseMalformed;
+            if (dataP[offset++] != '\r') return httpMalformed;
             parserP->chunkState = chunkStateDataLf;
         } else if (parserP->chunkState == chunkStateDataLf) {
-            if (dataP[offset++] != '\n') return httpDownloadParseMalformed;
+            if (dataP[offset++] != '\n') return httpMalformed;
             parserP->chunkState = chunkStateSize;
         } else {
             static const Char trailerEnd[] = "\r\n\r\n";
@@ -427,20 +427,20 @@ static UInt16 FeedChunked(HttpDownloadParser *parserP, const UInt8 *dataP,
             }
         }
     }
-    return httpDownloadParseOk;
+    return httpOk;
 }
 
-UInt16 HttpDownloadParserFeed(HttpDownloadParser *parserP,
+UInt16 HttpParserFeed(HttpParser *parserP,
                               const UInt8 *dataP, UInt16 length)
 {
     UInt16 offset = 0;
     if (parserP == 0 || (dataP == 0 && length != 0) ||
-        parserP->parseStatus != httpDownloadParseOk)
+        parserP->parseStatus != httpOk)
         return parserP != 0 ? parserP->parseStatus
-            : httpDownloadParseMalformed;
+            : httpMalformed;
     while (!parserP->headersComplete && offset < length) {
         if (parserP->headerLength + 1 >= sizeof(parserP->headers))
-            return parserP->parseStatus = httpDownloadParseHeadersTooLarge;
+            return parserP->parseStatus = httpHeadersTooLarge;
         parserP->headers[parserP->headerLength++] = (Char)dataP[offset++];
         parserP->headers[parserP->headerLength] = '\0';
         if (parserP->headerLength >= 4 &&
@@ -448,7 +448,7 @@ UInt16 HttpDownloadParserFeed(HttpDownloadParser *parserP,
                 "\r\n\r\n", 4) == 0) {
             parserP->headersComplete = true;
             parserP->parseStatus = ParseHeaders(parserP);
-            if (parserP->parseStatus != httpDownloadParseOk ||
+            if (parserP->parseStatus != httpOk ||
                 parserP->redirect) return parserP->parseStatus;
             if (parserP->hasContentLength && parserP->contentLength == 0)
                 MarkComplete(parserP);
@@ -473,16 +473,16 @@ UInt16 HttpDownloadParserFeed(HttpDownloadParser *parserP,
     return parserP->parseStatus;
 }
 
-UInt16 HttpDownloadParserFinish(HttpDownloadParser *parserP)
+UInt16 HttpParserFinish(HttpParser *parserP)
 {
-    if (parserP == 0 || parserP->parseStatus != httpDownloadParseOk)
+    if (parserP == 0 || parserP->parseStatus != httpOk)
         return parserP != 0 ? parserP->parseStatus
-            : httpDownloadParseMalformed;
+            : httpMalformed;
     if (!parserP->headersComplete ||
         (parserP->chunked && parserP->chunkState != chunkStateDone) ||
         (parserP->hasContentLength &&
          parserP->bodyReceived != parserP->contentLength))
-        return parserP->parseStatus = httpDownloadParseMalformed;
+        return parserP->parseStatus = httpMalformed;
     MarkComplete(parserP);
-    return httpDownloadParseOk;
+    return httpOk;
 }

@@ -1,5 +1,6 @@
-/.network/
-/libs/*/build/
+/.palm-tls/
+/components/http/build/
+/library/build/
 /examples/network/build/
 /examples/tls-tester/build/
 .DS_Store

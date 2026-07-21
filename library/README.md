@@ -44,7 +44,7 @@ into a reusable 1 KiB library buffer and calls the application's sink once per
 chunk, so file size is not limited by the Palm dynamic heap. The sink may write
 to VFS, a Palm record database, or a small parser-owned buffer; returning a
 nonzero value aborts the request and reports that value as `sinkError`.
-The examples under `../../examples/network` demonstrate incremental-session
+The examples under `../examples/network` demonstrate incremental-session
 use without depending on a particular application.
 
 API 10 includes a deterministic, network-free native-ARM self-test and
@@ -54,7 +54,7 @@ accepted; applications must be compiled against the matching public header.
 
 The complete API contract, lifecycle, error model, cooperative state handling,
 and cache rules are documented in [API.md](API.md). Small consumers that are
-compiled against the Palm SDK are in [../../examples/network](../../examples/network).
+compiled against the Palm SDK are in [../examples/network](../examples/network).
 The native boundary, byte order, fallback, and remaining work are documented in
 [ARM.md](ARM.md).
 
@@ -106,7 +106,7 @@ network waits and the transfer loop are cooperative.
 Build and validate with:
 
 ```sh
-make -C libs/palm-tls test
+make -C library test
 ```
 
 The `test` target rebuilds and validates all three profiles sequentially, so a

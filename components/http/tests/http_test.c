@@ -1,13 +1,13 @@
 #include <stdio.h>
 #include <string.h>
-#include "http_core.h"
+#include "http.h"
 
 typedef struct Capture {
     char body[128];
     UInt16 length;
 } Capture;
 
-static Err CaptureBody(void *contextP, const UInt8 *dataP, UInt16 length)
+static Int16 CaptureBody(void *contextP, const UInt8 *dataP, UInt16 length)
 {
     Capture *captureP = (Capture *)contextP;
     if (captureP->length + length >= sizeof(captureP->body)) return 1;
@@ -24,27 +24,27 @@ static int Check(int condition, const char *message)
     return 1;
 }
 
-static UInt16 FeedPieces(HttpDownloadParser *parserP, const char *textP,
+static UInt16 FeedPieces(HttpParser *parserP, const char *textP,
                          UInt16 piece)
 {
     UInt16 length = (UInt16)strlen(textP);
     UInt16 offset = 0;
     while (offset < length) {
         UInt16 chunk = length - offset < piece ? length - offset : piece;
-        UInt16 result = HttpDownloadParserFeed(parserP,
+        UInt16 result = HttpParserFeed(parserP,
             (const UInt8 *)textP + offset, chunk);
-        if (result != httpDownloadParseOk) return result;
+        if (result != httpOk) return result;
         offset += chunk;
     }
-    return HttpDownloadParserFinish(parserP);
+    return HttpParserFinish(parserP);
 }
 
 int main(void)
 {
     int failed = 0;
-    HttpDownloadUrl url;
-    HttpDownloadUrl redirected;
-    HttpDownloadParser parser;
+    HttpUrl url;
+    HttpUrl redirected;
+    HttpParser parser;
     Capture capture;
     Char request[512];
     const char fixed[] = "HTTP/1.1 200 OK\r\nContent-Length: 11\r\n"
@@ -66,28 +66,28 @@ int main(void)
     const char redirectResponse[] =
         "HTTP/1.1 302 Found\r\nLocation: /next\r\n\r\n";
     memset(&capture, 0, sizeof(capture));
-    failed += Check(HttpDownloadParseUrl(
+    failed += Check(HttpParseUrl(
         "https://example.com:8443/files/a.bin", false, &url),
         "parse absolute URL");
     failed += Check(url.secure && url.port == 8443 &&
         strcmp(url.host, "example.com") == 0 &&
         strcmp(url.path, "/files/a.bin") == 0, "URL fields");
-    failed += Check(HttpDownloadResolveRedirect(&url, "../next.bin",
+    failed += Check(HttpResolveRedirect(&url, "../next.bin",
         &redirected), "resolve relative redirect");
-    failed += Check(HttpDownloadBuildRequest(&url, 4096, "\"tag\"",
+    failed += Check(HttpBuildGetRequest(&url, 4096, "\"tag\"",
         true, request, sizeof(request)) != 0 &&
         strstr(request, "Range: bytes=4096-") != 0 &&
         strstr(request, "If-Range: \"tag\"") != 0,
         "build resumable request");
     failed += Check(strstr(request, "Connection: keep-alive") != 0,
         "build persistent request");
-    HttpDownloadFilenameFromUrl(&url, redirected.path,
+    HttpFilenameFromUrl(&url, redirected.path,
         sizeof(redirected.path));
     failed += Check(strcmp(redirected.path, "a.bin") == 0,
         "derive filename from URL");
 
-    HttpDownloadParserInit(&parser, 0, CaptureBody, &capture);
-    failed += Check(FeedPieces(&parser, fixed, 3) == httpDownloadParseOk,
+    HttpParserInit(&parser, 0, CaptureBody, &capture);
+    failed += Check(FeedPieces(&parser, fixed, 3) == httpOk,
         "fixed-length response split across reads");
     failed += Check(parser.statusCode == 200 &&
         strcmp(capture.body, "hello world") == 0 &&
@@ -95,53 +95,53 @@ int main(void)
         parser.connectionReusable, "fixed response fields");
 
     memset(&capture, 0, sizeof(capture));
-    HttpDownloadParserInit(&parser, 0, CaptureBody, &capture);
-    failed += Check(FeedPieces(&parser, chunked, 1) == httpDownloadParseOk,
+    HttpParserInit(&parser, 0, CaptureBody, &capture);
+    failed += Check(FeedPieces(&parser, chunked, 1) == httpOk,
         "chunked response split one byte at a time");
     failed += Check(strcmp(capture.body, "Wikipedia") == 0,
         "decoded chunked body");
     failed += Check(parser.connectionReusable,
         "chunked response can reuse connection");
 
-    HttpDownloadParserInit(&parser, 0, CaptureBody, &capture);
-    failed += Check(FeedPieces(&parser, closing, 4) == httpDownloadParseOk &&
+    HttpParserInit(&parser, 0, CaptureBody, &capture);
+    failed += Check(FeedPieces(&parser, closing, 4) == httpOk &&
         parser.connectionComplete && !parser.connectionReusable,
         "honour connection close response");
 
-    HttpDownloadParserInit(&parser, 0, CaptureBody, &capture);
-    failed += Check(FeedPieces(&parser, http10, 4) == httpDownloadParseOk &&
+    HttpParserInit(&parser, 0, CaptureBody, &capture);
+    failed += Check(FeedPieces(&parser, http10, 4) == httpOk &&
         parser.connectionComplete && !parser.connectionReusable,
         "do not reuse HTTP 1.0 response");
 
     memset(&capture, 0, sizeof(capture));
-    HttpDownloadParserInit(&parser, 10, CaptureBody, &capture);
-    failed += Check(FeedPieces(&parser, range, 7) == httpDownloadParseOk,
+    HttpParserInit(&parser, 10, CaptureBody, &capture);
+    failed += Check(FeedPieces(&parser, range, 7) == httpOk,
         "matching partial response");
     failed += Check(parser.hasContentRange &&
         parser.contentRangeStart == 10 && parser.contentRangeTotal == 15,
         "content-range fields");
 
-    HttpDownloadParserInit(&parser, 9, CaptureBody, &capture);
-    failed += Check(HttpDownloadParserFeed(&parser, (const UInt8 *)range,
-        (UInt16)strlen(range)) == httpDownloadParseMalformed,
+    HttpParserInit(&parser, 9, CaptureBody, &capture);
+    failed += Check(HttpParserFeed(&parser, (const UInt8 *)range,
+        (UInt16)strlen(range)) == httpMalformed,
         "reject mismatched content range");
 
-    HttpDownloadParserInit(&parser, 0, CaptureBody, &capture);
-    failed += Check(HttpDownloadParserFeed(&parser,
+    HttpParserInit(&parser, 0, CaptureBody, &capture);
+    failed += Check(HttpParserFeed(&parser,
         (const UInt8 *)redirectResponse, (UInt16)strlen(redirectResponse))
-        == httpDownloadParseOk && parser.redirect &&
+        == httpOk && parser.redirect &&
         strcmp(parser.location, "/next") == 0, "redirect response");
 
     memset(&capture, 0, sizeof(capture));
-    HttpDownloadParserInit(&parser, 0, CaptureBody, &capture);
-    failed += Check(FeedPieces(&parser, metadata, 11) == httpDownloadParseOk &&
+    HttpParserInit(&parser, 0, CaptureBody, &capture);
+    failed += Check(FeedPieces(&parser, metadata, 11) == httpOk &&
         strcmp(parser.filename, "podcast.mp3") == 0 &&
         strcmp(parser.contentType, "audio/mpeg") == 0 &&
         parser.lastModified[0] != '\0', "response metadata");
 
-    HttpDownloadParserInit(&parser, 42, CaptureBody, &capture);
+    HttpParserInit(&parser, 42, CaptureBody, &capture);
     failed += Check(FeedPieces(&parser, unsatisfied, 5) ==
-        httpDownloadParseOk && parser.statusCode == 416 &&
+        httpOk && parser.statusCode == 416 &&
         parser.unsatisfiedRange && parser.contentRangeTotal == 42,
         "satisfied local file via HTTP 416");
 

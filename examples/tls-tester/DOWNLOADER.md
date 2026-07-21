@@ -1,13 +1,13 @@
 # Downloader architecture
 
-The TLS Tester download implementation combines NetLib with the public
-PalmTLS API 10 and PalmHTTP API 2 interfaces. `src/download_client.c` and
-`src/download_store.c` belong to this example application. They are not shared
-libraries, stable ABIs, or additional Palm Network APIs.
+The TLS Tester download implementation combines NetLib, the public PalmTLS API
+10 ABI, and the directly compiled `components/http` source. `DownloadClient`
+and `DownloadStore` belong to this example application. They are not shared
+libraries or stable PalmTLS APIs.
 
 ## Event-loop integration
 
-The application opens PalmTLS and PalmHTTP before creating a download. It then
+The application opens PalmTLS before creating a download. It then
 calls its private `DownloadClientStart`, advances the opaque job with
 `DownloadClientStep` from `nilEvent` handling, and uses
 `DownloadClientCancel` to request cancellation. The client opens and closes
@@ -17,7 +17,7 @@ Each step performs one bounded part of the operation:
 
 ```text
 storage -> DNS -> nonblocking TCP connect -> cooperative TLS handshake
-        -> cooperative request writes -> cooperative reads/PalmHTTP feed
+        -> cooperative request writes -> cooperative reads/HTTP parser feed
         -> validate framing -> flush and mark complete
 ```
 
@@ -27,9 +27,9 @@ read calls with `PALM_TLS_IO_COOPERATIVE`. HTTP uses the same state machine with
 NetLib directly. Short step timeouts keep control returning to the Palm event
 loop; the application also enforces a total phase/idle deadline.
 
-PalmHTTP provides URL parsing, GET/range request construction, redirects, and
-the streaming response parser. Its body callback writes decoded body bytes to
-the store, so HTTP headers and chunk framing are never persisted as file data.
+The HTTP component provides URL parsing, GET/range request construction,
+redirects, and incremental response parsing. Its body callback writes decoded
+body bytes to the store, so headers and chunk framing are never persisted.
 
 ## Resume and redirect behavior
 
@@ -58,7 +58,7 @@ VFS.
 
 ## Ownership rules
 
-- PalmTLS and PalmHTTP must stay open until the job finishes.
+- PalmTLS must stay open until the job finishes.
 - The result object, callback context, and selected trust-certificate bytes
   must remain valid for the job's lifetime.
 - Only one event-loop step may advance a job at a time.
@@ -66,6 +66,7 @@ VFS.
 - A zero total length means progress is indeterminate.
 - Filenames and MIME types obtained from HTTP are untrusted metadata.
 
-For the stable library contracts, read `libs/palm-tls/API.md` and
-`libs/palm-http/API.md`. For smaller compile-checked examples, see
-`examples/network`. The complete UI integration is in `src/main.c`.
+For the stable shared-library contract, read `library/API.md`. The HTTP source
+component is documented in `components/http/README.md`. Smaller compile-checked
+examples are under `examples/network`; the complete UI integration is in
+`src/main.c`.
