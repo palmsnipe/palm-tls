@@ -20,7 +20,7 @@ examples: prerequisites
 	@$(MAKE) -C examples/network test
 
 tls-tester: bootstrap
-	@$(MAKE) -C examples/tls-tester test
+	@$(MAKE) -C apps/tls-tester test
 
 check: bootstrap
 	@scripts/check.sh
@@ -29,4 +29,4 @@ clean:
 	@$(MAKE) -C components/http clean
 	@$(MAKE) -C library clean
 	@$(MAKE) -C examples/network clean
-	@$(MAKE) -C examples/tls-tester clean
+	@$(MAKE) -C apps/tls-tester clean

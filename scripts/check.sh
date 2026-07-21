@@ -15,5 +15,5 @@ export PALM_TLS_DEPS_PREFIX="$DEPS_PREFIX"
 "${MAKE:-make}" -C "$PALM_TLS_ROOT/components/http" test
 "${MAKE:-make}" -C "$PALM_TLS_ROOT/library" test
 "${MAKE:-make}" -C "$PALM_TLS_ROOT/examples/network" test
-"${MAKE:-make}" -C "$PALM_TLS_ROOT/examples/tls-tester" test
+"${MAKE:-make}" -C "$PALM_TLS_ROOT/apps/tls-tester" test
 echo "PalmTLS checks passed."

@@ -15,7 +15,7 @@ not produce an additional PRC.
 - `components/http/`: directly compiled URL, request, redirect, and response
   parsing code
 - `examples/network/`: small compile-checked integration examples
-- `examples/tls-tester/`: an installable HTTP/HTTPS and download tester
+- `apps/tls-tester/`: the installable HTTP/HTTPS and download tester
 - `patches/wolfssl/`: Palm-specific changes to the pinned wolfSSL source
 
 ## Requirements
@@ -91,12 +91,12 @@ make tls-tester
 For an optimized application build, run:
 
 ```sh
-make -C examples/tls-tester release
+make -C apps/tls-tester release
 ```
 
 Install one PalmTLS PRC followed by `TlsTester.prc`. Actual HTTP and HTTPS
 requests require a Palm OS device or emulator with working NetLib connectivity.
-See `examples/tls-tester/README.md` for usage and trust-profile details.
+See `apps/tls-tester/README.md` for usage and trust-profile details.
 
 ## License
 

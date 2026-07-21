@@ -2,5 +2,5 @@
 /components/http/build/
 /library/build/
 /examples/network/build/
-/examples/tls-tester/build/
+/apps/tls-tester/build/
 .DS_Store

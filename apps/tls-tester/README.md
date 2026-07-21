@@ -69,7 +69,7 @@ Install these two files in order:
 1. One PalmTLS variant:
    `library/build/palm/PalmTLS68K.prc` for 68K/Palm OS 4+, or
    `library/build/palm/PalmTLSArm.prc` for ARM Palm OS 5+
-2. `examples/tls-tester/build/debug/TlsTester.prc`
+2. `apps/tls-tester/build/debug/TlsTester.prc`
 
 Launch TLS Tester, enter a host name or URL, select HTTP or a supported TLS
 version, and tap **Test**. PalmTLS reports only the protocols included in the
@@ -109,7 +109,7 @@ fingerprints, and expiry dates.
 To deliberately download and validate fresh issuer files, run:
 
 ```sh
-./examples/tls-tester/tools/update-trust-store.sh
+./apps/tls-tester/tools/update-trust-store.sh
 make tls-tester
 ```
 
