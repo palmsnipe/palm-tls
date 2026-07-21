@@ -1,0 +1,5 @@
+brew "autoconf"
+brew "automake"
+brew "libtool"
+brew "imagemagick"
+brew "node"

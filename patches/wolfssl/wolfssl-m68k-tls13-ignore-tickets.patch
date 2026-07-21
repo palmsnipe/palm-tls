@@ -1,0 +1,13 @@
+diff --git a/src/tls13.c b/src/tls13.c
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -12119,7 +12119,8 @@ static int SessionTicketNoncePopulate(WOLFSSL_SESSION* session,
+ static int DoTls13NewSessionTicket(WOLFSSL* ssl, const byte* input,
+                                    word32* inOutIdx, word32 size)
+ {
+-#ifdef HAVE_SESSION_TICKET
++#if defined(HAVE_SESSION_TICKET) && \
++    !defined(PALM_WOLFSSL_IGNORE_TLS13_TICKETS)
+     int    ret;
+     word32 begin = *inOutIdx;
+     word32 lifetime;

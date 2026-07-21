@@ -1,0 +1,27 @@
+diff --git a/src/internal.c b/src/internal.c
+index 5e8fb35..548f26a 100644
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -17053,11 +17054,17 @@ int ProcessPeerCerts(WOLFSSL* ssl, byte* input, word32* inOutIdx,
+                             ssl->peerEccDsaKeyPresent = 0;
+                         }
+
+-                        if (keyRet != 0 ||
+-                            wc_EccPublicKeyDecode(args->dCert->publicKey, &idx,
+-                                                ssl->peerEccDsaKey,
+-                                                args->dCert->pubKeySize) != 0) {
+-                            ret = PEER_KEY_ERROR;
++                        if (keyRet == 0) {
++                            keyRet = wc_EccPublicKeyDecode(
++                                args->dCert->publicKey, &idx,
++                                ssl->peerEccDsaKey,
++                                args->dCert->pubKeySize);
++                        }
++                        if (keyRet != 0) {
++                            /* Keep the ASN/ECC cause visible to small clients
++                             * instead of reducing every import failure to the
++                             * generic PEER_KEY_ERROR (-342). */
++                            ret = keyRet;
+                             WOLFSSL_ERROR_VERBOSE(ret);
+                         }
+                         else {

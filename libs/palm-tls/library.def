@@ -1,0 +1,19 @@
+syslib { "Palm TLS" PTLS version=10 }
+export {
+    PalmTlsLibOpen
+    PalmTlsLibClose
+    PalmTlsLibSleep
+    PalmTlsLibWake
+    PalmTlsLibGetApiVersion
+    PalmTlsLibGetCapabilities
+    PalmTlsLibExchange
+    PalmTlsLibExchangeStream
+    PalmTlsLibSessionOpen
+    PalmTlsLibSessionWrite
+    PalmTlsLibSessionRead
+    PalmTlsLibSessionClose
+    PalmTlsLibPurgeCache
+    PalmTlsLibSessionHandshake
+    PalmTlsLibSessionCancel
+    PalmTlsLibRunSelfTest
+}

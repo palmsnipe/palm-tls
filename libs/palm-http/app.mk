@@ -1,0 +1,5 @@
+LIB_NAME := Palm HTTP
+LIB_ID := PalmHTTP
+LIB_CREATOR := PHTP
+LIB_TYPE := libr
+LIB_VERSION := 1

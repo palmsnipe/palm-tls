@@ -1,0 +1,14 @@
+MEMORY { library : ORIGIN = 0, LENGTH = 65000 }
+SECTIONS {
+    .text : {
+        KEEP(*palm_library.o(.text.PalmHttpLibStart))
+        KEEP(*dispatch.o(.text))
+        *(.text .text.* .rodata .rodata.*)
+        *(.data.rel.ro .data.rel.ro.*)
+        *(.data .data.*)
+        *(.bss .bss.* COMMON)
+        . = ALIGN(2);
+    } > library
+    /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) *(.init*) *(.fini*) }
+}
+ENTRY(PalmHttpLibStart)

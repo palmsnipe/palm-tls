@@ -1,0 +1,46 @@
+diff --git a/src/tls13.c b/src/tls13.c
+index ac41d0be0..2507fe949 100644
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -17,4 +17,11 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+  */
+
++#if defined(__m68k__) && defined(__GNUC__)
++#pragma GCC target ("long-jump")
++#define WOLFSSL_M68K_TLS13_SAFE __attribute__((optimize("O1")))
++#else
++#define WOLFSSL_M68K_TLS13_SAFE
++#endif
++
+ #include <wolfssl/wolfcrypt/libwolfssl_sources.h>
+@@ -10272,7 +10278,8 @@ static int DoTls13CertificateRequest(WOLFSSL* ssl, const byte* input,
+  * totalSz   The length of the current handshake message.
+  * returns 0 on success and otherwise failure.
+  */
+-static int DoTls13Certificate(WOLFSSL* ssl, byte* input, word32* inOutIdx,
++static int WOLFSSL_M68K_TLS13_SAFE DoTls13Certificate(WOLFSSL* ssl,
++                              byte* input, word32* inOutIdx,
+                               word32 totalSz)
+ {
+     int ret = 0;
+@@ -10478,7 +10485,8 @@ typedef struct Dcv13Args {
+  * totalSz   The length of the current handshake message.
+  * returns 0 on success and otherwise failure.
+  */
+-static int DoTls13CertificateVerify(WOLFSSL* ssl, byte* input,
++static int WOLFSSL_M68K_TLS13_SAFE DoTls13CertificateVerify(WOLFSSL* ssl,
++                                    byte* input,
+                                     word32* inOutIdx, word32 totalSz)
+ {
+     int         ret = 0;
+@@ -11325,7 +11333,8 @@ static int DoTls13CertificateVerify(WOLFSSL* ssl, byte* input,
+  * sniff     Indicates whether we are sniffing packets.
+  * returns 0 on success and otherwise failure.
+  */
+-int DoTls13Finished(WOLFSSL* ssl, const byte* input, word32* inOutIdx,
++int WOLFSSL_M68K_TLS13_SAFE DoTls13Finished(WOLFSSL* ssl, const byte* input,
++                           word32* inOutIdx,
+                            word32 size, word32 totalSz, int sniff)
+ {
+     int    ret;

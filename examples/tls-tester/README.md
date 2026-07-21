@@ -1,0 +1,127 @@
+# TLS Tester
+
+TLS Tester is an installable Palm OS 3.5+ example that exercises the PalmHTTP
+and PalmTLS shared libraries. It can make HTTP and HTTPS requests, display
+connection and handshake timings, download files, and test resumable downloads
+using either VFS or a Palm database.
+
+The app is intentionally included as a complete reference rather than a small
+code fragment. Its private `DownloadClient` and `DownloadStore` modules show
+one way to keep the Palm event loop responsive while driving PalmTLS, parsing
+HTTP incrementally, and persisting downloaded data. They are implementation
+details of this example, not APIs exported by PalmTLS or PalmHTTP. See
+[DOWNLOADER.md](DOWNLOADER.md) for an architectural overview.
+
+## Build and test
+
+From the repository root, install the host dependencies and bootstrap the
+network libraries once:
+
+```sh
+brew bundle
+make bootstrap
+```
+
+Then build the app and run its PRC and host-side parser checks:
+
+```sh
+make tls-tester
+```
+
+You can also work directly in this directory:
+
+```sh
+make test
+make release
+make benchmark
+```
+
+The default build is written to `build/debug/TlsTester.prc`. `make test` also
+runs host fixtures for fixed-length and chunked responses, redirects, filename
+and metadata handling, resume headers, `416` responses, and invalid partial
+responses. It does not require a network connection or emulator.
+
+The build expects `palm-toolchain` and `palm-network` to be sibling directories.
+Set `PALM_TOOLCHAIN_ROOT` or `PALM_TOOLCHAIN_PREFIX` if your layout differs.
+
+## Library APIs used
+
+TLS Tester is a consumer of the public shared-library ABIs; it does not define
+another shared API. At startup it requires exactly PalmTLS API 10 and PalmHTTP
+API 2 or newer, then checks the capability bits it needs.
+
+The **Test** action owns its DNS lookup and TCP socket, uses the PalmTLS session
+API for a synchronous `HEAD` request, and reads the result directly. Plain HTTP
+uses NetLib without PalmHTTP because no response framing is needed beyond the
+diagnostic response buffer.
+
+The **Get** action uses cooperative PalmTLS session open/handshake/read/write
+calls and PalmHTTP's URL, request, redirect, and streaming-parser calls. The
+application-owned `DownloadClient` advances this work from the event loop;
+`DownloadStore` handles its Palm database and VFS policy. Applications should
+use the public headers and API guides in `libs/palm-tls` and `libs/palm-http`,
+and treat the tester modules only as example source that may change.
+
+## Install and use
+
+Install these files in order:
+
+1. One PalmTLS variant:
+   `libs/palm-tls/build/palm/PalmTLS68K.prc` for 68K/Palm OS 4+, or
+   `libs/palm-tls/build/palm/PalmTLSArm.prc` for ARM Palm OS 5+
+2. `libs/palm-http/build/palm/PalmHTTP.prc`
+3. `examples/tls-tester/build/debug/TlsTester.prc`
+
+Launch TLS Tester, enter a host name or URL, select HTTP or a supported TLS
+version, and tap **Test**. PalmTLS reports only the protocols included in the
+installed profile, so the selector adapts to smaller builds. The **Get** button
+downloads a URL, while **Files** opens the saved-download catalog.
+
+The certificate verification checkbox is enabled by default. Select the issuer
+profile that matches the server being tested. Disabling verification is useful
+only for diagnosis and must not be used with credentials or sensitive data.
+The included issuer profiles cover the app's Google, Cloudflare, and Let's
+Encrypt test cases.
+
+Actual requests require a Palm device or emulator with working NetLib
+connectivity. Emulator installation and network configuration are deliberately
+outside this example's build process because they vary by emulator and ROM.
+
+## Build profiles
+
+- `debug` builds the normal development PRC.
+- `release` produces an optimized release PRC.
+- `benchmark` enables the network-free P-256 ECDHE/ECDSA startup workload for
+  TLS 1.2 and TLS 1.3.
+
+Normal builds perform fast native bignum, P-256, and SHA-256 known-answer
+checks. On supported Palm OS 5 devices, PalmTLS can report native ARM math;
+otherwise it uses its 68K path.
+
+## Trust certificates
+
+The app embeds three issuing-CA certificates in DER form. These three small
+files are source inputs, not generated build output, and are kept in the
+repository so a normal build is offline and reproducible. The other roots,
+leaf certificates, PEM copies, and combined bundle used during earlier testing
+are not needed and are not included. See `certs/README.md` for provenance,
+fingerprints, and expiry dates.
+
+To deliberately download and validate fresh issuer files, run:
+
+```sh
+./examples/tls-tester/tools/update-trust-store.sh
+make tls-tester
+```
+
+The refresh script downloads current leaf certificates only into a temporary
+directory to verify that the selected issuer matches the served chain. Review
+the three resulting DER changes and update `certs/README.md` before committing
+them. A provider can change its chain before an issuer certificate expires.
+
+## Request timing
+
+The result view separates total time into NetLib open, DNS, TCP connect, TLS
+engine load, TLS handshake, and HTTP exchange. Run the same host twice when
+profiling: the first request includes cold engine loading, while the second can
+show cached loading and session resumption behavior.

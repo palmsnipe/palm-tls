@@ -1,0 +1,71 @@
+#include "resource.h"
+
+DATA "code" ID 1 "code0001.bin"
+DATA "cert" ID GoogleIssuerCertificate "../../certs/gts-wr2.der"
+DATA "cert" ID CloudflareIssuerCertificate "../../certs/gts-we1.der"
+DATA "cert" ID LetsEncryptIssuerCertificate "../../certs/letsencrypt-yr2.der"
+// SysAppPrefsType: priority 30, 32 KiB stack, 4 KiB minimum free heap.
+HEX "pref" ID 0 0x00 0x1e 0x00 0x00 0x80 0x00 0x00 0x00 0x10 0x00
+
+FORM ID MainForm AT (0 0 160 160)
+BEGIN
+    TITLE "TLS Tester"
+    LABEL "URL or host" ID 1200 AT (4 17) FONT 1
+    FIELD ID AddressField AT (4 28 136 14) EDITABLE UNDERLINED SINGLELINE MAXCHARS 100
+    GRAFFITISTATEINDICATOR AT (143 30)
+    LABEL "Protocol" ID 1201 AT (4 47) FONT 1
+    POPUPTRIGGER "HTTPS / TLS 1.2" ID ProtocolTrigger AT (48 45 108 14) LEFTANCHOR
+    LIST "HTTPS / TLS 1.1" "HTTPS / TLS 1.2" "HTTPS / TLS 1.3" "HTTP" ID ProtocolList AT (48 45 108 56) VISIBLEITEMS 4 NONUSABLE
+    POPUPLIST ID ProtocolTrigger ProtocolList
+    LABEL "Trust" ID 1202 AT (4 60) FONT 1
+    POPUPTRIGGER "Google issuer (WR2)" ID TrustTrigger AT (48 58 108 14) LEFTANCHOR
+    LIST "Google issuer (WR2)" "Cloudflare issuer (WE1)" "Let's Encrypt (YR2)" ID TrustList AT (48 58 108 42) VISIBLEITEMS 3 NONUSABLE
+    POPUPLIST ID TrustTrigger TrustList
+    CHECKBOX "Verify certificate" ID VerifyCheckbox AT (4 75 116 12)
+    BUTTON "Test" ID RequestButton AT (4 89 31 14)
+    BUTTON "Get" ID DownloadButton AT (38 89 34 14)
+    BUTTON "Files" ID CatalogButton AT (75 89 38 14)
+    BUTTON "Cancel" ID CancelButton AT (116 89 40 14)
+    FIELD ID ResultField AT (4 108 145 48) NONEDITABLE MULTIPLELINES MAXCHARS 511
+    SCROLLBAR ID ResultScrollBar AT (150 108 7 48) VALUE 0 MIN 0 MAX 0 PAGESIZE 43
+END
+
+FORM ID CatalogForm AT (0 0 160 160)
+BEGIN
+    TITLE "Downloads"
+    LIST "No downloads" ID CatalogList AT (4 18 152 66) VISIBLEITEMS 5
+    FIELD ID CatalogDetailField AT (4 88 152 36) NONEDITABLE MULTIPLELINES MAXCHARS 255
+    BUTTON "Use" ID CatalogUseButton AT (4 132 31 14)
+    BUTTON "Delete" ID CatalogDeleteButton AT (38 132 39 14)
+    BUTTON "Export" ID CatalogExportButton AT (80 132 39 14)
+    BUTTON "Close" ID CatalogCloseButton AT (122 132 34 14)
+END
+
+ALERT ID RomIncompatibleAlert
+INFORMATION
+BEGIN
+    TITLE "Palm OS 3.5 Required"
+    MESSAGE "TLS Tester requires Palm OS 3.5 or later."
+    BUTTONS "OK"
+END
+
+ALERT ID LibraryMissingAlert
+ERROR
+BEGIN
+    TITLE "Libraries Required"
+    MESSAGE "Install one PalmTLS variant and PalmHTTP.prc before TLS Tester. Error: ^1"
+    BUTTONS "OK"
+END
+
+ALERT ID DeleteDownloadAlert
+CONFIRMATION
+BEGIN
+    TITLE "Delete download?"
+    MESSAGE "Delete the selected saved download and its file?"
+    BUTTONS "Delete" "Cancel"
+END
+
+ICONFAMILY ID AppIcon
+    "icon-mono.bmp" "" "" "icon-color.bmp" TRANSPARENCY 255 0 255
+APPLICATIONICONNAME ID 1000 "TLS Tester"
+STRING ID AppVersionString "0.1.0"

@@ -1,0 +1,5 @@
+LIB_NAME := Palm TLS
+LIB_ID := PalmTLS
+LIB_CREATOR := PTLS
+LIB_TYPE := libr
+LIB_VERSION := 0.1.0

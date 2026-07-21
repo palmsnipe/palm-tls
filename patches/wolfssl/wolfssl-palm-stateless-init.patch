@@ -1,0 +1,38 @@
+diff --git a/wolfcrypt/src/wc_port.c b/wolfcrypt/src/wc_port.c
+index a8927a9e3..701b0d743 100644
+--- a/wolfcrypt/src/wc_port.c
++++ b/wolfcrypt/src/wc_port.c
+@@ -238,6 +238,9 @@ static int initRefCount = 0;
+ WOLFSSL_ABI
+ int wolfCrypt_Init(void)
+ {
++#if defined(WOLFSSL_PALM_STATELESS_INIT)
++    return 0;
++#else
+     int ret = 0;
+     int my_initRefCount = wolfSSL_Atomic_Int_FetchAdd(&initRefCount, 1);
+     if (my_initRefCount == 0) {
+@@ -540,6 +543,7 @@ int wolfCrypt_Init(void)
+     }
+
+     return ret;
++#endif
+ }
+
+ #if defined(WOLFSSL_TRACK_MEMORY_VERBOSE) && !defined(WOLFSSL_STATIC_MEMORY)
+@@ -558,6 +562,9 @@ long wolfCrypt_heap_peakBytes_checkpoint(void) {
+ WOLFSSL_ABI
+ int wolfCrypt_Cleanup(void)
+ {
++#if defined(WOLFSSL_PALM_STATELESS_INIT)
++    return 0;
++#else
+     int ret = 0;
+     int my_initRefCount = wolfSSL_Atomic_Int_SubFetch(&initRefCount, 1);
+
+@@ -762,4 +769,5 @@ int wolfCrypt_Cleanup(void)
+     }
+
+     return ret;
++#endif
+ }

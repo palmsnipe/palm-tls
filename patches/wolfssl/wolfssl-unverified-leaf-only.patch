@@ -1,0 +1,11 @@
+diff --git a/src/internal.c b/src/internal.c
+index 7df32abe2..d15aa1bb0 100644
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -16032,6 +16032,7 @@ int ProcessPeerCerts(WOLFSSL* ssl, byte* input, word32* inOutIdx,
+                 #ifdef WOLFSSL_TRUST_PEER_CERT
+                     && !args->haveTrustPeer
+                 #endif /* WOLFSSL_TRUST_PEER_CERT */
++                    && !ssl->options.verifyNone
+                 ) {
+                     int skipAddCA = 0;

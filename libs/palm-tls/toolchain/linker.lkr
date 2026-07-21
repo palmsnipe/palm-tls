@@ -1,0 +1,83 @@
+MEMORY
+{
+    library : ORIGIN = 0, LENGTH = 65000
+    tls2 : ORIGIN = 0x11000000, LENGTH = 65000
+    tls3 : ORIGIN = 0x12000000, LENGTH = 65000
+    tls4 : ORIGIN = 0x13000000, LENGTH = 65000
+    tls5 : ORIGIN = 0x14000000, LENGTH = 65000
+    trash : ORIGIN = 0x40000000, LENGTH = 64K
+}
+
+SECTIONS
+{
+    .macsbug_discard : { *(.text.*.macsbug) } > trash
+
+    .text : {
+        KEEP(*palm_library.o(.text.PalmTlsLibStart))
+        KEEP(*dispatch.o(.text))
+        *palm_library.o(.text .text.* .rodata .rodata.*)
+        *tls_loader.o(.text .text.* .rodata .rodata.*)
+        . = ALIGN(2);
+    } > library
+
+    /* Spill a few independent ASN helpers into the fourth code segment before
+     * the broader ASN patterns below consume them. */
+    .tls4a : {
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.GetCertName*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.FreeDer*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.GetHashId*)
+        *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text.wc_ecc_is_point*)
+        *tls_engine_*.o(.text .text.* .rodata .rodata.*)
+        *tls_armlet*.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-hash.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-random.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-aes.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-tfm.o(.text.fp_montgomery_calc_normalization*)
+        *libwolfssl*.a:src_libwolfssl_la-tfm.o(.text.fp_mul_2d*)
+        *libwolfssl*.a:libwolfssl_la-ssl.o(.text.*Session*)
+        *libwolfssl*.a:libwolfssl_la-ssl.o(.text.*session*)
+    } > tls4
+
+    .tls2 : {
+        KEEP(*tls_engine_*.o(.tlsentry))
+        *libwolfssl*.a:libwolfssl_la-ssl.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:libwolfssl_la-internal.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-sp_c32.o(.text.sp_256_sqr_9*)
+        *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text.ecc_mul2add*)
+        *libwolfssl*.a:src_libwolfssl_la-tfm.o(.text.fp_div*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.DecodeExtensionType*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.DecodeCertInternal*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.GetASN_Items*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.SizeASN_Items*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.ConfirmSignature*)
+    } > tls2
+
+    .tls3 : {
+        *tls_palm.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-coding.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-hmac.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-kdf.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:libwolfssl_la-keys.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-tfm.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-rsa.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl*.a:src_libwolfssl_la-sp_c32.o(.text .text.* .rodata .rodata.*)
+    } > tls3
+
+    .tls5 : {
+        *libwolfssl*.a:*(.text .text.* .rodata .rodata.*)
+        *libgcc.a:*(.text .text.* .rodata .rodata.*)
+        *libc.a:*(.text .text.* .rodata .rodata.*)
+        *(.data.rel.ro .data.rel.ro.*)
+        *(.data .data.*)
+        *(.bss .bss.* COMMON)
+        BYTE(0)
+        . = ALIGN(4);
+    } > tls5
+
+    .trash2 : { *(.init) *(.init.*) *(.fini) *(.fini.*) *(*.macsbug) } > trash
+    /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }
+}
+
+ENTRY(PalmTlsLibStart)

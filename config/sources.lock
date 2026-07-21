@@ -1,0 +1,5 @@
+# shellcheck shell=sh
+# Every external source used by the network build is pinned here.
+
+WOLFSSL_REPOSITORY="https://github.com/wolfSSL/wolfssl.git"
+WOLFSSL_COMMIT="1d363f3adceba9d1478230ede476a37b0dcdef24"

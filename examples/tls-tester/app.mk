@@ -1,0 +1,7 @@
+APP_NAME := TLS Tester
+APP_ID := TlsTester
+APP_CREATOR := TstL
+APP_TYPE := appl
+APP_VERSION := 0.1.0
+MIN_OS_MAJOR := 3
+MIN_OS_MINOR := 5
