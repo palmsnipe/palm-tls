@@ -66,6 +66,9 @@
 #define ECC_USER_CURVES
 #undef NO_ECC256
 #define TFM_ECC256
+#ifndef PALM_WOLFSSL_ENABLE_ARMLET_MATH
+#define ECC_SHAMIR
+#endif
 #define ECC_TIMING_RESISTANT
 #define NO_ECC_SIGN
 #else

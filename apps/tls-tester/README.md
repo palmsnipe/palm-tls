@@ -49,10 +49,10 @@ Set `PALM_TOOLCHAIN_ROOT` or `PALM_TOOLCHAIN_PREFIX` if your layout differs.
 TLS Tester checks the protocol, session, cache, resumption, and cooperative-I/O
 capability bits it needs. PalmTLS is the only shared-library dependency.
 
-The **Test** action owns its DNS lookup and TCP socket, uses the PalmTLS session
-API for a synchronous `HEAD` request, and reads the result directly. Plain HTTP
-uses NetLib directly because no response framing is needed beyond the
-diagnostic response buffer.
+The **Test** action owns its DNS lookup and TCP socket, advances the PalmTLS
+handshake cooperatively, sends a `HEAD` request, and reads the result directly.
+Plain HTTP uses NetLib directly because no response framing is needed beyond
+the diagnostic response buffer.
 
 The **Get** action uses cooperative PalmTLS session open/handshake/read/write
 calls and the compiled HTTP component's URL, request, redirect, and parser calls. The
@@ -84,6 +84,9 @@ Encrypt test cases.
 Actual requests require a Palm device or emulator with working NetLib
 connectivity. Emulator installation and network configuration are deliberately
 outside this example's build process because they vary by emulator and ROM.
+Pure 68K public-key operations can take several minutes on period hardware, so
+the tester uses a longer operation deadline when the native ARM math path is
+not available.
 
 ## Build profiles
 

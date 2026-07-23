@@ -8,7 +8,8 @@
 
 #define RESPONSE_CAPACITY 2048UL
 #define RESPONSE_LIMIT (1024UL * 1024UL)
-#define NETWORK_TIMEOUT_SECONDS 30
+#define ARM_NETWORK_TIMEOUT_SECONDS 30
+#define M68K_NETWORK_TIMEOUT_SECONDS 600
 #define CATALOG_VISIBLE_LIMIT 8
 
 #ifndef PALM_TLS_STARTUP_SELF_TEST
@@ -68,6 +69,13 @@ static void UpdateScrollBar(void);
 static void AppendText(Char *targetP, UInt16 capacity, const Char *textP);
 static void AppendPhaseDuration(Char *targetP, UInt16 capacity,
                                 const Char *labelP, UInt32 ticks);
+
+static Int32 NetworkTimeoutTicks(const AppState *stateP)
+{
+    UInt32 seconds = stateP->armStatus == palmTlsArmSelfTestPassed
+        ? ARM_NETWORK_TIMEOUT_SECONDS : M68K_NETWORK_TIMEOUT_SECONDS;
+    return (Int32)SysTicksPerSecond() * (Int32)seconds;
+}
 
 static Boolean HasDynamicInputArea(void)
 {
@@ -472,6 +480,7 @@ static void RunRequest(AppState *state)
     Boolean netOpen = false;
     NetSocketRef socket = -1;
     Boolean tlsSessionOpen = false;
+    Boolean tlsSessionOpening = false;
     Boolean tlsSessionReused = false;
     Boolean networkTimed = false;
     Boolean dnsTimed = false;
@@ -479,7 +488,8 @@ static void RunRequest(AppState *state)
     Boolean tlsAttempted = false;
     Boolean transferStarted = false;
     Err error = errNone;
-    Int32 timeout = (Int32)SysTicksPerSecond() * NETWORK_TIMEOUT_SECONDS;
+    Int32 timeout = NetworkTimeoutTicks(state);
+    Int32 stepTimeout = (Int32)SysTicksPerSecond() / 2;
     NetHostInfoBufType hostBuffer;
     NetHostInfoPtr hostInfoP;
     NetSocketAddrINType socketAddress;
@@ -597,17 +607,44 @@ static void RunRequest(AppState *state)
                 openParams.trustedPeerP, MemHandleSize(certificateH));
         }
         openParams.hostnameP = host;
-        openParams.timeoutTicks = timeout;
-        openParams.options = PALM_TLS_SESSION_ALLOW_RESUME;
+        openParams.timeoutTicks = stepTimeout;
+        openParams.options = PALM_TLS_SESSION_ALLOW_RESUME |
+            PALM_TLS_SESSION_COOPERATIVE;
         openResult.structSize = sizeof(openResult);
         tlsAttempted = true;
+        phaseStart = TimGetTicks();
         error = PalmTlsLibSessionOpen(state->tlsRefNum, &openParams,
             &openResult);
         engineLoadTicks = openResult.loadTicks;
         handshakeTicks = openResult.handshakeTicks;
+        tlsSessionId = openResult.sessionId;
+        tlsSessionOpening =
+            openResult.status == palmTlsStatusWouldBlock;
+        while (error == errNone &&
+               openResult.status == palmTlsStatusWouldBlock &&
+               TimGetTicks() - phaseStart < (UInt32)timeout) {
+            PalmTlsSessionIoParams handshakeParams;
+            MemSet(&handshakeParams, sizeof(handshakeParams), 0);
+            handshakeParams.structSize = sizeof(handshakeParams);
+            handshakeParams.sessionId = tlsSessionId;
+            handshakeParams.timeoutTicks = stepTimeout;
+            handshakeParams.options = PALM_TLS_IO_COOPERATIVE;
+            MemSet(&openResult, sizeof(openResult), 0);
+            openResult.structSize = sizeof(openResult);
+            EvtResetAutoOffTimer();
+            error = PalmTlsLibSessionHandshake(state->tlsRefNum,
+                &handshakeParams, &openResult);
+            handshakeTicks = openResult.handshakeTicks;
+            tlsSessionOpening =
+                openResult.status == palmTlsStatusWouldBlock;
+        }
         if (error != errNone) {
             SetError(message, sizeof(message), "TLS library", error);
             goto cleanup;
+        }
+        if (openResult.status == palmTlsStatusWouldBlock) {
+            openResult.status = palmTlsStatusHandshakeFailed;
+            openResult.netError = netErrTimeout;
         }
         if (openResult.status != palmTlsStatusOk) {
             StrPrintF(message,
@@ -616,7 +653,7 @@ static void RunRequest(AppState *state)
                 openResult.netError, openResult.platformError);
             goto cleanup;
         }
-        tlsSessionId = openResult.sessionId;
+        tlsSessionOpening = false;
         tlsSessionOpen = true;
         tlsSessionReused = openResult.sessionReused != 0;
         phaseStart = TimGetTicks();
@@ -723,6 +760,12 @@ cleanup:
         MemSet(&closeResult, sizeof(closeResult), 0);
         closeResult.structSize = sizeof(closeResult);
         PalmTlsLibSessionClose(state->tlsRefNum, tlsSessionId, &closeResult);
+    } else if (tlsSessionOpening) {
+        PalmTlsSessionIoResult cancelResult;
+        MemSet(&cancelResult, sizeof(cancelResult), 0);
+        cancelResult.structSize = sizeof(cancelResult);
+        PalmTlsLibSessionCancel(state->tlsRefNum, tlsSessionId,
+            &cancelResult);
     }
     if (certificateH != 0) {
         if (MemHandleLockCount(certificateH) != 0) MemHandleUnlock(certificateH);
@@ -844,8 +887,7 @@ static void StartDownload(AppState *state)
             ? palmTlsProtocolTls13 : palmTlsProtocolTls12;
     config.verifyMode = state->verifyCertificate
         ? palmTlsVerifyCaStore : palmTlsVerifyNone;
-    config.operationTimeoutTicks =
-        (Int32)SysTicksPerSecond() * NETWORK_TIMEOUT_SECONDS;
+    config.operationTimeoutTicks = NetworkTimeoutTicks(state);
     config.stepTimeoutTicks = (Int32)SysTicksPerSecond() / 2;
     if (config.stepTimeoutTicks < 1) config.stepTimeoutTicks = 1;
     config.maxRedirects = 5;

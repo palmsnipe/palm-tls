@@ -91,6 +91,9 @@ extern int WolfPalmRandomBlock(unsigned char *output, unsigned long size);
 /* ECDSA verification uses two complete scalar multiplications. On Palm OS 5
  * those are dispatched as two native P-256 ARMlet calls; keeping Shamir's
  * combined 68K loop would bypass the high-level accelerator. */
+#ifndef PALM_WOLFSSL_ENABLE_ARMLET_MATH
+#define ECC_SHAMIR
+#endif
 #define ECC_TIMING_RESISTANT
 #define NO_ECC_SIGN
 #else
