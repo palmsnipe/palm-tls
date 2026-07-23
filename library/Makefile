@@ -9,7 +9,7 @@ DEPS_PREFIX := $(if $(PALM_TLS_DEPS_PREFIX),$(PALM_TLS_DEPS_PREFIX),$(REPO)/.pal
 SDK := $(PREFIX)/palmdev/sdk/include
 WOLFSSL_SETTINGS := $(REPO)/wolfssl/user_settings.h
 CC := $(PREFIX)/bin/m68k-none-elf-gcc
-ARM_CC ?= $(shell xcrun -f clang)
+ARM_CC ?= clang
 ARM_CPU_FLAGS ?= -mcpu=arm926ej-s
 ARM_OPT_FLAGS ?= -Os
 HOST_CC ?= cc

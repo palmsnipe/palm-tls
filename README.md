@@ -26,6 +26,14 @@ not produce an additional PRC.
 - ImageMagick for generating the TLS Tester icon
 - a bootstrapped `palm-toolchain` repository
 
+The optional native ARMlet is compiled with Clang. `ARM_CC` defaults to
+`clang`, which uses Apple Clang on macOS and can use upstream LLVM Clang on
+Linux. Override it when Clang is installed under a nonstandard name or path:
+
+```sh
+make ARM_CC=/path/to/clang
+```
+
 By default, the repositories are sibling directories:
 
 ```text

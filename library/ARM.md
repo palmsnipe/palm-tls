@@ -31,9 +31,22 @@ one active session, so the buffer does not need per-operation locking.
 
 ## Build and ABI
 
-Xcode Clang compiles a roughly 29 KB freestanding ARMv5TE code image, including
-the generated fixed-base P-256 table. The
-ARMlet linker resolves internal calls and PC-relative constants, rejects
+Clang compiles a roughly 29 KB freestanding ARMv5TE code image, including the
+generated fixed-base P-256 table. `ARM_CC` defaults to `clang` and may be
+overridden when necessary:
+
+```sh
+make -C library ARM_CC=/path/to/clang
+```
+
+The same build rule uses Apple Clang from the Xcode Command Line Tools on
+macOS and upstream LLVM Clang on Linux. It always passes
+`--target=armv5te-none-eabi`, the ARM926EJ-S CPU selection, and the freestanding
+options explicitly, so it does not depend on the host's default architecture
+or system headers. The 68K portions continue to use the Palm toolchain's
+`m68k-none-elf-gcc`; GCC is not used to compile the ARMlet.
+
+The ARMlet linker resolves internal calls and PC-relative constants, rejects
 unsupported or external relocations, packages the result as `armc:1`, and
 verifies that the resource is word-aligned and present only in the ARM PRC.
 `PalmTLS68K.prc` contains no native resource.
