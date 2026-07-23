@@ -1,0 +1,35 @@
+diff --git a/src/internal.c b/src/internal.c
+index e5dc59a43..8d781d0b5 100644
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -5646,6 +5646,7 @@ int RsaEnc(WOLFSSL* ssl, const byte* in, word32 inSz, byte* out, word32* outSz,
+ 
+ #ifdef HAVE_ECC
+ 
++#ifdef HAVE_ECC_SIGN
+ int EccSign(WOLFSSL* ssl, const byte* in, word32 inSz, byte* out,
+     word32* outSz, ecc_key* key, DerBuffer* keyBufInfo)
+ {
+@@ -5711,6 +5712,7 @@ int EccSign(WOLFSSL* ssl, const byte* in, word32 inSz, byte* out,
+ 
+     return ret;
+ }
++#endif /* HAVE_ECC_SIGN */
+ 
+ int EccVerify(WOLFSSL* ssl, const byte* in, word32 inSz, const byte* out,
+     word32 outSz, ecc_key* key, buffer* keyBufInfo)
+diff --git a/wolfssl/internal.h b/wolfssl/internal.h
+index 3128e35e4..b6c8277b4 100644
+--- a/wolfssl/internal.h
++++ b/wolfssl/internal.h
+@@ -6834,8 +6834,10 @@ WOLFSSL_LOCAL int RsaEnc(WOLFSSL* ssl, const byte* in, word32 inSz, byte* out,
+     #endif /* !NO_RSA */
+ 
+     #ifdef HAVE_ECC
++        #ifdef HAVE_ECC_SIGN
+         WOLFSSL_LOCAL int EccSign(WOLFSSL* ssl, const byte* in, word32 inSz,
+             byte* out, word32* outSz, ecc_key* key, DerBuffer* keyBufInfo);
++        #endif
+         WOLFSSL_LOCAL int EccVerify(WOLFSSL* ssl, const byte* in, word32 inSz,
+             const byte* out, word32 outSz, ecc_key* key, buffer* keyBufInfo);
+         WOLFSSL_LOCAL int EccSharedSecret(WOLFSSL* ssl, ecc_key* priv_key,

@@ -6,7 +6,7 @@ ROOT := $(CURDIR)
 REPO := $(abspath $(ROOT)/../..)
 TOOLCHAIN_ROOT := $(if $(PALM_TOOLCHAIN_ROOT),$(PALM_TOOLCHAIN_ROOT),$(abspath $(REPO)/../palm-toolchain))
 PREFIX := $(if $(PALM_TOOLCHAIN_PREFIX),$(PALM_TOOLCHAIN_PREFIX),$(TOOLCHAIN_ROOT)/.toolchain/prefix)
-SDK := $(PREFIX)/palmdev/sdk-5r3/include
+SDK := $(PREFIX)/palmdev/sdk/include
 TLS_LIB := $(REPO)/library
 HTTP_COMPONENT := $(REPO)/components/http
 CC := $(PREFIX)/bin/m68k-none-elf-gcc
@@ -32,7 +32,7 @@ SDK_INCLUDES := -isystem$(SDK) -isystem$(SDK)/Core -isystem$(SDK)/Core/Hardware 
 	-isystem$(SDK)/Libraries -isystem$(SDK)/Libraries/PalmOSGlue
 ABI_FLAGS := -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -mshort
 WARN_FLAGS := -Wall -Wextra -Wsign-compare -Wno-unused-parameter -Wno-old-style-declaration
-COMMON_FLAGS := $(ABI_FLAGS) $(WARN_FLAGS) -MMD -MP -ffunction-sections -fdata-sections \
+COMMON_FLAGS := $(ABI_FLAGS) $(WARN_FLAGS) -std=gnu17 -MMD -MP -ffunction-sections -fdata-sections \
 	-DPALMOS -I$(ROOT)/src -I$(ROOT)/resources -I$(BUILD_DIR) \
 	-I$(TLS_LIB)/include -I$(HTTP_COMPONENT)/include $(SDK_INCLUDES)
 PROFILE_FLAGS := $(if $(filter release,$(PROFILE)),-Os,-O1 -g -ggdb)

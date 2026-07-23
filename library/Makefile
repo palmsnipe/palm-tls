@@ -6,7 +6,7 @@ ROOT := $(CURDIR)
 REPO := $(abspath $(ROOT)/..)
 PREFIX := $(if $(PALM_TOOLCHAIN_PREFIX),$(PALM_TOOLCHAIN_PREFIX),$(abspath $(REPO)/../palm-toolchain/.toolchain/prefix))
 DEPS_PREFIX := $(if $(PALM_TLS_DEPS_PREFIX),$(PALM_TLS_DEPS_PREFIX),$(REPO)/.palm-tls/prefix)
-SDK := $(PREFIX)/palmdev/sdk-5r3/include
+SDK := $(PREFIX)/palmdev/sdk/include
 WOLFSSL_SETTINGS := $(REPO)/wolfssl/user_settings.h
 CC := $(PREFIX)/bin/m68k-none-elf-gcc
 ARM_CC ?= $(shell xcrun -f clang)
@@ -51,7 +51,7 @@ SDK_INCLUDES := -isystem$(SDK) -isystem$(SDK)/Core -isystem$(SDK)/Core/Hardware 
 	-isystem$(SDK)/Libraries -isystem$(SDK)/Libraries/PalmOSGlue
 ABI_FLAGS := -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -mshort
 WARN_FLAGS := -Wall -Wextra -Wsign-compare -Wno-unused-parameter -Wno-old-style-declaration -Wno-error=cpp
-COMMON_FLAGS := $(ABI_FLAGS) $(WARN_FLAGS) -Os -ffunction-sections -fdata-sections \
+COMMON_FLAGS := $(ABI_FLAGS) $(WARN_FLAGS) -std=gnu17 -Os -ffunction-sections -fdata-sections \
 	-DPALMOS -DPALM_TLS_LIB_BUILD -DWOLFSSL_USER_SETTINGS -Iinclude -Isrc \
 	-I$(REPO)/wolfssl -I$(DEPS_PREFIX)/include $(SDK_INCLUDES)
 LDFLAGS := $(ABI_FLAGS) -Os -nostartfiles -Wl,--gc-sections \

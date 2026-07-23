@@ -3,7 +3,7 @@ SHELL := /bin/bash
 ROOT := $(CURDIR)
 REPO := $(abspath $(ROOT)/../..)
 PREFIX := $(if $(PALM_TOOLCHAIN_PREFIX),$(PALM_TOOLCHAIN_PREFIX),$(abspath $(REPO)/../palm-toolchain/.toolchain/prefix))
-SDK := $(PREFIX)/palmdev/sdk-5r3/include
+SDK := $(PREFIX)/palmdev/sdk/include
 CC := $(PREFIX)/bin/m68k-none-elf-gcc
 HOST_CC ?= cc
 BUILD := $(ROOT)/build
@@ -12,7 +12,7 @@ HOST_TEST := $(BUILD)/host/http_test
 SDK_INCLUDES := -isystem$(SDK) -isystem$(SDK)/Core \
 	-isystem$(SDK)/Core/Hardware -isystem$(SDK)/Core/System \
 	-isystem$(SDK)/Core/UI -isystem$(SDK)/Dynamic -isystem$(SDK)/Libraries
-PALM_FLAGS := -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic \
+PALM_FLAGS := -std=gnu17 -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic \
 	-fshort-enums -mshort -Wall -Wextra -Werror -Os -DPALMOS \
 	-Iinclude $(SDK_INCLUDES)
 

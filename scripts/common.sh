@@ -54,8 +54,8 @@ require_toolchain() {
       exit 1
     fi
   done
-  if [[ ! -f "$TOOLCHAIN_PREFIX/palmdev/sdk-5r3/include/PalmOS.h" ]]; then
-    echo "Missing Palm OS SDK in $TOOLCHAIN_PREFIX/palmdev/sdk-5r3" >&2
+  if [[ ! -f "$TOOLCHAIN_PREFIX/palmdev/sdk/include/PalmOS.h" ]]; then
+    echo "Missing Palm OS SDK in $TOOLCHAIN_PREFIX/palmdev/sdk" >&2
     exit 1
   fi
 }

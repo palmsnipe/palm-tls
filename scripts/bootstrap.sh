@@ -18,6 +18,7 @@ patches=(
   wolfssl-m68k-tls13-ignore-tickets.patch
   wolfssl-palm-armlet-math.patch
   wolfssl-preserve-peer-key-error.patch
+  wolfssl-no-ecc-sign-build.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
@@ -26,12 +27,13 @@ done
 
 fingerprint="$({
   printf '%s\n' "$WOLFSSL_COMMIT"
+  sha256_file "$TOOLCHAIN_PREFIX/bin/m68k-none-elf-gcc"
   sha256_file "$PALM_TLS_ROOT/scripts/bootstrap.sh"
   sha256_file "$PALM_TLS_ROOT/wolfssl/user_settings.h"
   for patch_name in "${patches[@]}"; do
     sha256_file "$PALM_TLS_ROOT/patches/wolfssl/$patch_name"
   done
-  printf '%s\n' 'wolfssl-cflags:-O2-fno-strict-aliasing-fwrapv'
+  printf '%s\n' 'wolfssl-cflags:-std=gnu17-Os-fno-strict-aliasing-fwrapv'
 } | shasum -a 256 | awk '{print $1}')"
 stamp="$DEPS_PREFIX/.wolfssl-build.sha256"
 archives=(libwolfssl.a libwolfssl-armlet.a libwolfssl-tls11.a \
@@ -61,7 +63,7 @@ build_variant() {
     CC="$TOOLCHAIN_PREFIX/bin/m68k-none-elf-gcc" \
     AR="$TOOLCHAIN_PREFIX/bin/m68k-none-elf-ar" \
     RANLIB="$TOOLCHAIN_PREFIX/bin/m68k-none-elf-ranlib" \
-    CFLAGS='-O2 -fno-strict-aliasing -fwrapv -m68000 -mno-align-int -fshort-enums -mshort -ffunction-sections -fdata-sections' \
+    CFLAGS='-std=gnu17 -Os -fno-strict-aliasing -fwrapv -m68000 -mno-align-int -fshort-enums -mshort -ffunction-sections -fdata-sections' \
     CPPFLAGS="$defines -I$PALM_TLS_ROOT/wolfssl" \
       "$wolfssl/configure" \
         --host=m68k-none-elf --prefix="$DEPS_PREFIX" --enable-usersettings \
