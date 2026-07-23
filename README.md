@@ -20,8 +20,8 @@ not produce an additional PRC.
 
 ## Requirements
 
-- macOS with Xcode Command Line Tools
-- Homebrew
+- macOS with Xcode Command Line Tools and Homebrew, or Linux with Clang and
+  standard Autotools packages
 - Node.js
 - ImageMagick for generating the TLS Tester icon
 - a bootstrapped `palm-toolchain` repository
@@ -51,6 +51,14 @@ Install the host dependencies:
 
 ```sh
 brew bundle
+```
+
+On Ubuntu 24.04, install the equivalent host packages:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y \
+  autoconf automake clang imagemagick librsvg2-bin libtool nodejs
 ```
 
 Fetch the pinned wolfSSL revision, apply the Palm patches, and build all

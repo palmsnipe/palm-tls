@@ -153,7 +153,7 @@ $(ELF_13_ARM): $(OBJECTS_13_ARM) toolchain/linker.lkr $(TLS13_ARCHIVE_FILE_ARM) 
 
 $(LIBRARY_CODE): $(BASE_ELF_68K)
 	$(OBJCOPY) -O binary $< $@ -j .text
-	@test "$$(stat -f %z $@)" -lt 65000
+	@test "$$(wc -c < $@)" -lt 65000
 
 define ENGINE_RESOURCES
 $(2)/TlsC$(3).bin: $(1) | $(2)

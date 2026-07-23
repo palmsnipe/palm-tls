@@ -8,13 +8,30 @@ TOOLCHAIN_PREFIX="${PALM_TOOLCHAIN_PREFIX:-$TOOLCHAIN_ROOT/.toolchain/prefix}"
 SOURCES="$PALM_TLS_STATE/src"
 BUILD="$PALM_TLS_STATE/build"
 DEPS_PREFIX="${PALM_TLS_DEPS_PREFIX:-$PALM_TLS_STATE/prefix}"
-JOBS="${JOBS:-$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)}"
+HOST_OS="$(uname -s)"
+JOBS="${JOBS:-$(
+  getconf _NPROCESSORS_ONLN 2>/dev/null ||
+    sysctl -n hw.logicalcpu 2>/dev/null ||
+    echo 4
+)}"
 
 # shellcheck source=../config/sources.lock
 source "$PALM_TLS_ROOT/config/sources.lock"
 
 sha256_file() {
-  shasum -a 256 "$1" | awk '{print $1}'
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+sha256_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  else
+    shasum -a 256 | awk '{print $1}'
+  fi
 }
 
 clone_at() {

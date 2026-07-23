@@ -16,7 +16,7 @@ PILRC := $(PREFIX)/bin/pilrc
 BUILD_PRC := $(PREFIX)/bin/build-prc
 PROFILE ?= debug
 STARTUP_SELF_TEST ?= 0
-MAGICK ?= magick
+MAGICK ?= $(shell command -v magick 2>/dev/null || command -v convert 2>/dev/null || printf magick)
 BUILD_DIR := $(ROOT)/build/$(PROFILE)
 ELF := $(BUILD_DIR)/code0001.68k.elf
 CODE := $(BUILD_DIR)/code0001.bin
@@ -74,11 +74,11 @@ $(CODE): $(ELF)
 	$(OBJCOPY) -O binary $< $@ -j .vec -j .text
 
 $(BUILD_DIR)/icon-mono.bmp: resources/icon.svg | $(BUILD_DIR)
-	@command -v $(MAGICK) >/dev/null || { echo "ImageMagick is required; run brew bundle." >&2; exit 1; }
+	@command -v $(MAGICK) >/dev/null || { echo "ImageMagick is required; see the repository README." >&2; exit 1; }
 	$(MAGICK) resources/icon.svg -transparent '#ff00ff' -background white -alpha remove \
 		-colorspace gray -threshold 55% -type bilevel -compress none BMP3:$@
 $(BUILD_DIR)/icon-color.bmp: resources/icon.svg | $(BUILD_DIR)
-	@command -v $(MAGICK) >/dev/null || { echo "ImageMagick is required; run brew bundle." >&2; exit 1; }
+	@command -v $(MAGICK) >/dev/null || { echo "ImageMagick is required; see the repository README." >&2; exit 1; }
 	$(MAGICK) resources/icon.svg -background '#ff00ff' -alpha remove -colors 256 \
 		-compress none BMP3:$@
 

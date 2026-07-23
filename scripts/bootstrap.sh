@@ -34,7 +34,7 @@ fingerprint="$({
     sha256_file "$PALM_TLS_ROOT/patches/wolfssl/$patch_name"
   done
   printf '%s\n' 'wolfssl-cflags:-std=gnu17-Os-fno-strict-aliasing-fwrapv'
-} | shasum -a 256 | awk '{print $1}')"
+} | sha256_stdin)"
 stamp="$DEPS_PREFIX/.wolfssl-build.sha256"
 archives=(libwolfssl.a libwolfssl-armlet.a libwolfssl-tls11.a \
   libwolfssl-tls11-armlet.a libwolfssl-tls13.a libwolfssl-tls13-armlet.a)

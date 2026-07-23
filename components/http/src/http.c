@@ -231,7 +231,7 @@ Boolean HttpParseUrl(const Char *textP, Boolean defaultSecure,
         source = 7;
     }
     while (textP[source] != '\0' && textP[source] != '/' &&
-           textP[source] != ':' && target + 1 < sizeof(urlP->host))
+           textP[source] != ':' && target < sizeof(urlP->host) - 1)
         urlP->host[target++] = textP[source++];
     urlP->host[target] = '\0';
     if (target == 0 || textP[source] == '@') return false;
@@ -391,8 +391,8 @@ static UInt16 FeedChunked(HttpParser *parserP, const UInt8 *dataP,
                 parserP->chunkRemaining = size;
                 parserP->chunkState = size == 0
                     ? chunkStateTrailers : chunkStateData;
-            } else if (parserP->chunkLineLength + 1 <
-                       sizeof(parserP->chunkLine)) {
+            } else if (parserP->chunkLineLength <
+                       sizeof(parserP->chunkLine) - 1) {
                 parserP->chunkLine[parserP->chunkLineLength++] = value;
             } else return httpMalformed;
         } else if (parserP->chunkState == chunkStateData) {
@@ -439,7 +439,7 @@ UInt16 HttpParserFeed(HttpParser *parserP,
         return parserP != 0 ? parserP->parseStatus
             : httpMalformed;
     while (!parserP->headersComplete && offset < length) {
-        if (parserP->headerLength + 1 >= sizeof(parserP->headers))
+        if (parserP->headerLength >= sizeof(parserP->headers) - 1)
             return parserP->parseStatus = httpHeadersTooLarge;
         parserP->headers[parserP->headerLength++] = (Char)dataP[offset++];
         parserP->headers[parserP->headerLength] = '\0';
