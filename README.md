@@ -124,6 +124,11 @@ It is intentionally not triggered for pull requests. The repository secret
 `PALM_TOOLCHAIN_REGISTRY_TOKEN` must contain a dedicated classic GitHub token
 with only the `read:packages` scope; do not reuse a general-purpose token.
 
+Pushing a version tag such as `v0.1.0` runs the same trusted build and creates
+a draft GitHub Release. Its permanent download assets include the individual
+PRCs, a complete binary ZIP, checksums, and a corresponding-source archive with
+the exact pinned wolfSSL source. Review the draft before publishing it.
+
 Install one PalmTLS PRC followed by `TlsTester.prc`. Actual HTTP and HTTPS
 requests require a Palm OS device or emulator with working NetLib connectivity.
 For 68K testing in CloudpilotEmu, enable its **Overclock** control at 8x or

@@ -2,6 +2,9 @@ name: Build PalmTLS artifacts
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
@@ -28,7 +31,7 @@ jobs:
       - name: Install application build dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends imagemagick librsvg2-bin
+          apt-get install -y --no-install-recommends imagemagick librsvg2-bin zip
           rm -rf /var/lib/apt/lists/*
 
       - name: Verify toolchain
@@ -41,12 +44,56 @@ jobs:
         run: make -C apps/tls-tester release
 
       - name: Package outputs
-        run: scripts/package-artifacts.sh
+        run: |
+          scripts/package-artifacts.sh
+          version="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+            version="$(sed -n 's/^LIB_VERSION := //p' library/app.mk)"
+          fi
+          scripts/package-release.sh "$version"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
           name: palm-tls-${{ github.sha }}
-          path: dist/
+          path: |
+            dist/
+            release-assets/
           if-no-files-found: error
           retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified build outputs
+        uses: actions/download-artifact@v7
+        with:
+          name: palm-tls-${{ github.sha }}
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes="$(mktemp)"
+          {
+            echo "PalmTLS ${version}"
+            echo
+            echo "Install exactly one PalmTLS library variant, followed by TLS Tester if desired."
+            echo "The ZIP contains all binaries, the public header, documentation, licenses, and checksums."
+            echo "The corresponding-source archive includes the exact pinned wolfSSL source and PalmTLS patches."
+            echo
+            echo "This is a draft release. Review the assets and notes before publishing it."
+          } >"$notes"
+
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --draft \
+            --title "PalmTLS ${version}" \
+            --notes-file "$notes"
