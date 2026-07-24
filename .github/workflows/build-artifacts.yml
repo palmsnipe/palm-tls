@@ -50,6 +50,7 @@ jobs:
         shell: bash
         run: |
           scripts/package-artifacts.sh
+          (cd dist && sha256sum -c SHA256SUMS)
           version="${GITHUB_REF_NAME#v}"
           if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
             version="$(sed -n 's/^LIB_VERSION := //p' library/app.mk)"
@@ -84,13 +85,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
+          wolfssl_commit="$(sed -n 's/^WOLFSSL_COMMIT="\([^"]*\)"/\1/p' dist/SOURCE.txt)"
+          if [[ -z "$wolfssl_commit" ]]; then
+            echo "Unable to determine the pinned wolfSSL commit." >&2
+            exit 1
+          fi
           notes="$(mktemp)"
           {
             echo "PalmTLS ${version}"
             echo
             echo "Install exactly one PalmTLS library variant, followed by TLS Tester if desired."
             echo "The ZIP contains all binaries, the public header, documentation, licenses, and checksums."
-            echo "The corresponding-source archive includes the exact pinned wolfSSL source and PalmTLS patches."
+            echo
+            echo "## Corresponding source"
+            echo
+            echo "- [PalmTLS ${version} source](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME})"
+            echo "- [Exact wolfSSL source](https://github.com/wolfSSL/wolfssl/tree/${wolfssl_commit})"
+            echo "- [Palm-specific wolfSSL patches](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}/patches/wolfssl)"
+            echo "- [Build scripts](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}/scripts)"
             echo
             echo "This is a draft release. Review the assets and notes before publishing it."
           } >"$notes"
