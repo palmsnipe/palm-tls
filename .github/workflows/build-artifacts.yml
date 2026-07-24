@@ -10,13 +10,13 @@ permissions:
 env:
   PALM_TOOLCHAIN_ROOT: /opt/palm-toolchain
   PALM_TOOLCHAIN_PREFIX: /opt/palm-toolchain/.toolchain/prefix
-  PALM_TOOLCHAIN_IMAGE: ghcr.io/palmsnipe/palm-toolchain-sdk@sha256:c46f0fedb7f584b5881f1ecd5566fdb1fa07b09166390d006e13ba97496ac9de
+  PALM_TOOLCHAIN_IMAGE: ghcr.io/palmsnipe/palm-toolchain-sdk@sha256:2c441bfa432785cf90e34fb5f4efe241c07a9e3666ee475119d856f96db3299f
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/palmsnipe/palm-toolchain-sdk@sha256:c46f0fedb7f584b5881f1ecd5566fdb1fa07b09166390d006e13ba97496ac9de
+      image: ghcr.io/palmsnipe/palm-toolchain-sdk@sha256:2c441bfa432785cf90e34fb5f4efe241c07a9e3666ee475119d856f96db3299f
       credentials:
         username: palmsnipe
         password: ${{ secrets.PALM_TOOLCHAIN_REGISTRY_TOKEN }}
