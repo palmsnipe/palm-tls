@@ -28,6 +28,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
+      - name: Trust checked-out source
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Install application build dependencies
         run: |
           apt-get update
@@ -44,6 +47,7 @@ jobs:
         run: make -C apps/tls-tester release
 
       - name: Package outputs
+        shell: bash
         run: |
           scripts/package-artifacts.sh
           version="${GITHUB_REF_NAME#v}"
