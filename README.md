@@ -110,6 +110,20 @@ For an optimized application build, run:
 make -C apps/tls-tester release
 ```
 
+Create a distributable directory containing all six library PRCs, the public
+header and documentation, and the release TLS Tester with:
+
+```sh
+scripts/package-artifacts.sh
+```
+
+The same packaging command is used by the manually triggered GitHub Actions
+workflow. That trusted workflow runs inside a private SDK-enabled toolchain
+image and uploads the resulting `dist/` directory as a 30-day build artifact.
+It is intentionally not triggered for pull requests. The repository secret
+`PALM_TOOLCHAIN_REGISTRY_TOKEN` must contain a dedicated classic GitHub token
+with only the `read:packages` scope; do not reuse a general-purpose token.
+
 Install one PalmTLS PRC followed by `TlsTester.prc`. Actual HTTP and HTTPS
 requests require a Palm OS device or emulator with working NetLib connectivity.
 For 68K testing in CloudpilotEmu, enable its **Overclock** control at 8x or

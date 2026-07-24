@@ -1,4 +1,5 @@
 /.palm-tls/
+/dist/
 /components/http/build/
 /library/build/
 /examples/network/build/

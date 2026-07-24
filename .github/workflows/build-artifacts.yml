@@ -1,0 +1,52 @@
+name: Build PalmTLS artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  PALM_TOOLCHAIN_ROOT: /opt/palm-toolchain
+  PALM_TOOLCHAIN_PREFIX: /opt/palm-toolchain/.toolchain/prefix
+  PALM_TOOLCHAIN_IMAGE: ghcr.io/palmsnipe/palm-toolchain-sdk@sha256:c46f0fedb7f584b5881f1ecd5566fdb1fa07b09166390d006e13ba97496ac9de
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/palmsnipe/palm-toolchain-sdk@sha256:c46f0fedb7f584b5881f1ecd5566fdb1fa07b09166390d006e13ba97496ac9de
+      credentials:
+        username: palmsnipe
+        password: ${{ secrets.PALM_TOOLCHAIN_REGISTRY_TOKEN }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install application build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends imagemagick librsvg2-bin
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Verify toolchain
+        run: make -C "$PALM_TOOLCHAIN_ROOT" check
+
+      - name: Build and test PalmTLS
+        run: make check
+
+      - name: Build release TLS Tester
+        run: make -C apps/tls-tester release
+
+      - name: Package outputs
+        run: scripts/package-artifacts.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: palm-tls-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
