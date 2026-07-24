@@ -1,38 +1,29 @@
 diff --git a/wolfcrypt/src/wc_port.c b/wolfcrypt/src/wc_port.c
-index a8927a9e3..701b0d743 100644
 --- a/wolfcrypt/src/wc_port.c
 +++ b/wolfcrypt/src/wc_port.c
-@@ -238,6 +238,9 @@ static int initRefCount = 0;
+@@ -421,6 +421,9 @@ int aarch64_use_sb = 0;
  WOLFSSL_ABI
  int wolfCrypt_Init(void)
  {
 +#if defined(WOLFSSL_PALM_STATELESS_INIT)
 +    return 0;
 +#else
-     int ret = 0;
-     int my_initRefCount = wolfSSL_Atomic_Int_FetchAdd(&initRefCount, 1);
-     if (my_initRefCount == 0) {
-@@ -540,6 +543,7 @@ int wolfCrypt_Init(void)
-     }
-
-     return ret;
+     int ret;
+ #if defined(HAVE_THREAD_LS) && !defined(NO_THREAD_LS) && defined(__GNUC__)
+     /* If thread-local storage is available, use it to prevent deadlock on
+@@ -770,2 +773,3 @@ int wolfCrypt_Init(void)
+     /* not reached */
 +#endif
  }
-
- #if defined(WOLFSSL_TRACK_MEMORY_VERBOSE) && !defined(WOLFSSL_STATIC_MEMORY)
-@@ -558,6 +562,9 @@ long wolfCrypt_heap_peakBytes_checkpoint(void) {
+@@ -793,4 +797,7 @@ long wolfCrypt_heap_peakBytes_checkpoint(void) {
  WOLFSSL_ABI
  int wolfCrypt_Cleanup(void)
  {
 +#if defined(WOLFSSL_PALM_STATELESS_INIT)
 +    return 0;
 +#else
-     int ret = 0;
-     int my_initRefCount = wolfSSL_Atomic_Int_SubFetch(&initRefCount, 1);
-
-@@ -762,4 +769,5 @@ int wolfCrypt_Cleanup(void)
-     }
-
-     return ret;
+     int ret;
+@@ -933,2 +940,3 @@ int wolfCrypt_Cleanup(void)
+     /* not reached */
 +#endif
  }

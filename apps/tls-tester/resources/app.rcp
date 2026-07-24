@@ -68,4 +68,5 @@ END
 ICONFAMILY ID AppIcon
     "icon-mono.bmp" "" "" "icon-color.bmp" TRANSPARENCY 255 0 255
 APPLICATIONICONNAME ID 1000 "TLS Tester"
-STRING ID AppVersionString "0.1.0"
+VERSION ID AppVersionString "@APP_VERSION@"
+STRING ID AppVersionString "@APP_VERSION@"

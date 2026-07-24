@@ -32,6 +32,7 @@ ELF_12_ARM := $(PALM_ARM_BUILD)/library.elf
 ELF_13_ARM := $(PALM_ARM_BUILD)/library-tls13.elf
 LIBRARY_CODE := $(PALM_BUILD)/library.bin
 BASE_RO := $(PALM_BUILD)/$(LIB_ID)-base.ro
+RESOURCE_RCP := $(GENERATED)/library.rcp
 ARMLET_OBJECT := $(PALM_BUILD)/armlet.o
 ARMLET_CODE := $(PALM_BUILD)/armc0001.bin
 P256_COMB := $(GENERATED)/p256_comb8.inc
@@ -107,6 +108,9 @@ $(GENERATED) $(PALM_BUILD) $(PALM_68K_BUILD) $(PALM_ARM_BUILD):
 
 $(DISPATCH): library.def | $(GENERATED)
 	$(STUBGEN) -b $(GENERATED)/library library.def
+
+$(RESOURCE_RCP): resources/library.rcp app.mk | $(GENERATED)
+	sed 's/@LIB_VERSION@/$(LIB_VERSION)/g' $< > $@
 
 $(PALM_BUILD)/palm_library.o: src/palm_library.c include/palm_tls.h src/tls_internal.h | $(PALM_BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
@@ -192,24 +196,26 @@ $(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h $(
 	$(HOST_CC) -std=c99 -O2 -Wall -Wextra -Werror \
 		-DPALM_ARMLET_HOST_TEST -I$(GENERATED) $(filter %.c,$^) -o $@
 
-$(BASE_RO): resources/library.rcp app.mk $(LIBRARY_CODE) | $(PALM_BUILD)
+$(BASE_RO): $(RESOURCE_RCP) $(LIBRARY_CODE) | $(PALM_BUILD)
 	cd $(PALM_BUILD) && $(PILRC) -ro -o $(BASE_RO) -creator $(LIB_CREATOR) \
-		-type $(LIB_TYPE) -name '$(LIB_NAME)' $(ROOT)/resources/library.rcp
+		-type $(LIB_TYPE) -name '$(LIB_NAME)' $(RESOURCE_RCP)
 
 $(PRC_68K): $(LIBRARY_CODE) $(PROFILE_RESOURCES_68K) resources/library.rcp app.mk $(BASE_RO)
-	$(BUILD_PRC) --no-check -o $@ -n '$(LIB_NAME)' -c $(LIB_CREATOR) -t $(LIB_TYPE) \
+	$(BUILD_PRC) --no-check -o $@ -n '$(LIB_NAME)' -c $(LIB_CREATOR) \
+		-t $(LIB_TYPE) -v $(LIB_DB_VERSION) \
 		$(BASE_RO) $(PROFILE_RESOURCES_68K)
 	@echo "Built $@"
 
 $(PRC_ARM): $(LIBRARY_CODE) $(PROFILE_RESOURCES_ARM) resources/library.rcp app.mk \
 		$(BASE_RO) $(ARMLET_CODE) $(ARMLET_PAD)
-	$(BUILD_PRC) --no-check -o $@ -n '$(LIB_NAME)' -c $(LIB_CREATOR) -t $(LIB_TYPE) \
+	$(BUILD_PRC) --no-check -o $@ -n '$(LIB_NAME)' -c $(LIB_CREATOR) \
+		-t $(LIB_TYPE) -v $(LIB_DB_VERSION) \
 		$(BASE_RO) $(PROFILE_RESOURCES_ARM) $(ARMLET_PAD) $(ARMLET_CODE)
 	@echo "Built $@"
 
 test-prc: $(PRC_68K) $(PRC_ARM)
-	node tools/validate_library.mjs $(PRC_68K) 68k $(TLS_PROFILE)
-	node tools/validate_library.mjs $(PRC_ARM) arm $(TLS_PROFILE)
+	node tools/validate_library.mjs $(PRC_68K) 68k $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION)
+	node tools/validate_library.mjs $(PRC_ARM) arm $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION)
 	$(SIZE) $(PROFILE_ELFS_68K) $(PROFILE_ELFS_ARM)
 
 test: profiles $(ARMLET_HOST_TEST)

@@ -36,6 +36,7 @@ sha256_stdin() {
 
 clone_at() {
   local repository="$1" destination="$2" commit="$3"
+  local current_commit=""
   if [[ ! -d "$destination/.git" ]]; then
     rm -rf "$destination"
     git init --quiet "$destination"
@@ -43,6 +44,11 @@ clone_at() {
   fi
   if ! git -C "$destination" cat-file -e "$commit^{commit}" 2>/dev/null; then
     git -C "$destination" fetch --quiet --depth=1 origin "$commit"
+  fi
+  current_commit="$(git -C "$destination" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "$current_commit" != "$commit" ]]; then
+    git -C "$destination" reset --hard --quiet
+    git -C "$destination" clean -fdxq
   fi
   git -C "$destination" checkout --quiet --detach "$commit"
   [[ "$(git -C "$destination" rev-parse HEAD)" == "$commit" ]]

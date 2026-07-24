@@ -1,8 +1,8 @@
 # Downloader architecture
 
-The TLS Tester download implementation combines NetLib, the public PalmTLS API
-10 ABI, and the directly compiled `components/http` source. `DownloadClient`
-and `DownloadStore` belong to this example application. They are not shared
+The TLS Tester download implementation combines NetLib, the public PalmTLS
+API, and the directly compiled `components/http` source. `DownloadClient` and
+`DownloadStore` belong to this example application. They are not shared
 libraries or stable PalmTLS APIs.
 
 ## Event-loop integration

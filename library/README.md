@@ -10,11 +10,10 @@ profiles from the same source:
   P-256 scalar multiplication, and SHA-256 compression execute as a native
   ARMlet through `PceNativeCall`.
 
-All profiles install internally as `Palm TLS` with creator `PTLS` and expose only API
-10, so they cannot and need not coexist. Install the variant appropriate for
-the device, then load it from applications with `SysLibFind` or `SysLibLoad`
-and the API in
-`include/palm_tls.h`.
+All profiles install internally as `Palm TLS` with creator `PTLS` and expose
+the same public API, so they cannot and need not coexist. Install the variant
+appropriate for the device, then load it from applications with `SysLibFind`
+or `SysLibLoad` and the API in `include/palm_tls.h`.
 
 The library accepts an already-connected NetLib TCP socket. It provides SNI,
 explicit TLS 1.1/TLS 1.2/TLS 1.3 selection, encrypted send/receive, hostname and certificate-date

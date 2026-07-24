@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 
-const [file, variant = '68k', profile = 'full'] = process.argv.slice(2);
-if (!file) throw new Error('usage: validate_library.mjs FILE [68k|arm] [tls13|modern|full]');
+const [file, variant = '68k', profile = 'full', expectedVersion,
+  expectedDbVersion] = process.argv.slice(2);
+if (!file || !expectedVersion || !expectedDbVersion) {
+  throw new Error(
+    'usage: validate_library.mjs FILE [68k|arm] [tls13|modern|full] VERSION DB_VERSION',
+  );
+}
 const selectedProtocols = {
   tls13: [13],
   modern: [12, 13],
@@ -16,8 +21,12 @@ const name = text(0, 32);
 const type = data.subarray(60, 64).toString('latin1');
 const creator = data.subarray(64, 68).toString('latin1');
 const count = data.readUInt16BE(76);
+const dbVersion = data.readUInt16BE(34);
 if (name !== 'Palm TLS' || type !== 'libr' || creator !== 'PTLS') {
   throw new Error(`unexpected identity ${name}, ${type}/${creator}`);
+}
+if (dbVersion !== Number(expectedDbVersion)) {
+  throw new Error(`database version ${dbVersion} != ${expectedDbVersion}`);
 }
 const resources = [];
 const identities = new Set();
@@ -38,7 +47,7 @@ const protocolResources = {
   12: [['TlsC', 1], ['TlsC', 2], ['TlsC', 3], ['TlsC', 4], ['TlsR', 1]],
   13: [['TlsC', 11], ['TlsC', 12], ['TlsC', 13], ['TlsC', 14], ['TlsR', 2]],
 };
-const requiredResources = [['libr', 0],
+const requiredResources = [['libr', 0], ['tver', 1],
   ...selectedProtocols.flatMap((protocol) => protocolResources[protocol])];
 for (const required of requiredResources) {
   if (!resources.some(({ type: resourceType, id }) =>
@@ -80,6 +89,14 @@ for (let i = 0; i < ordered.length; i += 1) {
 
 const resource = (type, id) => ordered.find((entry) =>
   entry.type === type && entry.id === id);
+const versionResource = resource('tver', 1);
+const version = data.subarray(
+  versionResource.offset,
+  versionResource.offset + versionResource.size,
+).toString('latin1').split('\0', 1)[0];
+if (version !== expectedVersion) {
+  throw new Error(`version resource ${JSON.stringify(version)} != ${JSON.stringify(expectedVersion)}`);
+}
 for (const engine of [
   { protocol: 12, reloc: 1, segments: [1, 2, 3, 4] },
   { protocol: 13, reloc: 2, segments: [11, 12, 13, 14] },

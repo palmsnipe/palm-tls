@@ -22,6 +22,7 @@ ELF := $(BUILD_DIR)/code0001.68k.elf
 CODE := $(BUILD_DIR)/code0001.bin
 PRC := $(BUILD_DIR)/$(APP_ID).prc
 BASE_RO := $(BUILD_DIR)/$(APP_ID)-base.ro
+RESOURCE_RCP := $(BUILD_DIR)/app.rcp
 MAP := $(BUILD_DIR)/$(APP_ID).map
 OBJECTS := $(BUILD_DIR)/main.o $(BUILD_DIR)/download_store.o \
 	$(BUILD_DIR)/download_client.o $(BUILD_DIR)/http.o \
@@ -55,6 +56,8 @@ benchmark: library
 
 $(BUILD_DIR):
 	@mkdir -p $@
+$(RESOURCE_RCP): resources/app.rcp app.mk | $(BUILD_DIR)
+	sed 's/@APP_VERSION@/$(APP_VERSION)/g' $< > $@
 $(BUILD_DIR)/%.o: src/%.c app.mk | $(BUILD_DIR)
 	$(CC) $(COMMON_FLAGS) $(PROFILE_FLAGS) -DAPP_VERSION='"$(APP_VERSION)"' \
 		-DMIN_OS_MAJOR=$(MIN_OS_MAJOR) -DMIN_OS_MINOR=$(MIN_OS_MINOR) \
@@ -82,12 +85,13 @@ $(BUILD_DIR)/icon-color.bmp: resources/icon.svg | $(BUILD_DIR)
 	$(MAGICK) resources/icon.svg -background '#ff00ff' -alpha remove -colors 256 \
 		-compress none BMP3:$@
 
-$(PRC): $(CODE) $(BUILD_DIR)/icon-mono.bmp $(BUILD_DIR)/icon-color.bmp resources/app.rcp resources/resource.h \
+$(PRC): $(CODE) $(BUILD_DIR)/icon-mono.bmp $(BUILD_DIR)/icon-color.bmp $(RESOURCE_RCP) resources/resource.h \
 	certs/gts-wr2.der certs/gts-we1.der certs/letsencrypt-yr2.der app.mk
 	cd $(BUILD_DIR) && $(PILRC) -ro -o $(BASE_RO) -creator $(APP_CREATOR) \
-		-type $(APP_TYPE) -name '$(APP_NAME)' -I $(ROOT)/resources $(ROOT)/resources/app.rcp
+		-type $(APP_TYPE) -name '$(APP_NAME)' \
+		-I $(ROOT)/resources $(RESOURCE_RCP)
 	$(BUILD_PRC) --no-check -o $(PRC) -n '$(APP_NAME)' -c $(APP_CREATOR) \
-		-t $(APP_TYPE) $(BASE_RO)
+		-t $(APP_TYPE) -v $(APP_DB_VERSION) $(BASE_RO)
 	$(SIZE) $(ELF)
 	@echo "Built $(PRC)"
 

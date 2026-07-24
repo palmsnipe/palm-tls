@@ -155,7 +155,7 @@ hobbyist interoperability, not high-value secrets.
 
 ## Examples
 
-- `examples/network/library_lifecycle.c`: safe load/open/version/close pattern
+- `examples/network/library_lifecycle.c`: safe load/open/capability/close pattern
 - `examples/network/cooperative_tls.c`: handshake/write/read state handling
 - `examples/network/http_stream.c`: feeds TLS plaintext into the HTTP component
 - `apps/tls-tester/src/download_client.c`: full DNS/TCP/TLS/HTTP implementation

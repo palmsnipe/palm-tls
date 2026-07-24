@@ -2,4 +2,4 @@
 # Every external source used by the network build is pinned here.
 
 WOLFSSL_REPOSITORY="https://github.com/wolfSSL/wolfssl.git"
-WOLFSSL_COMMIT="1d363f3adceba9d1478230ede476a37b0dcdef24"
+WOLFSSL_COMMIT="ac01707f552c611fbd135cc723b2682b3e7f80f2"
