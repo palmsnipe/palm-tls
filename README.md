@@ -112,6 +112,10 @@ make -C apps/tls-tester release
 
 Install one PalmTLS PRC followed by `TlsTester.prc`. Actual HTTP and HTTPS
 requests require a Palm OS device or emulator with working NetLib connectivity.
+For 68K testing in CloudpilotEmu, enable its **Overclock** control at 8x or
+higher; 512x is recommended for practical public-site TLS handshakes. This
+uses CloudpilotEmu's CPU overclock model rather than accelerating the entire
+emulated clock.
 See `apps/tls-tester/README.md` for usage and trust-profile details.
 
 ## License

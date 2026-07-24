@@ -136,7 +136,10 @@ control, parsing, networking, and memory management still execute in PACE as
 68K code, so this remains a hybrid rather than a fully native wolfSSL port. See
 [ARM.md](ARM.md) for ABI, fallback, and offline benchmark details.
 
-End-to-end TLS tests must run the m515 emulator at 8x or faster. Keep the
-existing development session at 512x for practical public-site tests. At
-real-time speed, the public-key operations can exceed server handshake
-deadlines even when the protocol implementation is correct.
+For end-to-end 68K TLS tests in CloudpilotEmu, set the emulator's
+**Overclock** control to at least 8x. Keep the existing m515 development
+session at 512x for practical public-site tests. At the original CPU speed,
+public-key operations can exceed server handshake deadlines even when the
+protocol implementation is correct. The overclock control is preferred over a
+whole-emulator speed multiplier because it preserves Palm OS timer and
+peripheral timing.

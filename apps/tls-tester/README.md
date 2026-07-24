@@ -86,7 +86,11 @@ connectivity. Emulator installation and network configuration are deliberately
 outside this example's build process because they vary by emulator and ROM.
 Pure 68K public-key operations can take several minutes on period hardware, so
 the tester uses a longer operation deadline when the native ARM math path is
-not available.
+not available. In CloudpilotEmu, set the 68K **Overclock** control to at least
+8x before making TLS requests. The existing 512x development setting is
+recommended for practical public-site tests. Use the overclock control rather
+than a whole-emulator speed multiplier so Palm OS timers and peripheral timing
+remain synchronized.
 
 ## Build profiles
 
