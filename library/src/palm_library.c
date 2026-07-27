@@ -563,8 +563,13 @@ Err PalmTlsLibPurgeCache(UInt16 refNum)
 {
     PalmTlsLibraryState *stateP = LibraryState(refNum);
     if (stateP == 0) return sysErrParamErr;
-    if (stateP->engine.control.active || stateP->engine.control.opening)
-        return sysErrParamErr;
+    /*
+     * Purging is also the recovery path for an application that lost
+     * ownership of an opening or active session after a failed close/cancel.
+     * PalmTlsUnloadEngine shuts that session down before releasing the engine,
+     * so leaving a poisoned engine resident here only makes every later open
+     * report palmTlsStatusBusy.
+     */
     PalmTlsUnloadEngine(stateP);
     return errNone;
 }

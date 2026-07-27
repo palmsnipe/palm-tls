@@ -106,7 +106,9 @@ apply to the ARM build or to the other 68K protocol engines.
 The selected protocol engine remains relocated and initialized after a request,
 avoiding repeated resource copy, relocation, and wolfSSL initialization. A
 different protocol replaces the idle engine. `PalmTlsLibPurgeCache` releases
-idle engine and resumption state; it reports busy while a session is active.
+the engine and resumption state. If a session is opening or active, purge
+cancels it as part of unloading the engine. This makes purge the recovery path
+when a caller cannot cleanly close or cancel a session it owns.
 
 ## Results and errors
 

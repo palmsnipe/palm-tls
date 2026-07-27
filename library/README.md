@@ -64,7 +64,8 @@ different protocol unloads the idle engine and loads the requested one.
 the active protocol. A later connection reuses it only when the host name,
 verification mode, and trust-anchor fingerprint all match. A different host
 replaces the one-entry cache. `PalmTlsLibPurgeCache` releases the engine and
-resumption state when no session is active.
+resumption state. It also forcibly releases an opening or active session, so
+applications can use it to recover after an unsuccessful close or cancel.
 
 Initialize every parameter and result structure to zero, set its `structSize`,
 and check both the trap's Palm `Err` return and the result `status`. Applications
