@@ -6,6 +6,8 @@
 #include "tls_segments.h"
 
 #define PALM_TLS_ENGINE_DISABLE_ARM 0x80000000UL
+#define PALM_TLS_ENGINE_CONTROL_ONLY 0x40000000UL
+#define PALM_TLS_MAX_SESSIONS PALM_TLS_MAX_CONCURRENT_SESSIONS
 
 typedef enum PalmTlsEngineCommand {
     palmTlsEngineExchange = 0,
@@ -94,7 +96,7 @@ typedef struct PalmTlsLoadedEngine {
     LocalID workDbID;
     UInt16 protocol;
     UInt16 loaded;
-    PalmTlsEngineControl control;
+    PalmTlsEngineControl controls[PALM_TLS_MAX_SESSIONS];
 } PalmTlsLoadedEngine;
 
 typedef struct PalmTlsLibraryState {

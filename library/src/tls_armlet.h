@@ -23,6 +23,7 @@ int PalmTlsArmletP256Multiply2Add(const ecc_point *leftPointP,
 int PalmTlsArmletSha256Transform(word32 *digestP, const byte *blockP,
                                 word32 blockCount);
 void PalmTlsArmletAesGcmSetKey(Aes *aesP, const byte *keyP, word32 length);
+void PalmTlsArmletAesGcmFree(Aes *aesP);
 int PalmTlsArmletAesGcmCrypt(Aes *aesP, byte *outputP, const byte *inputP,
                             word32 length, const byte *ivP, word32 ivLength,
                             byte *tagP, word32 tagLength, const byte *aadP,

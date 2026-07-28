@@ -675,8 +675,10 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
                     (WOLFSSL_SESSION *)controlP->resumeSessionP);
                 controlP->resumeSessionP = 0;
             }
-            if (controlP->initialized) wolfSSL_Cleanup();
-            PalmTlsArmletShutdown();
+            if ((paramsP->options & PALM_TLS_ENGINE_CONTROL_ONLY) == 0) {
+                if (controlP->initialized) wolfSSL_Cleanup();
+                PalmTlsArmletShutdown();
+            }
             controlP->initialized = false;
             resultP->status = palmTlsStatusOk;
             break;

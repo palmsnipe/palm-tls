@@ -36,7 +36,10 @@ typedef struct PalmTlsArmletAesKey {
     UInt8 key[16];
 } PalmTlsArmletAesKey;
 
-static PalmTlsArmletAesKey gAesKeys[4];
+#define PALM_TLS_ARMLET_AES_KEY_SLOTS \
+    (PALM_TLS_MAX_CONCURRENT_SESSIONS * 2)
+
+static PalmTlsArmletAesKey gAesKeys[PALM_TLS_ARMLET_AES_KEY_SLOTS];
 
 static void SetRequestDigit(UInt8 *bytesP, UInt16 index, UInt16 value)
 {
@@ -277,20 +280,37 @@ int PalmTlsArmletSha256Transform(word32 *digestP, const byte *blockP,
 void PalmTlsArmletAesGcmSetKey(Aes *aesP, const byte *keyP, word32 length)
 {
     UInt16 index;
-    UInt16 slot = 0;
+    Int16 freeSlot = -1;
     if (aesP == 0 || keyP == 0 || length != 16) return;
-    for (index = 0; index < 4; index++) {
-        if (gAesKeys[index].aesP == aesP) { slot = index; break; }
-        if (gAesKeys[index].aesP == 0) slot = index;
+    for (index = 0; index < PALM_TLS_ARMLET_AES_KEY_SLOTS; index++) {
+        if (gAesKeys[index].aesP == aesP) {
+            MemMove(gAesKeys[index].key, keyP, 16);
+            return;
+        }
+        if (freeSlot < 0 && gAesKeys[index].aesP == 0)
+            freeSlot = (Int16)index;
     }
-    gAesKeys[slot].aesP = aesP;
-    MemMove(gAesKeys[slot].key, keyP, 16);
+    if (freeSlot < 0) return;
+    gAesKeys[freeSlot].aesP = aesP;
+    MemMove(gAesKeys[freeSlot].key, keyP, 16);
+}
+
+void PalmTlsArmletAesGcmFree(Aes *aesP)
+{
+    UInt16 index;
+    if (aesP == 0) return;
+    for (index = 0; index < PALM_TLS_ARMLET_AES_KEY_SLOTS; index++) {
+        if (gAesKeys[index].aesP == aesP) {
+            MemSet(&gAesKeys[index], sizeof(gAesKeys[index]), 0);
+            return;
+        }
+    }
 }
 
 static const UInt8 *FindAesKey(Aes *aesP)
 {
     UInt16 index;
-    for (index = 0; index < 4; index++)
+    for (index = 0; index < PALM_TLS_ARMLET_AES_KEY_SLOTS; index++)
         if (gAesKeys[index].aesP == aesP) return gAesKeys[index].key;
     return 0;
 }

@@ -24,6 +24,16 @@ ClearEngineResult(PalmTlsEngineResult *resultP)
     while (remaining-- != 0) *byteP++ = 0;
 }
 
+static void __attribute__((noinline, optimize("O0")))
+CopyEngineParams(PalmTlsEngineParams *targetP,
+                 const PalmTlsEngineParams *sourceP)
+{
+    volatile UInt8 *targetByteP = (volatile UInt8 *)targetP;
+    const volatile UInt8 *sourceByteP = (const volatile UInt8 *)sourceP;
+    UInt16 remaining = sizeof(*targetP);
+    while (remaining-- != 0) *targetByteP++ = *sourceByteP++;
+}
+
 static MemHandle GetLibraryResource(DmOpenRef libraryDbP, DmResType type,
                                     DmResID id)
 {
@@ -105,13 +115,18 @@ void PalmTlsUnloadEngine(PalmTlsLibraryState *stateP)
     if (stateP == 0) return;
     engineP = &stateP->engine;
     if (engineP->loaded && engineP->segments[0] != 0) {
-        PalmTlsEngineParams params;
-        PalmTlsEngineResult result;
-        MemSet(&params, sizeof(params), 0);
-        MemSet(&result, sizeof(result), 0);
-        params.command = palmTlsEngineShutdown;
-        params.controlP = &engineP->control;
-        ((PalmTlsEntryProc)engineP->segments[0])(&params, &result);
+        for (index = PALM_TLS_MAX_SESSIONS; index > 0; index--) {
+            UInt16 slot = index - 1;
+            PalmTlsEngineParams params;
+            PalmTlsEngineResult result;
+            MemSet(&params, sizeof(params), 0);
+            MemSet(&result, sizeof(result), 0);
+            params.command = palmTlsEngineShutdown;
+            params.controlP = &engineP->controls[slot];
+            if (slot != 0)
+                params.options = PALM_TLS_ENGINE_CONTROL_ONLY;
+            ((PalmTlsEntryProc)engineP->segments[0])(&params, &result);
+        }
     }
     for (index = PALM_TLS_SEGMENT_COUNT; index > 0; index--) {
         UInt16 slot = index - 1;
@@ -252,7 +267,7 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
         PalmTlsEngineParams initParams;
         MemSet(&initParams, sizeof(initParams), 0);
         initParams.command = palmTlsEngineInitialize;
-        initParams.controlP = &engineP->control;
+        initParams.controlP = &engineP->controls[0];
         if (stateP->armStatus == palmTlsArmSelfTestFailed)
             initParams.options = PALM_TLS_ENGINE_DISABLE_ARM;
         ((PalmTlsEntryProc)engineP->segments[0])(&initParams, resultP);
@@ -274,18 +289,62 @@ cleanup:
     return true;
 }
 
+static Boolean EngineHasActiveSessions(const PalmTlsLoadedEngine *engineP)
+{
+    UInt16 index;
+    for (index = 0; index < PALM_TLS_MAX_SESSIONS; index++)
+        if (engineP->controls[index].active ||
+            engineP->controls[index].opening)
+            return true;
+    return false;
+}
+
+static PalmTlsEngineControl *FindSessionControl(
+    PalmTlsLoadedEngine *engineP, UInt32 sessionId)
+{
+    UInt16 index;
+    for (index = 0; index < PALM_TLS_MAX_SESSIONS; index++)
+        if ((engineP->controls[index].active ||
+             engineP->controls[index].opening) &&
+            engineP->controls[index].sessionId == sessionId)
+            return &engineP->controls[index];
+    return 0;
+}
+
+static PalmTlsEngineControl *AcquireSessionControl(
+    PalmTlsLoadedEngine *engineP)
+{
+    UInt16 index;
+    for (index = 0; index < PALM_TLS_MAX_SESSIONS; index++) {
+        PalmTlsEngineControl *controlP = &engineP->controls[index];
+        if (!controlP->active && !controlP->opening) {
+            if (!controlP->initialized) {
+                controlP->initialized = true;
+                controlP->armStatus = engineP->controls[0].armStatus;
+                controlP->armSelfTestError =
+                    engineP->controls[0].armSelfTestError;
+                controlP->armFallbackError =
+                    engineP->controls[0].armFallbackError;
+            }
+            return controlP;
+        }
+    }
+    return 0;
+}
+
 UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
                       const PalmTlsEngineParams *paramsP,
                       PalmTlsEngineResult *resultP)
 {
+    PalmTlsEngineParams params;
+    PalmTlsEngineControl *controlP;
     UInt32 loadTicks = 0;
     ClearEngineResult(resultP);
     resultP->status = palmTlsStatusBadParameter;
     if (stateP == 0 || paramsP == 0) return resultP->status;
     if (stateP->engine.loaded &&
         stateP->engine.protocol != paramsP->protocol) {
-        if (stateP->engine.control.active ||
-            stateP->engine.control.opening) {
+        if (EngineHasActiveSessions(&stateP->engine)) {
             resultP->status = palmTlsStatusBusy;
             return resultP->status;
         }
@@ -296,7 +355,38 @@ UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
             return resultP->status;
         loadTicks = resultP->loadTicks;
     }
-    ((PalmTlsEntryProc)stateP->engine.segments[0])(paramsP, resultP);
+    CopyEngineParams(&params, paramsP);
+    switch (params.command) {
+        case palmTlsEngineExchange:
+        case palmTlsEngineSessionOpen:
+            controlP = AcquireSessionControl(&stateP->engine);
+            if (controlP == 0) {
+                resultP->status = palmTlsStatusBusy;
+                return resultP->status;
+            }
+            params.controlP = controlP;
+            break;
+        case palmTlsEngineSessionWrite:
+        case palmTlsEngineSessionRead:
+        case palmTlsEngineSessionClose:
+        case palmTlsEngineSessionHandshake:
+        case palmTlsEngineSessionCancel:
+            controlP = FindSessionControl(&stateP->engine,
+                                          params.sessionId);
+            if (controlP == 0) return resultP->status;
+            params.controlP = controlP;
+            break;
+        case palmTlsEngineSelfTest:
+            if (EngineHasActiveSessions(&stateP->engine)) {
+                resultP->status = palmTlsStatusBusy;
+                return resultP->status;
+            }
+            params.controlP = &stateP->engine.controls[0];
+            break;
+        default:
+            break;
+    }
+    ((PalmTlsEntryProc)stateP->engine.segments[0])(&params, resultP);
     resultP->loadTicks = loadTicks;
     return resultP->status;
 }

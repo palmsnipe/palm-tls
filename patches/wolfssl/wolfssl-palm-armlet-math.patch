@@ -9,6 +9,7 @@ index 41b01031c..fe1f7d149 100644
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +extern void PalmTlsArmletAesGcmSetKey(Aes* aesP, const byte* keyP,
 +    word32 length);
++extern void PalmTlsArmletAesGcmFree(Aes* aesP);
 +extern int PalmTlsArmletAesGcmCrypt(Aes* aesP, byte* outputP,
 +    const byte* inputP, word32 length, const byte* ivP, word32 ivLength,
 +    byte* tagP, word32 tagLength, const byte* aadP, word32 aadLength,
@@ -53,6 +54,14 @@ index 41b01031c..fe1f7d149 100644
 +#endif
 +
  #ifdef WOLF_CRYPTO_CB
+     #ifndef WOLF_CRYPTO_CB_FIND
+     if (aes->devId != INVALID_DEVID)
+@@ -14220,3 +14233,7 @@ void wc_AesFree(Aes* aes)
++#ifdef PALM_WOLFSSL_ARMLET_MATH
++    PalmTlsArmletAesGcmFree(aes);
++#endif
++
+ #if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_FREE)
      #ifndef WOLF_CRYPTO_CB_FIND
      if (aes->devId != INVALID_DEVID)
 diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c

@@ -26,8 +26,13 @@ record protection execute in a native ARMlet through the SDK's
    implementation is used as a fallback.
 
 The buffer is reused because allocating once per multiply would erase much of
-the native-code benefit and fragment Palm's dynamic heap. PalmTLS allows only
-one active session, so the buffer does not need per-operation locking.
+the native-code benefit and fragment Palm's dynamic heap. Palm OS serializes
+system-library trap calls, so the buffer remains private to one TLS step even
+when two session state machines are interleaved.
+
+AES-GCM acceleration tracks the encrypt and decrypt key objects for both
+session slots. wolfSSL releases each mapping with its `Aes` object; if every
+mapping is occupied, PalmTLS safely falls back to the 68K implementation.
 
 ## Build and ABI
 

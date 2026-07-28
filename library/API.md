@@ -59,7 +59,11 @@ but should not run from a UI event handler when responsiveness matters.
 
 ## Incremental sessions
 
-Only one session may be opening or active at a time.
+Up to two sessions using the same TLS protocol may be opening or active at a
+time. Calls are still serialized through Palm OS library traps, but separate
+session IDs retain independent handshake, socket, and I/O state. A third
+overlapping session, or a request for another protocol while either slot is in
+use, reports `palmTlsStatusBusy`.
 
 1. Zero `PalmTlsSessionOpenParams` and `PalmTlsSessionOpenResult`.
 2. Set their `structSize` fields to the corresponding current `*_SIZE`
@@ -91,9 +95,10 @@ operation timeout and short per-step timeouts.
 
 ## Session reuse and engine cache
 
-`PALM_TLS_SESSION_ALLOW_RESUME` enables the library's one-entry TLS resumption
-cache. A later session can reuse it only when the protocol engine, hostname,
-verification mode, and trust-anchor fingerprint match. Inspect
+`PALM_TLS_SESSION_ALLOW_RESUME` enables a one-entry TLS resumption cache in
+each of the two session slots. A later session in that slot can reuse it only
+when the protocol engine, hostname, verification mode, and trust-anchor
+fingerprint match. Inspect
 `PalmTlsSessionOpenResult.sessionReused` rather than assuming reuse.
 
 TLS 1.3 resumption is available in `PalmTLSArm.prc`. The 68K TLS 1.3 engine

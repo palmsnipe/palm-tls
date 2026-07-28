@@ -56,21 +56,21 @@ compiled against the Palm SDK are in [../examples/network](../examples/network).
 The native boundary, byte order, fallback, and remaining work are documented in
 [ARM.md](ARM.md).
 
-Only one TLS session may be active at a time. The selected protocol engine is
-kept relocated and initialized after a request, so repeated connections avoid
-the resource-copy, relocation, and wolfSSL initialization cost. Opening a
-different protocol unloads the idle engine and loads the requested one.
-`PALM_TLS_SESSION_ALLOW_RESUME` additionally keeps one resumable session for
-the active protocol. A later connection reuses it only when the host name,
-verification mode, and trust-anchor fingerprint all match. A different host
-replaces the one-entry cache. `PalmTlsLibPurgeCache` releases the engine and
-resumption state. It also forcibly releases an opening or active session, so
-applications can use it to recover after an unsuccessful close or cancel.
+Up to two TLS sessions using the same protocol may be active at a time. The
+selected protocol engine is shared and kept relocated and initialized after a
+request, so overlapping and repeated connections avoid duplicate engine loads.
+Opening a different protocol waits until both slots are idle, then replaces
+the engine. `PALM_TLS_SESSION_ALLOW_RESUME` keeps one resumable session in each
+slot. A later connection in that slot reuses it only when the host name,
+verification mode, and trust-anchor fingerprint all match.
+`PalmTlsLibPurgeCache` releases the engine and both slots' resumption state. It
+also forcibly releases opening or active sessions, so applications can use it
+to recover after an unsuccessful close or cancel.
 
 Initialize every parameter and result structure to zero, set its `structSize`,
 and check both the trap's Palm `Err` return and the result `status`. Applications
-must test the capability bits they require. The library permits one active or
-opening session. The one-shot exchange calls
+must test the capability bits they require. The library permits two active or
+opening sessions on the currently loaded protocol. The one-shot exchange calls
 remain synchronous; sessions may instead be advanced cooperatively. The
 caller still owns DNS, the connected socket, UI event policy, HTTP framing,
 output storage, cancellation policy, and cleanup.

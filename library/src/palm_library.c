@@ -218,7 +218,7 @@ Err PalmTlsLibRunSelfTest(UInt16 refNum, PalmTlsSelfTestResult *resultP)
     MemSet(&params, sizeof(params), 0);
     MemSet(&result, sizeof(result), 0);
     params.command = palmTlsEngineSelfTest;
-    params.controlP = &stateP->engine.control;
+    params.controlP = &stateP->engine.controls[0];
     if ((capabilities & PALM_TLS_CAP_TLS_1_2) != 0) {
         params.protocol = palmTlsProtocolTls12;
         PalmTlsExecute(stateP, &params, &result);
@@ -235,7 +235,7 @@ Err PalmTlsLibRunSelfTest(UInt16 refNum, PalmTlsSelfTestResult *resultP)
         (!ranTest || (result.status == palmTlsStatusOk &&
                       result.armStatus == palmTlsArmSelfTestPassed))) {
         MemSet(&result, sizeof(result), 0);
-        params.controlP = &stateP->engine.control;
+        params.controlP = &stateP->engine.controls[0];
         params.protocol = palmTlsProtocolTls13;
         PalmTlsExecute(stateP, &params, &result);
         ranTest = true;
@@ -280,7 +280,7 @@ Err PalmTlsLibExchange(UInt16 refNum, const PalmTlsExchangeParams *paramsP,
     MemSet(&params, sizeof(params), 0);
     MemSet(&result, sizeof(result), 0);
     params.command = palmTlsEngineExchange;
-    params.controlP = &stateP->engine.control;
+    params.controlP = &stateP->engine.controls[0];
     params.netRefNum = paramsP->netRefNum;
     params.socket = paramsP->socket;
     params.verifyMode = paramsP->verifyMode;
@@ -331,7 +331,7 @@ Err PalmTlsLibExchangeStream(UInt16 refNum,
     MemSet(&params, sizeof(params), 0);
     MemSet(&result, sizeof(result), 0);
     params.command = palmTlsEngineExchange;
-    params.controlP = &stateP->engine.control;
+    params.controlP = &stateP->engine.controls[0];
     params.netRefNum = paramsP->netRefNum;
     params.socket = paramsP->socket;
     params.verifyMode = paramsP->verifyMode;
@@ -386,7 +386,7 @@ Err PalmTlsLibSessionOpen(UInt16 refNum,
         return sysErrParamErr;
     MemSet(&params, sizeof(params), 0);
     params.command = palmTlsEngineSessionOpen;
-    params.controlP = &stateP->engine.control;
+    params.controlP = &stateP->engine.controls[0];
     params.netRefNum = paramsP->netRefNum;
     params.socket = paramsP->socket;
     params.verifyMode = paramsP->verifyMode;
@@ -430,7 +430,7 @@ static Err SessionIo(UInt16 refNum, const PalmTlsSessionIoParams *paramsP,
         return sysErrParamErr;
     MemSet(&params, sizeof(params), 0);
     params.command = command;
-    params.controlP = &stateP->engine.control;
+    params.controlP = &stateP->engine.controls[0];
     params.protocol = stateP->engine.protocol;
     params.sessionId = paramsP->sessionId;
     params.timeoutTicks = paramsP->timeoutTicks;
@@ -485,7 +485,7 @@ Err PalmTlsLibSessionHandshake(UInt16 refNum,
         return sysErrParamErr;
     MemSet(&params, sizeof(params), 0);
     params.command = palmTlsEngineSessionHandshake;
-    params.controlP = &stateP->engine.control;
+    params.controlP = &stateP->engine.controls[0];
     params.protocol = stateP->engine.protocol;
     params.sessionId = paramsP->sessionId;
     params.timeoutTicks = paramsP->timeoutTicks;
@@ -519,7 +519,7 @@ Err PalmTlsLibSessionClose(UInt16 refNum, UInt32 sessionId,
         return sysErrParamErr;
     MemSet(&params, sizeof(params), 0);
     params.command = palmTlsEngineSessionClose;
-    params.controlP = &stateP->engine.control;
+    params.controlP = &stateP->engine.controls[0];
     params.protocol = stateP->engine.protocol;
     params.sessionId = sessionId;
     PalmTlsExecute(stateP, &params, &result);
@@ -548,7 +548,7 @@ Err PalmTlsLibSessionCancel(UInt16 refNum, UInt32 sessionId,
         return sysErrParamErr;
     MemSet(&params, sizeof(params), 0);
     params.command = palmTlsEngineSessionCancel;
-    params.controlP = &stateP->engine.control;
+    params.controlP = &stateP->engine.controls[0];
     params.protocol = stateP->engine.protocol;
     params.sessionId = sessionId;
     PalmTlsExecute(stateP, &params, &result);
