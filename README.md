@@ -124,7 +124,7 @@ It is intentionally not triggered for pull requests. The repository secret
 `PALM_TOOLCHAIN_REGISTRY_TOKEN` must contain a dedicated classic GitHub token
 with only the `read:packages` scope; do not reuse a general-purpose token.
 
-Pushing a version tag such as `v0.1.1` runs the same trusted build and creates
+Pushing a version tag such as `v0.1.2` runs the same trusted build and creates
 a draft GitHub Release. Its permanent download assets include the individual
 PRCs and a complete binary ZIP. The Release notes link to the tagged PalmTLS
 source, the exact pinned wolfSSL source, the Palm-specific patches, and the
