@@ -10,6 +10,7 @@
 #define SINGLE_THREADED
 #define WOLFSSL_PALM_STATELESS_INIT
 #define PALM_WOLFSSL_VERIFY_PROFILE
+#define PALM_WOLFSSL_HANDSHAKE_PROFILE
 #ifndef PALM_WOLFSSL_DISABLE_FAST_HEX
 #define PALM_WOLFSSL_FAST_HEX
 #endif
@@ -34,6 +35,8 @@ extern void *WolfPalmRealloc(void *pointer, unsigned long size);
 extern int WolfPalmRandomBlock(unsigned char *output, unsigned long size);
 extern void PalmTlsVerifyProfileEnter(unsigned short phase);
 extern void PalmTlsVerifyProfileLeave(void);
+extern void PalmTlsHandshakeProfileEnter(unsigned short phase);
+extern void PalmTlsHandshakeProfileLeave(void);
 #endif
 #define XMALLOC(size, heap, type) WolfPalmMalloc((unsigned long)(size))
 #define XFREE(pointer, heap, type) WolfPalmFree(pointer)

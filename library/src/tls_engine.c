@@ -15,6 +15,9 @@
  * complete 4 KiB socket operations.  Two KiB is still twice the original
  * transport size and matches the hardware-tested TLS Tester I/O buffer. */
 #define PALM_TLS_IO_CHUNK 2048
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+extern int PalmTlsWolfSessionHasTicket(WOLFSSL *ssl);
+#endif
 
 #if PALM_TLS_ENGINE_PROTOCOL != 11
 /* DER SubjectPublicKeyInfo for the standard P-256 generator. It is a compact,
@@ -285,8 +288,10 @@ static int TlsReceive(WOLFSSL *sslP, char *bufferP, int length, void *contextP)
     Int16 received;
     (void)sslP;
     controlP->lastError = errNone;
+    PalmTlsHandshakeProfileEnter(palmTlsHsNetwork);
     received = (Int16)PalmTlsReceive(controlP->netRefNum, controlP->socket,
         bufferP, chunk, controlP->timeoutTicks, &controlP->lastError);
+    PalmTlsHandshakeProfileLeave();
     if (received > 0) return received;
     if (received == 0) return WOLFSSL_CBIO_ERR_CONN_CLOSE;
     /* Physical NetLib implementations use several errno-style results for a
@@ -313,8 +318,10 @@ static int TlsSend(WOLFSSL *sslP, char *bufferP, int length, void *contextP)
     Int16 sent;
     (void)sslP;
     controlP->lastError = errNone;
+    PalmTlsHandshakeProfileEnter(palmTlsHsNetwork);
     sent = (Int16)PalmTlsSend(controlP->netRefNum, controlP->socket,
         bufferP, chunk, controlP->timeoutTicks, &controlP->lastError);
+    PalmTlsHandshakeProfileLeave();
     if (sent > 0) return sent;
     if (controlP->lastError == errNone ||
         controlP->lastError == netErrTimeout ||
@@ -326,28 +333,58 @@ static int TlsSend(WOLFSSL *sslP, char *bufferP, int length, void *contextP)
     return WOLFSSL_CBIO_ERR_GENERAL;
 }
 
-static UInt32 TrustKey(const UInt8 *dataP, UInt32 length)
+static void FreeResume(PalmTlsEngineControl *controlP)
 {
-    UInt32 hash = 2166136261UL;
-    UInt32 index;
-    for (index = 0; index < length; index++) {
-        hash ^= dataP[index];
-        hash *= 16777619UL;
-    }
-    return hash;
+    if (controlP->resumeSessionP)
+        wolfSSL_SESSION_free((WOLFSSL_SESSION *)controlP->resumeSessionP);
+    if (controlP->resumeTrustP) MemPtrFree(controlP->resumeTrustP);
+    controlP->resumeSessionP = controlP->resumeTrustP = 0;
+    controlP->resumeTrustLength = 0;
+}
+
+static Boolean SameTrust(UInt16 mode, UInt32 length, const void *bytes,
+                         const PalmTlsEngineParams *paramsP)
+{
+    UInt32 requested = paramsP->verifyMode == palmTlsVerifyNone ? 0 :
+        paramsP->trustedPeerLength;
+    return mode == paramsP->verifyMode && length == requested &&
+        (!length || (bytes && MemCmp(bytes, paramsP->trustedPeerP, length) == 0));
+}
+
+static void FreeContext(PalmTlsEngineControl *controlP)
+{
+    if (controlP->contextP) wolfSSL_CTX_free((WOLFSSL_CTX *)controlP->contextP);
+    if (controlP->contextTrustP) MemPtrFree(controlP->contextTrustP);
+    controlP->contextP = controlP->contextTrustP = 0;
+    controlP->contextTrustLength = 0;
+    controlP->contextHostname[0] = '\0';
 }
 
 static void SaveResumeSession(PalmTlsEngineControl *controlP)
 {
     WOLFSSL_SESSION *savedP;
-    if (!controlP->allowResume || controlP->sessionP == 0) return;
+    void *trustP = 0;
+    if (!controlP->allowResume || !controlP->sessionP) return;
     savedP = wolfSSL_get1_session((WOLFSSL *)controlP->sessionP);
-    if (savedP == 0) return;
-    if (controlP->resumeSessionP != 0)
-        wolfSSL_SESSION_free((WOLFSSL_SESSION *)controlP->resumeSessionP);
+    if (!savedP) return;
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+    controlP->profiler.result.ticketReady =
+        PalmTlsWolfSessionHasTicket((WOLFSSL *)controlP->sessionP);
+    if (!controlP->profiler.result.ticketReady) {
+        wolfSSL_SESSION_free(savedP);
+        return;
+    }
+#endif
+    if (controlP->contextTrustLength) {
+        trustP = MemPtrNew(controlP->contextTrustLength);
+        if (!trustP) { wolfSSL_SESSION_free(savedP); return; }
+        MemMove(trustP, controlP->contextTrustP, controlP->contextTrustLength);
+    }
+    FreeResume(controlP);
     controlP->resumeSessionP = savedP;
-    controlP->resumeTrustKey = controlP->activeTrustKey;
-    controlP->resumeVerifyMode = controlP->activeVerifyMode;
+    controlP->resumeTrustP = trustP;
+    controlP->resumeTrustLength = controlP->contextTrustLength;
+    controlP->resumeVerifyMode = controlP->contextVerifyMode;
     StrNCopy(controlP->resumeHostname, controlP->activeHostname,
         sizeof(controlP->resumeHostname));
     controlP->resumeHostname[sizeof(controlP->resumeHostname) - 1] = '\0';
@@ -356,15 +393,76 @@ static void SaveResumeSession(PalmTlsEngineControl *controlP)
 static void CloseSession(PalmTlsEngineControl *controlP, Boolean saveResume)
 {
     if (saveResume) SaveResumeSession(controlP);
-    if (controlP->sessionP != 0)
-        wolfSSL_free((WOLFSSL *)controlP->sessionP);
-    if (controlP->contextP != 0)
-        wolfSSL_CTX_free((WOLFSSL_CTX *)controlP->contextP);
+    if (controlP->sessionP) wolfSSL_free((WOLFSSL *)controlP->sessionP);
     controlP->sessionP = 0;
-    controlP->contextP = 0;
+    if (!saveResume || !controlP->contextReusable) FreeContext(controlP);
+    if (!saveResume) FreeResume(controlP);
     controlP->sessionId = 0;
     controlP->active = false;
     controlP->opening = false;
+    PalmTlsHandshakeProfileClose();
+}
+
+/* A per-slot context is reusable only for an exact owned trust configuration
+ * and hostname. Session objects and ephemeral key shares are always fresh. */
+static int ConfigureContext(const PalmTlsEngineParams *paramsP)
+{
+    PalmTlsEngineControl *controlP = paramsP->controlP;
+    WOLFSSL_CTX *contextP;
+    UInt32 length = paramsP->verifyMode == palmTlsVerifyNone ? 0 :
+        paramsP->trustedPeerLength;
+    int ret = WOLFSSL_SUCCESS;
+    controlP->contextReusable = PALM_TLS_ENGINE_PROTOCOL == 13 &&
+        !(paramsP->options & PALM_TLS_SESSION_NO_CONTEXT_REUSE);
+    if (controlP->contextReusable && controlP->contextP &&
+        StrCompare(controlP->contextHostname, paramsP->hostnameP) == 0 &&
+        SameTrust(controlP->contextVerifyMode, controlP->contextTrustLength,
+                  controlP->contextTrustP, paramsP)) {
+        controlP->profiler.result.contextReused = true;
+        return WOLFSSL_SUCCESS;
+    }
+    FreeContext(controlP);
+    PalmTlsHandshakeProfileEnter(palmTlsHsContext);
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+    contextP = wolfSSL_CTX_new(wolfTLSv1_3_client_method());
+#elif PALM_TLS_ENGINE_PROTOCOL == 12
+    contextP = wolfSSL_CTX_new(wolfTLSv1_2_client_method());
+#else
+    contextP = wolfSSL_CTX_new(wolfTLSv1_1_client_method());
+#endif
+    controlP->contextP = contextP;
+    PalmTlsHandshakeProfileLeave();
+    if (!contextP) return MEMORY_E;
+    PalmTlsHandshakeProfileEnter(palmTlsHsTrust);
+    controlP->contextVerifyMode = paramsP->verifyMode;
+    if (length) {
+        controlP->contextTrustP = MemPtrNew(length);
+        if (!controlP->contextTrustP) ret = MEMORY_E;
+        else {
+            MemMove(controlP->contextTrustP, paramsP->trustedPeerP, length);
+            controlP->contextTrustLength = length;
+        }
+    }
+    if (ret == WOLFSSL_SUCCESS && paramsP->verifyMode != palmTlsVerifyNone) {
+        int format = paramsP->trustedPeerP[0] == 0x30 ?
+            WOLFSSL_FILETYPE_ASN1 : WOLFSSL_FILETYPE_PEM;
+        if (paramsP->verifyMode == palmTlsVerifyExactPeer)
+            ret = wolfSSL_CTX_trust_peer_buffer(contextP,
+                controlP->contextTrustP, length, format);
+        else
+            ret = wolfSSL_CTX_load_verify_buffer(contextP,
+                controlP->contextTrustP, length, format);
+    }
+    wolfSSL_CTX_set_verify(contextP, paramsP->verifyMode == palmTlsVerifyNone ?
+        WOLFSSL_VERIFY_NONE : WOLFSSL_VERIFY_PEER, 0);
+    PalmTlsHandshakeProfileLeave();
+    if (ret != WOLFSSL_SUCCESS) { FreeContext(controlP); return ret; }
+    StrNCopy(controlP->contextHostname, paramsP->hostnameP,
+             sizeof(controlP->contextHostname));
+    controlP->contextHostname[sizeof(controlP->contextHostname) - 1] = '\0';
+    wolfSSL_CTX_SetIORecv(contextP, TlsReceive);
+    wolfSSL_CTX_SetIOSend(contextP, TlsSend);
+    return WOLFSSL_SUCCESS;
 }
 
 static void ContinueHandshake(const PalmTlsEngineParams *paramsP,
@@ -382,13 +480,16 @@ static void ContinueHandshake(const PalmTlsEngineParams *paramsP,
     controlP->timeoutTicks = paramsP->timeoutTicks;
     controlP->lastError = errNone;
     operationResult = wolfSSL_connect(sessionP);
-    resultP->handshakeTicks = TimGetTicks() - controlP->handshakeStartTicks;
+    UInt32 finishedAt = TimGetTicks();
+    resultP->handshakeTicks = finishedAt - controlP->handshakeStartTicks;
     resultP->sessionId = controlP->sessionId;
     if (operationResult == WOLFSSL_SUCCESS) {
+        PalmTlsHandshakeProfileFinish(finishedAt);
         controlP->opening = false;
         controlP->active = true;
         resultP->sessionReused = wolfSSL_session_reused(sessionP)
             ? true : false;
+        controlP->profiler.result.sessionReused = resultP->sessionReused;
         resultP->status = palmTlsStatusOk;
         return;
     }
@@ -413,8 +514,6 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
     PalmTlsEngineControl *controlP = paramsP->controlP;
     WOLFSSL_CTX *contextP;
     WOLFSSL *sessionP;
-    UInt32 trustKey = paramsP->verifyMode == palmTlsVerifyNone
-        ? 0 : TrustKey(paramsP->trustedPeerP, paramsP->trustedPeerLength);
     int operationResult;
 
     if (!controlP->initialized) {
@@ -425,54 +524,19 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
         resultP->status = palmTlsStatusBusy;
         return;
     }
-#if PALM_TLS_ENGINE_PROTOCOL == 13
-    contextP = wolfSSL_CTX_new(wolfTLSv1_3_client_method());
-#elif PALM_TLS_ENGINE_PROTOCOL == 12
-    contextP = wolfSSL_CTX_new(wolfTLSv1_2_client_method());
-#elif PALM_TLS_ENGINE_PROTOCOL == 11
-    contextP = wolfSSL_CTX_new(wolfTLSv1_1_client_method());
-#else
-#error "PALM_TLS_ENGINE_PROTOCOL must be 11, 12, or 13"
-#endif
-    if (contextP == 0) {
-        resultP->status = palmTlsStatusNoMemory;
+    controlP->handshakeStartTicks = TimGetTicks();
+    PalmTlsHandshakeProfileStart(&controlP->profiler, paramsP->sessionId,
+        controlP->handshakeStartTicks, PALM_TLS_ENGINE_PROTOCOL == 13 &&
+        (paramsP->options & PALM_TLS_SESSION_PROFILE) != 0);
+    operationResult = ConfigureContext(paramsP);
+    if (operationResult != WOLFSSL_SUCCESS) {
+        resultP->status = operationResult == MEMORY_E ? palmTlsStatusNoMemory :
+            palmTlsStatusConfigurationFailed;
+        resultP->tlsError = (Int16)operationResult;
+        CloseSession(controlP, false);
         return;
     }
-    controlP->contextP = contextP;
-    wolfSSL_CTX_set_verify(contextP, WOLFSSL_VERIFY_NONE, 0);
-
-    if (paramsP->verifyMode == palmTlsVerifyExactPeer) {
-        operationResult = paramsP->trustedPeerP[0] == 0x30
-            ? wolfSSL_CTX_trust_peer_buffer(contextP,
-                paramsP->trustedPeerP, paramsP->trustedPeerLength,
-                WOLFSSL_FILETYPE_ASN1)
-            : wolfSSL_CTX_trust_peer_buffer(contextP,
-                paramsP->trustedPeerP, paramsP->trustedPeerLength,
-                WOLFSSL_FILETYPE_PEM);
-        if (operationResult != WOLFSSL_SUCCESS) {
-            resultP->status = palmTlsStatusConfigurationFailed;
-            CloseSession(controlP, false);
-            return;
-        }
-        wolfSSL_CTX_set_verify(contextP, WOLFSSL_VERIFY_PEER, 0);
-    } else if (paramsP->verifyMode == palmTlsVerifyCaStore) {
-        int certificateFormat = paramsP->trustedPeerLength > 0 &&
-            paramsP->trustedPeerP[0] == 0x30
-                ? WOLFSSL_FILETYPE_ASN1 : WOLFSSL_FILETYPE_PEM;
-        operationResult = wolfSSL_CTX_load_verify_buffer(contextP,
-            paramsP->trustedPeerP, paramsP->trustedPeerLength,
-            certificateFormat);
-        if (operationResult != WOLFSSL_SUCCESS) {
-            resultP->status = palmTlsStatusConfigurationFailed;
-            resultP->tlsError = (Int16)operationResult;
-            CloseSession(controlP, false);
-            return;
-        }
-        wolfSSL_CTX_set_verify(contextP, WOLFSSL_VERIFY_PEER, 0);
-    }
-
-    wolfSSL_CTX_SetIORecv(contextP, TlsReceive);
-    wolfSSL_CTX_SetIOSend(contextP, TlsSend);
+    contextP = (WOLFSSL_CTX *)controlP->contextP;
     sessionP = wolfSSL_new(contextP);
     if (sessionP == 0) {
         resultP->status = palmTlsStatusNoMemory;
@@ -487,8 +551,10 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
     wolfSSL_SetIOReadCtx(sessionP, controlP);
     wolfSSL_SetIOWriteCtx(sessionP, controlP);
 #if PALM_TLS_ENGINE_PROTOCOL == 13
+    PalmTlsHandshakeProfileEnter(palmTlsHsKeyShare);
     operationResult = wolfSSL_UseKeyShare(sessionP,
         WOLFSSL_ECC_SECP256R1);
+    PalmTlsHandshakeProfileLeave();
     if (operationResult != WOLFSSL_SUCCESS) {
         resultP->status = palmTlsStatusConfigurationFailed;
         resultP->tlsError = (Int16)operationResult;
@@ -512,22 +578,21 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
         return;
     }
 
+    if (controlP->resumeSessionP &&
+        (StrCompare(controlP->resumeHostname, paramsP->hostnameP) != 0 ||
+         !SameTrust(controlP->resumeVerifyMode, controlP->resumeTrustLength,
+                    controlP->resumeTrustP, paramsP))) FreeResume(controlP);
     controlP->allowResume =
         (paramsP->options & PALM_TLS_SESSION_ALLOW_RESUME) != 0;
     if (controlP->allowResume) {
         wolfSSL_UseSessionTicket(sessionP);
-        if (controlP->resumeSessionP != 0 &&
-            controlP->resumeVerifyMode == paramsP->verifyMode &&
-            controlP->resumeTrustKey == trustKey &&
-            StrCompare(controlP->resumeHostname, paramsP->hostnameP) == 0)
-            wolfSSL_set_session(sessionP,
-                (WOLFSSL_SESSION *)controlP->resumeSessionP);
+        if (controlP->resumeSessionP &&
+            wolfSSL_set_session(sessionP, (WOLFSSL_SESSION *)controlP->resumeSessionP)
+                != WOLFSSL_SUCCESS) FreeResume(controlP);
     }
 
     controlP->sessionId = paramsP->sessionId;
-    controlP->handshakeStartTicks = TimGetTicks();
     controlP->opening = true;
-    controlP->activeTrustKey = trustKey;
     controlP->activeVerifyMode = paramsP->verifyMode;
     StrNCopy(controlP->activeHostname, paramsP->hostnameP,
         sizeof(controlP->activeHostname));
@@ -590,6 +655,10 @@ static void ReadSession(const PalmTlsEngineParams *paramsP,
     }
     controlP->timeoutTicks = paramsP->timeoutTicks;
     operationResult = wolfSSL_read(sessionP, paramsP->responseP, (int)length);
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+    if (controlP->profiler.enabled)
+        controlP->profiler.result.ticketReady = PalmTlsWolfSessionHasTicket(sessionP);
+#endif
     if (operationResult > 0) {
         resultP->responseLength = (UInt16)operationResult;
         resultP->status = palmTlsStatusOk;
@@ -688,7 +757,18 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
     MemSet(resultP, sizeof(*resultP), 0);
     resultP->status = palmTlsStatusBadParameter;
     if (controlP == 0) return resultP->status;
+    if (paramsP->command != palmTlsEngineSessionOpen &&
+        paramsP->command != palmTlsEngineExchange)
+        PalmTlsHandshakeProfileBind(&controlP->profiler);
     switch (paramsP->command) {
+        case palmTlsEngineGetProfile:
+            if (controlP->profiler.enabled && paramsP->responseP &&
+                paramsP->responseCapacity == sizeof(PalmTlsSessionProfile)) {
+                PalmTlsHandshakeProfileSnapshot(&controlP->profiler,
+                    (PalmTlsSessionProfile *)paramsP->responseP);
+                resultP->status = palmTlsStatusOk;
+            }
+            break;
         case palmTlsEngineInitialize:
             if (!controlP->initialized) {
                 PalmTlsArmletInitialize();
@@ -739,11 +819,8 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
             break;
         case palmTlsEngineShutdown:
             CloseSession(controlP, false);
-            if (controlP->resumeSessionP != 0) {
-                wolfSSL_SESSION_free(
-                    (WOLFSSL_SESSION *)controlP->resumeSessionP);
-                controlP->resumeSessionP = 0;
-            }
+            FreeResume(controlP);
+            FreeContext(controlP);
             if ((paramsP->options & PALM_TLS_ENGINE_CONTROL_ONLY) == 0) {
                 if (controlP->initialized) wolfSSL_Cleanup();
                 PalmTlsArmletShutdown();
@@ -757,5 +834,8 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
         default:
             break;
     }
+    if (paramsP->command != palmTlsEngineGetProfile)
+        controlP->profiler.result.status = resultP->status;
+    PalmTlsHandshakeProfileSuspend();
     return resultP->status;
 }

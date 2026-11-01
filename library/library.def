@@ -15,4 +15,5 @@ export {
     PalmTlsLibSessionHandshake
     PalmTlsLibSessionCancel
     PalmTlsLibRunSelfTest
+    PalmTlsLibGetSessionProfile
 }

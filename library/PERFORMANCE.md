@@ -1,5 +1,107 @@
 # ARM performance review — November 1, 2026
 
+## TLS 1.3 phase profiling and context/trust-store reuse
+
+TLS 1.3 now exposes opt-in, per-session exclusive timings for context creation,
+trust loading, client key-share generation, key agreement, certificate handling,
+signature checks, HKDF, Finished, records, network callbacks, tickets, idle gaps,
+and remaining work. Handshake and post-handshake periods are separate, so
+NewSessionTicket processing is visible rather than folded into the handshake.
+Each period includes entry counts and a balanced-scope completion flag. The
+new 240-byte result uses an appended trap; existing trap offsets and structure
+sizes remain unchanged. [API.md](API.md#tls-13-session-phase-profiling) documents
+the boundaries and lifetime.
+
+The handshake timer now starts **before context/trust setup and TLS 1.3
+key-share generation**. Earlier releases omitted this setup from the timer.
+Engine loading remains a separate field; caller DNS/TCP setup is excluded.
+Consequently, these figures should not be compared directly with older
+handshake timings or the offline crypto self-test.
+
+Each TLS 1.3 slot retains its configured wolfSSL context and parsed trust store
+on normal close. Reuse requires the same hostname, verification mode, and exact
+owned trust bytes. Resumption uses the same exact-byte identity, replacing the
+previous hash-only check. Every connection gets a fresh SSL object, ephemeral
+key share, I/O bindings, SNI, and hostname validation. Cancellation/terminal
+handshake failure discards cached state; purge and library close free all
+retained allocations. TLS 1.1/1.2 retain their fresh-context behavior.
+
+The comparison uses **the same final PalmTLSArm PRC** with context reuse
+disabled/enabled through a diagnostic session option. Both sides enable phase
+profiling and use wolfSSL 5.9.4; this isolates context reuse rather than
+comparing an older, differently timed library. Two independent runs each
+contain five samples per case (30 timed connections), through the public
+session API and a real local OpenSSL TLS server. The server independently
+confirms **20 full and 10 resumed TLS 1.3 connections per run**. Warm full
+connections omit the resumption option, so their improvement is not ticket
+reuse.
+
+Five-sample medians, reproduced in both runs:
+
+| Connection | Context reuse disabled | Context reuse enabled | Less handshake time |
+| --- | ---: | ---: | ---: |
+| Cold full, after engine purge | 580 ms | 580 ms | — |
+| Warm full, no ticket offered | 580 ms | 420 ms | 27.6% |
+| Resumed, warm engine | 350 ms | 200 ms | 42.9% |
+
+Cold engine load is an additional **130 ms** in both modes; warm cases have
+zero load time. Within the cached configuration, resumption reduces 420 ms
+full handshakes to 200 ms, a **52.4%** reduction. Full samples span 570–580 ms
+without context reuse and 420–430 ms with a warm context; cached resumed
+samples span 190–200 ms.
+
+The exclusive phases explain the change. The eight-root CA bundle takes
+roughly **150–160 ms** to copy/load when a context is created and has **zero
+trust-load calls** on a context hit. Full handshakes spend about **40 ms** in
+certificate handling and **190 ms** across two signature checks; both phases
+have zero calls on resumed handshakes. Fresh key-share generation still takes
+40–50 ms and shared-secret processing about 110 ms in both cases. HKDF takes
+10–20 ms, with 20 profiled calls on full and 26 on resumed handshakes. Tickets
+are processed in the post-handshake period and actually retained for reuse.
+Per-phase medians need not sum to the median total.
+
+The fixture has **eight P-256 roots / 4,560 PEM bytes**, a root-signed P-256
+leaf, strict CA and hostname verification, and negotiates P-256 with
+`TLS_AES_128_GCM_SHA256`. Tests use the supplied Frankenpilot / Tungsten E3
+session at **100 MIPS**, loopback native networking, and OpenSSL 3.5.9. These
+are real protocol handshakes in an emulator, with instrumentation overhead;
+they do not establish physical-device or Internet latency. The Palm clock is
+100 Hz: a zero-tick record/network/Finished phase can be shorter than 10 ms,
+not cost-free. Trust-store savings depend on the application's CA corpus.
+
+The memory tradeoff is deliberate: each of two slots may retain a wolfSSL
+context, parsed CAs, an owned trust copy, and a separate trust copy for its
+saved ticket while idle. Heap usage is not quantified by this benchmark.
+`PalmTlsLibPurgeCache` or library close releases these allocations. Context
+reuse operates without enabling profiling or ticket resumption.
+
+Both emulator runs also pass owned-buffer/exact-byte trust checks, changed
+hostname/verification-mode and bad-CA rejection, exact-peer verification,
+purge, cancellation during opening, interleaved cooperative slot isolation,
+and independently confirmed TLS 1.2 full/resumed handshakes. Host tests check
+phase nesting, tick wraparound, disabled hooks, idle accounting and overflow,
+plus 70,000 session-ID allocations across wraparound with active/retained IDs.
+The complete wolfSSL patch stack reproduces the cached instrumented sources;
+the touched sources also compile with profiling disabled. Project/package
+checks, existing offline Palm self-test ABIs, and TI925T/PXA270 crypto and
+trace oracles pass.
+
+No native arithmetic or CPU dispatch changes are introduced. Every existing
+ARM profile and the benchmark retain the same **33,904-byte ARMv4T image**,
+SHA-256 `4c8e5b1840f1a1807324ebd307fd89872902df00d65586d0e9ba4a2792a2d743`.
+The CPU allowlist and fallback remain unchanged; there is no additional
+CPU-specific ARM PRC.
+
+Raw samples, phase counters, public server configuration/logs, binary hashes,
+and repeated summaries are saved under
+[bench/baselines/2026-11-01-tls13-context](bench/baselines/2026-11-01-tls13-context).
+The manifests identify `dd5c977` plus this uncommitted implementation; both
+runs use library SHA-256
+`5c3aaed2fd8c3c7f42e9296b35110fddd0f95b03e074c793ab44f4188db2e8b0`.
+[bench/README.md](bench/README.md#full-and-resumed-tls-13-handshakes) gives the
+reproduction command. No private fixture keys, SDKs, ROMs, or session images
+are archived.
+
 ## Field squaring through the integrated multiplier
 
 `FeSquare(result, value)` now calls `FeMultiply(result, value, value)`.

@@ -1,0 +1,390 @@
+diff --git a/src/tls13.c b/src/tls13.c
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -268,7 +268,18 @@
+ 
+ /* Expand data using HMAC, salt and label and info.
+  * TLS v1.3 defines this function. Use callback if available. */
+-static int Tls13HKDFExpandLabel(WOLFSSL* ssl, byte* okm, word32 okmLen,
++/* Palm uses this without enabling the OpenSSL compatibility surface. */
++int PalmTlsWolfSessionHasTicket(WOLFSSL* ssl)
++{
++#ifdef HAVE_SESSION_TICKET
++    return ssl != NULL && ssl->session != NULL && ssl->session->ticketLen > 0;
++#else
++    (void)ssl;
++    return 0;
++#endif
++}
++
++static int PalmRaw_Tls13HKDFExpandLabel(WOLFSSL* ssl, byte* okm, word32 okmLen,
+                                 const byte* prk, word32 prkLen,
+                                 const byte* protocol, word32 protocolLen,
+                                 const byte* label, word32 labelLen,
+@@ -323,11 +334,29 @@
+ #endif
+     return ret;
+ }
++static int Tls13HKDFExpandLabel(WOLFSSL* ssl, byte* okm, word32 okmLen,
++                                const byte* prk, word32 prkLen,
++                                const byte* protocol, word32 protocolLen,
++                                const byte* label, word32 labelLen,
++                                const byte* info, word32 infoLen,
++                                int digest)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsKdf);
++#endif
++    result = PalmRaw_Tls13HKDFExpandLabel(ssl, okm, okmLen, prk, prkLen, protocol, protocolLen, label, labelLen, info, infoLen, digest);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ /* Same as above, but pass in the side we are expanding for:
+  * side: either WOLFSSL_CLIENT_END or WOLFSSL_SERVER_END.
+  */
+-static int Tls13HKDFExpandKeyLabel(WOLFSSL* ssl, byte* okm, word32 okmLen,
++static int PalmRaw_Tls13HKDFExpandKeyLabel(WOLFSSL* ssl, byte* okm, word32 okmLen,
+                                    const byte* prk, word32 prkLen,
+                                    const byte* protocol, word32 protocolLen,
+                                    const byte* label, word32 labelLen,
+@@ -385,6 +414,24 @@
+     (void)side;
+     return ret;
+ }
++static int Tls13HKDFExpandKeyLabel(WOLFSSL* ssl, byte* okm, word32 okmLen,
++                                   const byte* prk, word32 prkLen,
++                                   const byte* protocol, word32 protocolLen,
++                                   const byte* label, word32 labelLen,
++                                   const byte* info, word32 infoLen,
++                                   int digest, int side)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsKdf);
++#endif
++    result = PalmRaw_Tls13HKDFExpandKeyLabel(ssl, okm, okmLen, prk, prkLen, protocol, protocolLen, label, labelLen, info, infoLen, digest, side);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ 
+ /* Derive a key from a message.
+@@ -1266,7 +1313,7 @@
+ }
+ 
+ 
+-static int Tls13_HKDF_Extract(WOLFSSL *ssl, byte* prk, const byte* salt,
++static int PalmRaw_Tls13_HKDF_Extract(WOLFSSL *ssl, byte* prk, const byte* salt,
+                               int saltLen, byte* ikm, int ikmLen, int digest)
+ {
+     int ret;
+@@ -1311,6 +1358,20 @@
+ #endif
+     return ret;
+ }
++static int Tls13_HKDF_Extract(WOLFSSL *ssl, byte* prk, const byte* salt,
++                              int saltLen, byte* ikm, int ikmLen, int digest)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsKdf);
++#endif
++    result = PalmRaw_Tls13_HKDF_Extract(ssl, prk, salt, saltLen, ikm, ikmLen, digest);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ /* Derive the early secret using HKDF Extract.
+  *
+@@ -2774,7 +2835,7 @@
+  * asyncOkay If non-zero can return WC_PENDING_E, otherwise blocks on crypto
+  * returns 0 on success, otherwise failure.
+  */
+-static int EncryptTls13(WOLFSSL* ssl, byte* output, const byte* input,
++static int PalmRaw_EncryptTls13(WOLFSSL* ssl, byte* output, const byte* input,
+                         word16 sz, const byte* aad, word16 aadSz, int asyncOkay)
+ {
+     int    ret    = 0;
+@@ -3064,6 +3125,20 @@
+ 
+     return ret;
+ }
++static int EncryptTls13(WOLFSSL* ssl, byte* output, const byte* input,
++                        word16 sz, const byte* aad, word16 aadSz, int asyncOkay)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsRecord);
++#endif
++    result = PalmRaw_EncryptTls13(ssl, output, input, sz, aad, aadSz, asyncOkay);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ #if defined(HAVE_CHACHA) && defined(HAVE_POLY1305)
+ /* Decrypt with ChaCha20 and check authentication tag with Poly1305.
+@@ -3153,7 +3228,7 @@
+  * aadSz   The size of the addition authentication data.
+  * returns 0 on success, otherwise failure.
+  */
+-int DecryptTls13(WOLFSSL* ssl, byte* output, const byte* input, word16 sz,
++int PalmRaw_DecryptTls13(WOLFSSL* ssl, byte* output, const byte* input, word16 sz,
+                  const byte* aad, word16 aadSz)
+ {
+     int    ret    = 0;
+@@ -3413,6 +3488,20 @@
+ 
+     return ret;
+ }
++int DecryptTls13(WOLFSSL* ssl, byte* output, const byte* input, word16 sz,
++                 const byte* aad, word16 aadSz)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsRecord);
++#endif
++    result = PalmRaw_DecryptTls13(ssl, output, input, sz, aad, aadSz);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ /* Build SSL Message, encrypted.
+  * TLS v1.3 encryption is AEAD only.
+@@ -12338,7 +12427,7 @@
+  * totalSz   The length of the current handshake message.
+  * returns 0 on success and otherwise failure.
+  */
+-static int WOLFSSL_M68K_TLS13_SAFE DoTls13Certificate(WOLFSSL* ssl,
++static int WOLFSSL_M68K_TLS13_SAFE PalmRaw_DoTls13Certificate(WOLFSSL* ssl,
+                               byte* input, word32* inOutIdx,
+                               word32 totalSz)
+ {
+@@ -12378,6 +12467,21 @@
+ 
+     return ret;
+ }
++static int WOLFSSL_M68K_TLS13_SAFE DoTls13Certificate(WOLFSSL* ssl,
++                              byte* input, word32* inOutIdx,
++                              word32 totalSz)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsCertificate);
++#endif
++    result = PalmRaw_DoTls13Certificate(ssl, input, inOutIdx, totalSz);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ #endif
+ 
+ #if (!defined(NO_RSA) || defined(HAVE_ECC) || defined(HAVE_ED25519) || \
+@@ -12547,7 +12651,7 @@
+  * totalSz   The length of the current handshake message.
+  * returns 0 on success and otherwise failure.
+  */
+-static int WOLFSSL_M68K_TLS13_SAFE DoTls13CertificateVerify(WOLFSSL* ssl,
++static int WOLFSSL_M68K_TLS13_SAFE PalmRaw_DoTls13CertificateVerify(WOLFSSL* ssl,
+                                     byte* input,
+                                     word32* inOutIdx, word32 totalSz)
+ {
+@@ -13462,6 +13566,21 @@
+ 
+     return ret;
+ }
++static int WOLFSSL_M68K_TLS13_SAFE DoTls13CertificateVerify(WOLFSSL* ssl,
++                                    byte* input,
++                                    word32* inOutIdx, word32 totalSz)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsSignature);
++#endif
++    result = PalmRaw_DoTls13CertificateVerify(ssl, input, inOutIdx, totalSz);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ #endif /* !NO_RSA || HAVE_ECC || HAVE_ED25519 || HAVE_ED448 ||
+         * HAVE_FALCON || WOLFSSL_HAVE_MLDSA || WOLFSSL_HAVE_SLHDSA */
+ #endif /* !NO_CERTS */
+@@ -13486,7 +13605,7 @@
+  * sniff     Indicates whether we are sniffing packets.
+  * returns 0 on success and otherwise failure.
+  */
+-int WOLFSSL_M68K_TLS13_SAFE DoTls13Finished(WOLFSSL* ssl, const byte* input,
++int WOLFSSL_M68K_TLS13_SAFE PalmRaw_DoTls13Finished(WOLFSSL* ssl, const byte* input,
+                            word32* inOutIdx,
+                            word32 size, word32 totalSz, int sniff)
+ {
+@@ -13689,6 +13808,21 @@
+ 
+     return ret;
+ }
++int WOLFSSL_M68K_TLS13_SAFE DoTls13Finished(WOLFSSL* ssl, const byte* input,
++                           word32* inOutIdx,
++                           word32 size, word32 totalSz, int sniff)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsFinished);
++#endif
++    result = PalmRaw_DoTls13Finished(ssl, input, inOutIdx, size, totalSz, sniff);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ #if !defined(NO_WOLFSSL_CLIENT) || !defined(NO_WOLFSSL_SERVER)
+ /* Send the TLS v1.3 Finished message.
+@@ -13696,7 +13830,7 @@
+  * ssl  The SSL/TLS object.
+  * returns 0 on success, otherwise failure.
+  */
+-static int SendTls13Finished(WOLFSSL* ssl)
++static int PalmRaw_SendTls13Finished(WOLFSSL* ssl)
+ {
+     byte  finishedSz = ssl->specs.hash_size;
+     byte* input;
+@@ -14042,6 +14176,19 @@
+ 
+     return ret;
+ }
++static int SendTls13Finished(WOLFSSL* ssl)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsFinished);
++#endif
++    result = PalmRaw_SendTls13Finished(ssl);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ #endif /* !NO_WOLFSSL_CLIENT || !NO_WOLFSSL_SERVER */
+ 
+ /* RFC 9846 Section 4.7.3: a TLS 1.3 sender MUST NOT allow its number of key
+@@ -14447,7 +14594,7 @@
+  * size      The length of the current handshake message.
+  * returns 0 on success, otherwise failure.
+  */
+-static int DoTls13NewSessionTicket(WOLFSSL* ssl, const byte* input,
++static int PalmRaw_DoTls13NewSessionTicket(WOLFSSL* ssl, const byte* input,
+                                    word32* inOutIdx, word32 size)
+ {
+ #if defined(HAVE_SESSION_TICKET) && \
+@@ -14592,6 +14739,20 @@
+ 
+     return 0;
+ }
++static int DoTls13NewSessionTicket(WOLFSSL* ssl, const byte* input,
++                                   word32* inOutIdx, word32 size)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsTicket);
++#endif
++    result = PalmRaw_DoTls13NewSessionTicket(ssl, input, inOutIdx, size);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ #endif /* NO_WOLFSSL_CLIENT */
+ 
+ #ifndef NO_WOLFSSL_SERVER
+diff --git a/src/tls.c b/src/tls.c
+--- a/src/tls.c
++++ b/src/tls.c
+@@ -10654,7 +10654,7 @@
+  * keyShareEntry  The key share entry object to use to calculate shared secret.
+  * returns 0 on success and other values indicate failure.
+  */
+-static int TLSX_KeyShare_Process(WOLFSSL* ssl, KeyShareEntry* keyShareEntry)
++static int PalmRaw_TLSX_KeyShare_Process(WOLFSSL* ssl, KeyShareEntry* keyShareEntry)
+ {
+     int ret;
+ 
+@@ -10698,6 +10698,19 @@
+ 
+     return ret;
+ }
++static int TLSX_KeyShare_Process(WOLFSSL* ssl, KeyShareEntry* keyShareEntry)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsKeyAgreement);
++#endif
++    result = PalmRaw_TLSX_KeyShare_Process(ssl, keyShareEntry);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ /* Parse an entry of the KeyShare extension.
+  *
+diff --git a/wolfcrypt/src/asn.c b/wolfcrypt/src/asn.c
+--- a/wolfcrypt/src/asn.c
++++ b/wolfcrypt/src/asn.c
+@@ -17731,7 +17731,7 @@
+ }
+ 
+ /* Return codes: 0=Success, Negative (see error-crypt.h), ASN_SIG_CONFIRM_E */
+-int ConfirmSignature(SignatureCtx* sigCtx,
++int PalmRaw_ConfirmSignature(SignatureCtx* sigCtx,
+     const byte* buf, word32 bufSz,
+     const byte* key, word32 keySz, word32 keyOID,
+     const byte* sig, word32 sigSz, word32 sigOID,
+@@ -18814,6 +18814,24 @@
+ 
+     return ret;
+ }
++int ConfirmSignature(SignatureCtx* sigCtx,
++    const byte* buf, word32 bufSz,
++    const byte* key, word32 keySz, word32 keyOID,
++    const byte* sig, word32 sigSz, word32 sigOID,
++    const byte* sigParams, word32 sigParamsSz,
++    byte* rsaKeyIdx)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileEnter(palmTlsHsSignature);
++#endif
++    result = PalmRaw_ConfirmSignature(sigCtx, buf, bufSz, key, keySz, keyOID, sig, sigSz, sigOID, sigParams, sigParamsSz, rsaKeyIdx);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ #ifndef IGNORE_NAME_CONSTRAINTS
+ 

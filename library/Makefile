@@ -40,7 +40,7 @@ P256_COMB := $(GENERATED)/p256_comb8.inc
 ARMLET_HOST_TEST := $(BUILD)/host/armlet_math_test
 ARMLET_ORACLE := $(BUILD)/host/armlet_oracle.so
 COMMON_OBJECTS := $(PALM_BUILD)/palm_library.o $(PALM_BUILD)/tls_loader.o \
-	$(PALM_BUILD)/tls_palm.o $(PALM_BUILD)/tls_verify_profile.o $(PALM_BUILD)/dispatch.o
+	$(PALM_BUILD)/tls_palm.o $(PALM_BUILD)/tls_verify_profile.o $(PALM_BUILD)/tls_handshake_profile.o $(PALM_BUILD)/dispatch.o
 COMMON_OBJECTS_68K := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_68k.o
 COMMON_OBJECTS_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet.o
 OBJECTS_12_68K := $(COMMON_OBJECTS_68K) $(PALM_BUILD)/tls_engine_12.o
@@ -114,23 +114,25 @@ $(DISPATCH): library.def | $(GENERATED)
 $(RESOURCE_RCP): resources/library.rcp app.mk | $(GENERATED)
 	sed 's/@LIB_VERSION@/$(LIB_VERSION)/g' $< > $@
 
-$(PALM_BUILD)/palm_library.o: src/palm_library.c include/palm_tls.h src/tls_internal.h | $(PALM_BUILD)
+$(PALM_BUILD)/palm_library.o: src/palm_library.c include/palm_tls.h src/tls_internal.h src/tls_handshake_profile.h | $(PALM_BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
-$(PALM_BUILD)/tls_loader.o: src/tls_loader.c include/palm_tls.h src/tls_segments.h src/tls_internal.h | $(PALM_BUILD)
+$(PALM_BUILD)/tls_loader.o: src/tls_loader.c include/palm_tls.h src/tls_segments.h src/tls_internal.h src/tls_handshake_profile.h | $(PALM_BUILD)
 	$(CC) $(COMMON_FLAGS) -fno-builtin-memset \
 		-fno-tree-loop-distribute-patterns -c $< -o $@
-$(PALM_BUILD)/tls_engine_12.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_engine_12.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=12 \
 		-DPALM_WOLFSSL_TLS12_ONLY -c $< -o $@
-$(PALM_BUILD)/tls_engine_13.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_engine_13.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=13 \
 		-DWOLFSSL_NO_TLS12 -c $< -o $@
-$(PALM_BUILD)/tls_engine_11.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_engine_11.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=11 \
 		-DPALM_WOLFSSL_TLS11_ONLY -c $< -o $@
 $(PALM_BUILD)/tls_palm.o: src/tls_palm.c src/tls_palm.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(PALM_BUILD)/tls_verify_profile.o: src/tls_verify_profile.c src/tls_verify_profile.h include/palm_tls.h | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
+$(PALM_BUILD)/tls_handshake_profile.o: src/tls_handshake_profile.c src/tls_handshake_profile.h include/palm_tls.h | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(PALM_BUILD)/tls_armlet.o: src/tls_armlet.c src/tls_armlet.h src/tls_arm_compat.h arm/armlet_abi.h include/palm_tls.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
@@ -236,6 +238,8 @@ test: profiles $(ARMLET_HOST_TEST) $(ARMLET_ORACLE)
 	python3 tests/crypto_oracle_test.py --host-library $(ARMLET_ORACLE)
 	python3 tests/hex_import_test.py --source $(DEPS_PREFIX)/../src/wolfssl
 	python3 tests/verify_profile_test.py
+	python3 tests/handshake_profile_test.py
+	python3 tests/session_id_test.py
 
 # Optional CPU instruction emulation requires tests/requirements-arm.txt.
 # The same extracted image must execute on the older TI925T and PXA270.

@@ -4,6 +4,7 @@
 #include <PalmOS.h>
 #include "palm_tls.h"
 #include "tls_segments.h"
+#include "tls_handshake_profile.h"
 
 #define PALM_TLS_ENGINE_DISABLE_ARM 0x80000000UL
 #define PALM_TLS_ENGINE_CONTROL_ONLY 0x40000000UL
@@ -19,15 +20,22 @@ typedef enum PalmTlsEngineCommand {
     palmTlsEngineSessionHandshake,
     palmTlsEngineSessionCancel,
     palmTlsEngineSelfTest,
-    palmTlsEngineShutdown
+    palmTlsEngineShutdown,
+    palmTlsEngineGetProfile
 } PalmTlsEngineCommand;
 
 typedef struct PalmTlsEngineControl {
+    PalmTlsHandshakeProfiler profiler;
     void *contextP;
+    void *contextTrustP;
+    UInt32 contextTrustLength;
+    UInt16 contextVerifyMode;
+    UInt16 contextReusable;
+    Char contextHostname[256];
+    void *resumeTrustP;
+    UInt32 resumeTrustLength;
     void *sessionP;
     void *resumeSessionP;
-    UInt32 resumeTrustKey;
-    UInt32 activeTrustKey;
     UInt32 sessionId;
     UInt32 handshakeStartTicks;
     UInt32 armSelfTestTicks;

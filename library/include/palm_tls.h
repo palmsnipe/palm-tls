@@ -20,6 +20,8 @@
 #define PALM_TLS_SELF_TEST_RESULT_SIZE 52
 #define PALM_TLS_VERIFY_PROFILE_SIZE 68
 #define PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE 188
+#define PALM_TLS_HANDSHAKE_PHASE_PROFILE_SIZE 112
+#define PALM_TLS_SESSION_PROFILE_SIZE 240
 
 #define PALM_TLS_CAP_TLS_1_2 0x00000001UL
 #define PALM_TLS_CAP_EXACT_PEER 0x00000002UL
@@ -37,9 +39,14 @@
 #define PALM_TLS_CAP_ARM_SELF_TESTED 0x00002000UL
 #define PALM_TLS_CAP_ARM_SELF_TEST_FAILED 0x00004000UL
 #define PALM_TLS_CAP_VERIFY_PROFILE 0x00008000UL
+#define PALM_TLS_CAP_HANDSHAKE_PROFILE 0x00010000UL
+#define PALM_TLS_CAP_CONTEXT_REUSE 0x00020000UL
 #define PALM_TLS_MAX_CONCURRENT_SESSIONS 2
 #define PALM_TLS_SESSION_ALLOW_RESUME 0x00000001UL
 #define PALM_TLS_SESSION_COOPERATIVE 0x00000002UL
+#define PALM_TLS_SESSION_PROFILE 0x00000004UL
+/* Diagnostic comparison: recreate the configured context on each request. */
+#define PALM_TLS_SESSION_NO_CONTEXT_REUSE 0x00000008UL
 #define PALM_TLS_IO_COOPERATIVE 0x00000001UL
 
 typedef enum PalmTlsProtocol {
@@ -127,6 +134,46 @@ typedef struct PalmTlsSelfTestProfileResult {
     PalmTlsVerifyProfile tls12Verify;
     PalmTlsVerifyProfile tls13Verify;
 } PalmTlsSelfTestProfileResult;
+
+typedef enum PalmTlsHandshakePhase {
+    palmTlsHsOther = 0,
+    palmTlsHsContext,
+    palmTlsHsTrust,
+    palmTlsHsKeyShare,
+    palmTlsHsKeyAgreement,
+    palmTlsHsCertificate,
+    palmTlsHsSignature,
+    palmTlsHsKdf,
+    palmTlsHsFinished,
+    palmTlsHsRecord,
+    palmTlsHsNetwork,
+    palmTlsHsTicket,
+    palmTlsHsIdle,
+    palmTlsHsPhaseCount
+} PalmTlsHandshakePhase;
+
+typedef struct PalmTlsHandshakePhaseProfile {
+    unsigned long ticks[palmTlsHsPhaseCount];
+    unsigned long calls[palmTlsHsPhaseCount];
+    unsigned long elapsedTicks;
+    unsigned short complete;
+    unsigned short reserved;
+} PalmTlsHandshakePhaseProfile;
+
+/* Opt-in per-session timings. Exclusive phases partition setup/handshake and
+ * post-handshake work separately. Idle covers cooperative gaps between calls.
+ * Query while active or after close, before the slot is reused or purged. */
+typedef struct PalmTlsSessionProfile {
+    unsigned short structSize;
+    unsigned short status;
+    unsigned long sessionId;
+    unsigned short contextReused;
+    unsigned short sessionReused;
+    unsigned short ticketReady;
+    unsigned short reserved;
+    PalmTlsHandshakePhaseProfile handshake;
+    PalmTlsHandshakePhaseProfile postHandshake;
+} PalmTlsSessionProfile;
 
 /* Return zero to accept a chunk. A non-zero result aborts the exchange and is
  * returned in PalmTlsStreamResult.sinkError. The data is valid only for the
@@ -246,7 +293,8 @@ enum PalmTlsLibTrap {
     palmTlsLibTrapPurgeCache,
     palmTlsLibTrapSessionHandshake,
     palmTlsLibTrapSessionCancel,
-    palmTlsLibTrapRunSelfTest
+    palmTlsLibTrapRunSelfTest,
+    palmTlsLibTrapGetSessionProfile
 };
 
 #if defined(PALM_TLS_LIB_BUILD)
@@ -290,6 +338,9 @@ Err PalmTlsLibSessionCancel(UInt16 refNum, unsigned long sessionId,
     PALM_TLS_TRAP(palmTlsLibTrapSessionCancel);
 Err PalmTlsLibRunSelfTest(UInt16 refNum, PalmTlsSelfTestResult *resultP)
     PALM_TLS_TRAP(palmTlsLibTrapRunSelfTest);
+Err PalmTlsLibGetSessionProfile(UInt16 refNum, unsigned long sessionId,
+    PalmTlsSessionProfile *resultP)
+    PALM_TLS_TRAP(palmTlsLibTrapGetSessionProfile);
 
 #undef PALM_TLS_TRAP
 #endif

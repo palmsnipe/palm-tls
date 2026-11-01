@@ -37,18 +37,29 @@ def run(args):
     shutil.copyfile(args.session, session)
     # Freeze the inputs before booting. A later build must not replace a PRC
     # between hashing it and installing it into the emulator.
-    prc = output / 'PalmTLSBench.prc'
+    prc = output / ('PalmTLSHandshakeBench.prc' if args.handshake else 'PalmTLSBench.prc')
     shutil.copyfile(args.prc, prc)
     library = output / 'PalmTLSArm.prc' if args.library else None
     if library:
         shutil.copyfile(args.library, library)
+    fixture = None
+    if args.handshake_fixture:
+        fixture = args.handshake_fixture.resolve()
+        trust = (fixture / 'trust.pem').read_bytes()
+        if trust not in prc.read_bytes():
+            raise ValueError('benchmark trust bundle does not match the live TLS fixture')
+        shutil.copyfile(fixture / 'server.json', output / 'server.json')
+        server_log_start = (fixture / 'connections.jsonl').stat().st_size if (fixture / 'connections.jsonl').exists() else 0
     native = native_image(prc)
     if library and native_image(library) != native:
         raise ValueError('benchmark and library must contain the same native ARM image')
     command = [str(args.emulator.resolve()), '--mips', str(args.mips), '--no-sound',
                '--device', args.device, str(session)]
+    if args.network: command.insert(1, '--net-native')
     repo = Path(__file__).resolve().parents[2]
-    metadata = {'benchmark_version': 1, 'mips': args.mips, 'device': args.device,
+    metadata = {'benchmark_version': 1,
+                'benchmark_type': 'tls13_handshake' if args.handshake else 'native',
+                'mips': args.mips, 'device': args.device,
                 'session_sha256': sha256(args.session),
                 'emulator_sha256': sha256(args.emulator),
                 'prc_sha256': sha256(prc),
@@ -134,7 +145,7 @@ def run(args):
         install(prc)
         while True:
             try:
-                send('launch "PalmTLS Bench"', 'launch successful')
+                send('launch "' + ('PalmTLS HS Bench' if args.handshake else 'PalmTLS Bench') + '"', 'launch successful')
                 break
             except RuntimeError as error:
                 if 'unable to prepare syscall' not in str(error) or time.monotonic() >= deadline:
@@ -148,15 +159,24 @@ def run(args):
             screenshot = output / 'progress.png'
             send(f'screenshot "{screenshot}"', 'screenshot saved')
             state = status(screenshot)
-            if state is False:
-                raise RuntimeError('benchmark failed; see progress.png')
             if state is None:
                 continue
             archive = output / 'databases.zip'
             send(f'db-export "{archive}"', 'export written to', timeout=args.timeout)
-            text = extract(archive)
-            load(text)
+            if args.handshake:
+                from handshake_results import extract as hs_extract, load as hs_load
+                text = hs_extract(archive, allow_failed=state is False)
+            else:
+                text = extract(archive)
+            if state is False:
+                (output / 'results.csv').write_text(text)
+                raise RuntimeError('benchmark failed; see progress.png and results.csv')
+            if args.handshake: hs_load(text)
+            else: load(text)
             (output / 'results.csv').write_text(text)
+            if fixture:
+                data = (fixture / 'connections.jsonl').read_bytes()[server_log_start:]
+                (output / 'server-connections.jsonl').write_bytes(data)
             shutil.copyfile(screenshot, output / 'complete.png')
             print(output / 'results.csv', flush=True)
             return
@@ -186,6 +206,9 @@ def main():
     parser.add_argument('--output', type=Path, required=True, help='new directory for this run')
     parser.add_argument('--prc', type=Path, default=root / 'build/bench/PalmTLSBench.prc')
     parser.add_argument('--library', type=Path, help='optional ARM library to install for engine timings')
+    parser.add_argument('--handshake', action='store_true', help='run and validate the TLS 1.3 handshake app')
+    parser.add_argument('--handshake-fixture', type=Path, help='live local TLS fixture directory; verify its trust bundle')
+    parser.add_argument('--network', action='store_true', help='enable native NetLib redirection')
     parser.add_argument('--mips', type=int, default=100)
     parser.add_argument('--device', choices=['auto', 'e2', 'zire72', 'tx'], default='auto')
     parser.add_argument('--timeout', type=int, default=600)

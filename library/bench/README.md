@@ -1,7 +1,8 @@
 # ARM performance benchmarks
 
 Run from the repository root. The host and Palm runners use the same workload
-and byte-level ARMlet ABI. No network is required.
+and byte-level ARMlet ABI. The primitive suite below requires no network.
+The separate TLS handshake suite uses a local server.
 
 ```sh
 make -C library benchmark
@@ -26,6 +27,66 @@ and executes it with real `PceNativeCall` transitions. Its creator is `Tbch`,
 separate from TLS Tester and PalmTLS. It overwrites only its own
 `PalmTLS Bench Results` database on each launch. Large scratch buffers are
 allocated on the heap.
+
+## Full and resumed TLS 1.3 handshakes
+
+This suite measures actual TLS connections through the public PalmTLS session
+API, separately from the offline ECDH/ECDSA self-test. It launches a local
+OpenSSL-backed Python server and Cloudpilot with native networking, builds an
+application with the matching public CA fixture, and runs two fresh private
+copies of the supplied session:
+
+```sh
+python3 library/bench/run-handshake.py \
+  --emulator /Users/cyril/projects/cloudpilot-emu/src/uarm/cp-uarm \
+  --session /Users/cyril/projects/cloudpilot-emu/web/embedded/public/session_os5.img \
+  --server-python /opt/homebrew/bin/python3.12 \
+  --port 22443 --runs 2 --mips 100 \
+  --output library/build/bench/tls13-new-comparison
+```
+
+Use a new output directory and a Python whose `ssl.HAS_TLSv1_3` is true; macOS's
+system LibreSSL Python may lack TLS 1.3. The fixture generator also needs the
+`openssl` executable. Three consecutive loopback ports must be free: TLS 1.3,
+a delayed TLS 1.3 endpoint for cooperative tests, and a TLS 1.2 regression
+endpoint. No external server or DNS is involved. Fixture certificates cover
+2020–2040 to accommodate the supplied Palm clock without changing it.
+
+Each run contains five samples of six cases: cold full, warm full, and resumed
+handshakes, each with context reuse disabled/enabled. Both modes use the same
+PRC and opt-in profiling. Cold cases purge the engine/cache first; warm full
+cases deliberately omit `ALLOW_RESUME`; resumed cases require actual ticket
+reuse. The default trust corpus has eight P-256 roots (4,560 PEM bytes), with
+a P-256 leaf signed by one root. Connections negotiate TLS 1.3,
+P-256, and `TLS_AES_128_GCM_SHA256`. The application reads post-handshake
+tickets before closing. `load_ticks` is separate from `handshake_ticks`, whose
+boundary includes context/trust setup and key-share generation. Socket setup
+is excluded. The 100 Hz Palm clock gives 10 ms resolution.
+
+`results.csv` contains 30 timed rows and 780 exclusive phase rows in comments,
+covering handshake and post-handshake periods. Validation requires complete,
+balanced profiles, expected context/session reuse, tickets, and signature work
+on full handshakes. The independently saved server log must confirm 20 full
+and 10 resumed TLS 1.3 connections. Six additional regression groups check
+owned/exact trust identity, hostname/verification-mode changes and bad CAs,
+purge, opening cancellation, interleaved session isolation, and TLS 1.2
+full/resumed connections. Failed regressions fail the run.
+
+```sh
+python3 library/bench/handshake_results.py \
+  library/build/bench/tls13-new-comparison/run/results.csv \
+  --server-log library/build/bench/tls13-new-comparison/run/server-connections.jsonl
+```
+
+The driver saves PRC hashes, emulator/session hashes, server configuration,
+raw results, server logs, and summaries. It verifies that the fixture's public
+trust bytes are embedded in the application before booting. Development-only
+private keys remain in the ignored build fixture directory; archive only the
+public measurements/metadata. Never archive private keys, SDKs, or ROM/session
+images. Final repeated measurements are in
+[`baselines/2026-11-01-tls13-context`](baselines/2026-11-01-tls13-context).
+These local emulator measurements include profiling overhead and do not
+establish physical-device or Internet handshake latency.
 
 ## Repeatable emulator runs
 

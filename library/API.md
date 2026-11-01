@@ -13,7 +13,8 @@ sleep/wake handling rather than using them as request operations.
 
 `PalmTlsLibGetCapabilities` reports only the protocol engines present in the
 installed build, plus the available verification modes, streaming, timings,
-sessions, engine caching, resumption, and cooperative I/O. Their names and bit
+sessions, engine caching, resumption, cooperative I/O, and optional TLS 1.3
+phase profiling/context reuse. Their names and bit
 values are defined in the public header. Applications must populate protocol
 selectors from these bits and must not assume all three engines are installed.
 
@@ -97,8 +98,9 @@ operation timeout and short per-step timeouts.
 
 `PALM_TLS_SESSION_ALLOW_RESUME` enables a one-entry TLS resumption cache in
 each of the two session slots. A later session in that slot can reuse it only
-when the protocol engine, hostname, verification mode, and trust-anchor
-fingerprint match. Inspect
+when the protocol engine, hostname, verification mode, and exact trust bytes
+match. The library owns a copy of the cached trust bytes; equality is checked
+by length and contents, rather than a hash or caller pointer. Inspect
 `PalmTlsSessionOpenResult.sessionReused` rather than assuming reuse.
 
 TLS 1.3 resumption is available in `PalmTLSArm.prc`. The 68K TLS 1.3 engine
@@ -108,10 +110,25 @@ ABI. TLS 1.3 requests still complete normally, but `sessionReused` remains
 false for that architecture/protocol combination. This restriction does not
 apply to the ARM build or to the other 68K protocol engines.
 
+For TLS 1.3, each slot also retains its configured `WOLFSSL_CTX` and parsed
+trust store after normal close. Reuse requires the same hostname, verification
+mode, and exact trust bytes. This is independent of
+`PALM_TLS_SESSION_ALLOW_RESUME`: a full handshake can reuse its context without
+offering a ticket. Every connection still creates a fresh `WOLFSSL`, ephemeral
+P-256 key share, I/O bindings, SNI, and hostname check.
+
+`PALM_TLS_SESSION_NO_CONTEXT_REUSE` disables context reuse for that connection
+for diagnostic comparisons; it does not disable ticket resumption. TLS 1.1/1.2
+continue to create a fresh context per connection. Cancellation and terminal
+handshake failures discard the slot's context and resumption state. Normal
+close retains the TLS 1.3 context, parsed CAs, and owned trust copy, plus a
+separate trust copy when a resumption entry is saved. Up to two slots can retain
+these allocations while idle. Use purge or library close to release them.
+
 The selected protocol engine remains relocated and initialized after a request,
 avoiding repeated resource copy, relocation, and wolfSSL initialization. A
 different protocol replaces the idle engine. `PalmTlsLibPurgeCache` releases
-the engine and resumption state. If a session is opening or active, purge
+the engine, contexts, trust copies, profiles, and resumption state. If a session is opening or active, purge
 cancels it as part of unloading the engine. This makes purge the recovery path
 when a caller cannot cleanly close or cancel a session it owns.
 
@@ -129,8 +146,59 @@ would-block, and cancelled. A terminal failure invalidates the operation; clean
 up according to whether the session ID is still owned by the caller.
 
 Timing fields use Palm system ticks. `loadTicks` covers engine preparation,
-`handshakeTicks` covers the TLS handshake, and `transferTicks` covers streaming
-request/response I/O.
+`handshakeTicks` starts before context creation, trust loading, and TLS 1.3
+key-share generation and ends when the TLS handshake completes. This boundary
+applies to all protocol engines; earlier releases started after setup and
+omitted TLS 1.3 key-share generation. DNS and TCP connection setup are caller
+work and are excluded. `transferTicks` covers streaming request/response I/O.
+
+## TLS 1.3 session phase profiling
+
+Check `PALM_TLS_CAP_HANDSHAKE_PROFILE`, then include
+`PALM_TLS_SESSION_PROFILE` in `PalmTlsSessionOpenParams.options`. Zero a
+`PalmTlsSessionProfile`, set `structSize` to `PALM_TLS_SESSION_PROFILE_SIZE`
+(240), and call `PalmTlsLibGetSessionProfile(refNum, sessionId, &profile)`.
+The new trap is appended; existing trap offsets and result sizes are unchanged.
+TLS 1.1/1.2 do not produce this profile.
+
+Query during an active/opening session or after close/cancel, before its slot
+is reused or the engine is purged/replaced. `status` records the last session
+operation outcome; `contextReused`, `sessionReused`, and `ticketReady` report
+actual state. TLS 1.3 tickets normally arrive after the handshake: read the
+server's post-handshake traffic before expecting a saved resumption entry.
+
+`handshake` and `postHandshake` each contain 13 exclusive tick totals and entry
+counts indexed by `PalmTlsHandshakePhase`, plus `elapsedTicks` and `complete`.
+Nested phases subtract from their parents, so the ticks partition each period:
+
+| Phase | Timed work |
+| --- | --- |
+| Other | Remaining setup/state-machine work, SSL allocation, SNI, cleanup |
+| Context | Fresh wolfSSL context/method creation |
+| Trust | Owned trust copy, trust-store/peer loading, verification configuration |
+| KeyShare | Fresh client P-256 key-share generation |
+| KeyAgreement | Server key-share processing and shared-secret calculation |
+| Certificate | TLS certificate-message handling, excluding nested signature checks |
+| Signature | Certificate-chain signatures and CertificateVerify authentication |
+| Kdf | HKDF extraction and label expansion |
+| Finished | Finished generation/verification, excluding nested KDF/record work |
+| Record | TLS 1.3 record encryption/decryption |
+| Network | Palm socket send/receive callbacks |
+| Ticket | NewSessionTicket processing, excluding nested work |
+| Idle | Gaps between cooperative/library calls, including application scheduling |
+
+The handshake period uses the same start/end timestamps as `handshakeTicks`.
+The post-handshake period starts immediately afterward and includes tickets,
+application record I/O, idle time, and close cleanup. `complete == 1` means the
+period ended with balanced timing scopes; it does **not** indicate successful
+authentication. Inspect `status` and the session operation result. Active
+snapshots can have an incomplete current period. A closed profile is immutable.
+
+Convert ticks using `SysTicksPerSecond()`. Zero ticks can mean less than one
+tick; use entry counts to distinguish this from unused phases. Measurements
+include instrumentation overhead. Profiling is opt-in: inactive hooks do not
+read the clock. `PALM_TLS_CAP_CONTEXT_REUSE` separately advertises the TLS 1.3
+context cache, which works without enabling profiling.
 
 ## Offline ARM self-test
 

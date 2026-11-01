@@ -366,6 +366,18 @@ UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
             }
             params.controlP = controlP;
             break;
+        case palmTlsEngineGetProfile: {
+            UInt16 slot;
+            params.controlP = 0;
+            for (slot = 0; slot < PALM_TLS_MAX_SESSIONS; slot++) {
+                PalmTlsEngineControl *candidate = &stateP->engine.controls[slot];
+                if (candidate->profiler.enabled &&
+                    candidate->profiler.result.sessionId == params.sessionId)
+                    params.controlP = candidate;
+            }
+            if (!params.controlP) return resultP->status;
+            break;
+        }
         case palmTlsEngineSessionWrite:
         case palmTlsEngineSessionRead:
         case palmTlsEngineSessionClose:

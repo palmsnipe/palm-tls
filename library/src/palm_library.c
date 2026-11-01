@@ -36,6 +36,11 @@ typedef char PalmTlsAssertVerifyProfile[
 typedef char PalmTlsAssertSelfTestProfileResult[
     sizeof(PalmTlsSelfTestProfileResult) == PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE ? 1 : -1];
 
+typedef char PalmTlsAssertHandshakePhaseProfile[
+    sizeof(PalmTlsHandshakePhaseProfile) == PALM_TLS_HANDSHAKE_PHASE_PROFILE_SIZE ? 1 : -1];
+typedef char PalmTlsAssertSessionProfile[
+    sizeof(PalmTlsSessionProfile) == PALM_TLS_SESSION_PROFILE_SIZE ? 1 : -1];
+
 static PalmTlsLibraryState *LibraryState(UInt16 refNum)
 {
     SysLibTblEntryPtr entryP = SysLibTblEntry(refNum);
@@ -44,9 +49,21 @@ static PalmTlsLibraryState *LibraryState(UInt16 refNum)
 
 static UInt32 NextSessionId(PalmTlsLibraryState *stateP)
 {
-    stateP->nextSessionId++;
-    if (stateP->nextSessionId == 0) stateP->nextSessionId = 1;
-    return stateP->nextSessionId;
+    UInt16 slot;
+    /* Closed slots retain a queryable profile. Reserve those IDs as well as
+     * active session IDs when the 16-bit generator wraps. At most four IDs
+     * are reserved by the two slots, so this loop always finds a free ID. */
+    for (;;) {
+        stateP->nextSessionId++;
+        if (stateP->nextSessionId == 0) stateP->nextSessionId = 1;
+        for (slot = 0; slot < PALM_TLS_MAX_SESSIONS; slot++) {
+            PalmTlsEngineControl *controlP = &stateP->engine.controls[slot];
+            if (controlP->sessionId == stateP->nextSessionId ||
+                (controlP->profiler.enabled &&
+                 controlP->profiler.result.sessionId == stateP->nextSessionId)) break;
+        }
+        if (slot == PALM_TLS_MAX_SESSIONS) return stateP->nextSessionId;
+    }
 }
 
 static Boolean EngineResourcesPresent(DmOpenRef databaseP,
@@ -177,6 +194,8 @@ Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
         PALM_TLS_CAP_TIMINGS | PALM_TLS_CAP_SESSIONS |
         PALM_TLS_CAP_ENGINE_CACHE | PALM_TLS_CAP_RESUMPTION |
         PALM_TLS_CAP_COOPERATIVE_IO | PALM_TLS_CAP_VERIFY_PROFILE;
+    if ((*capabilitiesP & PALM_TLS_CAP_TLS_1_3) != 0)
+        *capabilitiesP |= PALM_TLS_CAP_HANDSHAKE_PROFILE | PALM_TLS_CAP_CONTEXT_REUSE;
     if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) == errNone &&
         sysFtrNumProcessorIsARM(processor)) {
         UInt16 index;
@@ -396,7 +415,8 @@ Err PalmTlsLibSessionOpen(UInt16 refNum,
             paramsP->trustedPeerP, paramsP->trustedPeerLength,
             paramsP->hostnameP, 1, paramsP->timeoutTicks) ||
         (paramsP->options & ~(PALM_TLS_SESSION_ALLOW_RESUME |
-            PALM_TLS_SESSION_COOPERATIVE)) != 0)
+            PALM_TLS_SESSION_COOPERATIVE | PALM_TLS_SESSION_PROFILE |
+            PALM_TLS_SESSION_NO_CONTEXT_REUSE)) != 0)
         return sysErrParamErr;
     MemSet(&params, sizeof(params), 0);
     params.command = palmTlsEngineSessionOpen;
@@ -585,5 +605,28 @@ Err PalmTlsLibPurgeCache(UInt16 refNum)
      * report palmTlsStatusBusy.
      */
     PalmTlsUnloadEngine(stateP);
+    return errNone;
+}
+
+Err PalmTlsLibGetSessionProfile(UInt16 refNum, unsigned long sessionId,
+    PalmTlsSessionProfile *resultP)
+{
+    PalmTlsLibraryState *stateP = LibraryState(refNum);
+    PalmTlsEngineParams params;
+    PalmTlsEngineResult result;
+    if (!resultP || resultP->structSize != PALM_TLS_SESSION_PROFILE_SIZE)
+        return sysErrParamErr;
+    MemSet(resultP, sizeof(*resultP), 0);
+    resultP->structSize = sizeof(*resultP);
+    resultP->status = palmTlsStatusBadParameter;
+    if (!stateP || !stateP->engine.loaded || !sessionId) return sysErrParamErr;
+    MemSet(&params, sizeof(params), 0);
+    params.command = palmTlsEngineGetProfile;
+    params.protocol = stateP->engine.protocol;
+    params.sessionId = sessionId;
+    params.responseP = resultP;
+    params.responseCapacity = sizeof(*resultP);
+    PalmTlsExecute(stateP, &params, &result);
+    if (result.status != palmTlsStatusOk) resultP->status = result.status;
     return errNone;
 }
