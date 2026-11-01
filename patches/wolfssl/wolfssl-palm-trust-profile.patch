@@ -1,0 +1,97 @@
+diff --git a/wolfcrypt/src/asn.c b/wolfcrypt/src/asn.c
+--- a/wolfcrypt/src/asn.c
++++ b/wolfcrypt/src/asn.c
+@@ -24249,7 +24249,7 @@
+ 
+ #endif /* WOLFSSL_ASN_TEMPLATE */
+ 
+-int ParseCert(DecodedCert* cert, int type, int verify, void* cm)
++static int PalmTrustRaw_ParseCert(DecodedCert* cert, int type, int verify, void* cm)
+ {
+     int   ret;
+ #if (!defined(WC_ASN_NO_HEAP) && !defined(NO_WOLFSSL_CM_VERIFY)) || \
+@@ -24298,6 +24298,20 @@
+ #endif
+ 
+     return ret;
++}
++
++
++int ParseCert(DecodedCert* cert, int type, int verify, void* cm)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsTrustProfileEnter(palmTlsTrustDecode);
++#endif
++    result = PalmTrustRaw_ParseCert(cert, type, verify, cm);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsTrustProfileLeave();
++#endif
++    return result;
+ }
+ 
+ int wc_ParseCert(DecodedCert* cert, int type, int verify, void* cm)
+@@ -27129,7 +27143,7 @@
+ 
+ /* Remove PEM header/footer, convert to ASN1, store any encrypted data
+    info->consumed tracks of PEM bytes consumed in case multiple parts */
+-int PemToDer(const unsigned char* buff, long longSz, int type,
++static int PalmTrustRaw_PemToDer(const unsigned char* buff, long longSz, int type,
+               DerBuffer** pDer, void* heap, EncryptedInfo* info, int* keyFormat)
+ {
+     const char* header      = NULL;
+@@ -27608,6 +27622,21 @@
+ #endif /* WOLFSSL_ENCRYPTED_KEYS */
+ 
+     return ret;
++}
++
++
++int PemToDer(const unsigned char* buff, long longSz, int type,
++              DerBuffer** pDer, void* heap, EncryptedInfo* info, int* keyFormat)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsTrustProfileEnter(palmTlsTrustPem);
++#endif
++    result = PalmTrustRaw_PemToDer(buff, longSz, type, pDer, heap, info, keyFormat);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsTrustProfileLeave();
++#endif
++    return result;
+ }
+ 
+ int wc_PemToDer(const unsigned char* buff, long longSz, int type,
+diff --git a/src/ssl_certman.c b/src/ssl_certman.c
+--- a/src/ssl_certman.c
++++ b/src/ssl_certman.c
+@@ -3064,7 +3064,7 @@
+ /* owns der, internal now uses too */
+ /* type flag ids from user or from chain received during verify
+    don't allow chain ones to be added w/o isCA extension */
+-int AddCA(WOLFSSL_CERT_MANAGER* cm, DerBuffer** pDer, int type, int verify)
++static int PalmTrustRaw_AddCA(WOLFSSL_CERT_MANAGER* cm, DerBuffer** pDer, int type, int verify)
+ {
+     int         ret = 0;
+     Signer*     signer = NULL;
+@@ -3338,6 +3338,20 @@
+     return ret == 0 ? WOLFSSL_SUCCESS : ret;
+ }
+ 
++
++int AddCA(WOLFSSL_CERT_MANAGER* cm, DerBuffer** pDer, int type, int verify)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsTrustProfileEnter(palmTlsTrustStore);
++#endif
++    result = PalmTrustRaw_AddCA(cm, pDer, type, verify);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsTrustProfileLeave();
++#endif
++    return result;
++}
++
+ /* Removes the CA with the passed in subject hash from the
+    cert manager's CA cert store. */
+ int RemoveCA(WOLFSSL_CERT_MANAGER* cm, byte* hash, int type)

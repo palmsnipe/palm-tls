@@ -1,6 +1,6 @@
 """Check the handshake reader rejects false reuse and incomplete profiles."""
 import unittest
-from handshake_results import CASES, PHASES, REGRESSIONS, ECDHE_PHASES, load
+from handshake_results import CASES, PHASES, REGRESSIONS, ECDHE_PHASES, LOAD_PHASES, TRUST_PHASES, load
 
 
 def fixture():
@@ -41,6 +41,21 @@ class HandshakeResultsTests(unittest.TestCase):
             load(text.replace(',map,0,1', ',map,0,0'))
         with self.assertRaises(ValueError):
             load(text+'# ecdhe,cache_resumed,0,map,0,1\n')
+
+    def test_startup_details(self):
+        text=fixture()
+        for case in CASES:
+            for sample in range(5):
+                for kind,phases in (('load',LOAD_PHASES),('trust',TRUST_PHASES)):
+                    for phase in phases:
+                        text+=f'# {kind},{case},{sample},{phase},0,0\n'
+        load(text)
+        with self.assertRaises(ValueError):
+            load(text+'# load,cache_full_warm,0,copy,0,0\n')
+        with self.assertRaises(ValueError):
+            load(text.replace(',pem,0,0', ',pem,1,0'))
+        with self.assertRaises(ValueError):
+            load(text.replace('# load,cache_full_warm,0,copy,0,0', '# load,cache_full_warm,0,copy,0,1'))
 
     def test_false_resume(self):
         with self.assertRaises(ValueError):

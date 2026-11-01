@@ -1,5 +1,108 @@
 # ARM performance review — November 1, 2026
 
+## Cold startup and public CA PEM loading
+
+The optional session profile now extends to **400 bytes** and separates cold
+engine loading from trust-store processing. The earlier 240/288-byte results,
+trap offsets, and handshake boundaries remain unchanged. Seven loader phases
+partition `loadTicks`; five trust slots partition the main exclusive Trust
+phase. Call counts distinguish sub-tick work from absent work. The reserved
+trust-cache slot is currently zero. [API.md](API.md#cold-start-and-trust-loading-profile)
+describes the extension.
+
+The profile-only baseline (`995460c` plus the saved support patch) reproduces
+the earlier **660 ms** cold total. It identifies two measurable costs: CA PEM
+conversion occupies roughly **110–130 ms** of the 150 ms eight-root trust load;
+loader relocation takes roughly **50 ms**, native qualification/initialization
+50–60 ms, and per-engine rejection-test qualification about **40 ms**. Resource
+setup/copy and wolfSSL initialization are below a tick in this fixture.
+
+Three optimizations preserve validation and compatibility:
+
+- CA PEM input now uses wolfSSL's existing public-data Base64 decoder, as
+  other public certificates already do. Private/encrypted key decoding keeps
+  its constant-time decoder. Certificate parsing and all restrictions remain
+  unchanged. Differential tests compare both actual decoders on **33,915**
+  valid/malformed/capacity cases, including every byte in each quartet position,
+  whitespace, padding, embedded NULs, truncation, random input, and output
+  guard bytes.
+- Relocation uses aligned 32-bit accesses in its writable scratch buffer,
+  replacing two `MemMove` system calls per four-byte relocation. Storage still
+  receives its final contents through `DmWrite`. Per-segment bounds reduce
+  repeated table scans while retaining support for unsorted tables. The fixed
+  linker-bank mapping uses a checked arithmetic lookup with a build-time layout
+  assertion. New tests cover all bank boundaries, unsorted entries, alignment,
+  overflowing/truncated offsets, bad segments/version, allocation failure,
+  write failure, and scratch cleanup.
+- Startup qualification restores only the generator's 16 used TFM limbs,
+  the one higher limb touched by a negative test, and Z's used limb/sign.
+  It avoids repeatedly clearing all 264 limbs. Every positive/rejection case
+  and its expected wolfSSL error remains in place; no startup check is removed.
+
+The investigated wolfSSL 5.9.4 certificate-cache serializer does **not** retain
+all signer policy fields, including path-length, key-usage, and name-constraint
+information. Persisting/restoring it would not preserve the requested trust
+rules. That cache remains disabled. The existing exact-byte context/trust-store
+reuse remains active; this change speeds normal loading and keeps full
+certificate processing rather than introducing a lossy cache format.
+
+Both sides use the same 400-byte profiling application, wolfSSL 5.9.4,
+CA/leaf fixture, eight P-256 roots (4,560 PEM bytes), ARMv4T `-Os` target,
+supplied Frankenpilot/E3 session, emulator binary, and **100 MIPS**. The baseline
+support patch adds profiling only. Final changes are the CA decoder selection,
+relocator, and test-vector initialization. No native arithmetic, CPU allowlist,
+trust corpus, session-resumption policy, or TLS algorithm changes are mixed in.
+
+Five-sample medians, first run / repeat:
+
+| Case | Profiled baseline | Final |
+| --- | ---: | ---: |
+| Cold load + full handshake, cached-context configuration | 660 / 660 ms | 580 / 570 ms |
+| Cold engine load alone | 150 / 150 ms | 100 / 100 ms |
+| Cold full handshake alone | 510 / 510 ms | 470 / 470 ms |
+| Warm full handshake, cached context | 360 / 360 ms | 360 / 360 ms |
+| Warm resumed handshake, cached context | 170 / 170 ms | 170 / 170 ms |
+| Full handshake with context reuse disabled | 510 / 510 ms | 470 / 470 ms |
+| Resumed handshake with context reuse disabled | 320 / 320 ms | 290 / 290 ms |
+
+Cold setup improves **12.1–13.6%**. The combined cold median is calculated from
+paired load/handshake samples before taking the median; component medians need
+not sum to it. Final cold-load samples span 100–110 ms, full-handshake samples
+470–480 ms, and paired totals 570–580 ms. Warm cached traffic is unchanged
+within the 10 ms clock resolution, as intended.
+
+The final profile reports roughly **70 ms** for PEM conversion, 40 ms for CA
+decoding, and zero/sub-tick other/insertion work. Per-engine qualification falls
+from about 40 to **10 ms**, and relocation from about 50 to **40 ms**. The
+remaining native known-answer tests take 50–60 ms and are retained. These
+per-phase medians need not sum exactly to period medians.
+
+Each full run independently confirms **20 full and 10 resumed TLS 1.3**
+P-256/AES-128-GCM connections, plus trust ownership/identity, wrong CA/hostname/
+mode rejection, purge, cancellation, slot isolation, and TLS 1.2 full/resumed
+regressions. A separately launched, unchanged older benchmark app also passes
+against the final library using the **240/288-byte profile APIs**. The offline
+Palm benchmark passes both **52/188-byte self-test results**. Project/profile/
+package checks, the complete wolfSSL patch stack, host arithmetic oracles,
+and TI925T/PXA270 arithmetic/control-address traces pass. The new nested trust
+profiler and startup result reader have positive/rejection tests.
+
+These are instrumented local emulator measurements with a 100 Hz Palm clock;
+DNS/TCP setup is excluded. They do not establish physical Palm or Internet
+latency. No attempt is made to hide setup by moving it outside the existing
+timing boundary. A rebuild after adding a compile-time assertion changed only
+Palm database timestamps; all resources were verified identical and the exact
+measured PRC was retained for the final ABI/offline runs.
+
+All existing ARM profiles and both benchmark applications retain the same
+single **34,760-byte ARMv4T image**, SHA-256
+`10a7c6649b46968ae19bf10259492e95edb8b48a535729977435516639d32ccd`.
+There is no additional CPU-specific PRC. The measured final full library SHA-256
+is `8007c33fbd8f9fcf1176150278173a3fb8a3db46f5fa687da3f813f0b718cecd`.
+Repeated raw samples, loader/trust details, server logs, ABI/offline regressions,
+metadata, and the profile-only baseline support patch are in
+[bench/baselines/2026-11-01-startup](bench/baselines/2026-11-01-startup).
+
 ## Native P-256 public-key validation
 
 Built-in P-256 public-key validation now crosses to the shared ARMlet for the

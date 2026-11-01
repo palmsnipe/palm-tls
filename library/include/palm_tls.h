@@ -24,6 +24,9 @@
 #define PALM_TLS_SESSION_PROFILE_SIZE 240
 #define PALM_TLS_ECDHE_PHASE_PROFILE_SIZE 48
 #define PALM_TLS_SESSION_ECDHE_PROFILE_SIZE 288
+#define PALM_TLS_LOAD_PROFILE_SIZE 64
+#define PALM_TLS_TRUST_PROFILE_SIZE 48
+#define PALM_TLS_SESSION_STARTUP_PROFILE_SIZE 400
 
 #define PALM_TLS_CAP_TLS_1_2 0x00000001UL
 #define PALM_TLS_CAP_EXACT_PEER 0x00000002UL
@@ -44,6 +47,7 @@
 #define PALM_TLS_CAP_HANDSHAKE_PROFILE 0x00010000UL
 #define PALM_TLS_CAP_CONTEXT_REUSE 0x00020000UL
 #define PALM_TLS_CAP_ECDHE_PROFILE 0x00040000UL
+#define PALM_TLS_CAP_STARTUP_PROFILE 0x00080000UL
 #define PALM_TLS_MAX_CONCURRENT_SESSIONS 2
 #define PALM_TLS_SESSION_ALLOW_RESUME 0x00000001UL
 #define PALM_TLS_SESSION_COOPERATIVE 0x00000002UL
@@ -204,6 +208,35 @@ typedef struct PalmTlsSessionEcdheProfile {
     PalmTlsSessionProfile base;
     PalmTlsEcdhePhaseProfile ecdhe;
 } PalmTlsSessionEcdheProfile;
+
+typedef enum PalmTlsLoadPhase {
+    palmTlsLoadSetup = 0, palmTlsLoadCopy, palmTlsLoadRelocate,
+    palmTlsLoadNative, palmTlsLoadWolf, palmTlsLoadQualify, palmTlsLoadOther,
+    palmTlsLoadPhaseCount
+} PalmTlsLoadPhase;
+typedef struct PalmTlsLoadProfile {
+    unsigned long ticks[palmTlsLoadPhaseCount];
+    unsigned long calls[palmTlsLoadPhaseCount];
+    unsigned long elapsedTicks;
+    unsigned short complete, reserved;
+} PalmTlsLoadProfile;
+typedef enum PalmTlsTrustPhase {
+    palmTlsTrustOther = 0, palmTlsTrustPem, palmTlsTrustDecode,
+    palmTlsTrustStore, palmTlsTrustCache, palmTlsTrustPhaseCount
+} PalmTlsTrustPhase;
+typedef struct PalmTlsTrustProfile {
+    unsigned long ticks[palmTlsTrustPhaseCount];
+    unsigned long calls[palmTlsTrustPhaseCount];
+    unsigned long elapsedTicks;
+    unsigned short complete, reserved;
+} PalmTlsTrustProfile;
+/* GetSessionProfile extension; pass &result.session.base with structSize=400.
+ * Load is zero for warm opens; trust partitions the exclusive Trust phase. */
+typedef struct PalmTlsSessionStartupProfile {
+    PalmTlsSessionEcdheProfile session;
+    PalmTlsLoadProfile load;
+    PalmTlsTrustProfile trust;
+} PalmTlsSessionStartupProfile;
 
 /* Return zero to accept a chunk. A non-zero result aborts the exchange and is
  * returned in PalmTlsStreamResult.sinkError. The data is valid only for the

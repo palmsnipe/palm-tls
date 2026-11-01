@@ -46,6 +46,10 @@ typedef char PalmTlsAssertEcdhePhaseProfile[
 typedef char PalmTlsAssertSessionEcdheProfile[
     sizeof(PalmTlsSessionEcdheProfile) == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE ? 1 : -1];
 
+typedef char PalmTlsAssertLoadProfile[sizeof(PalmTlsLoadProfile) == PALM_TLS_LOAD_PROFILE_SIZE ? 1 : -1];
+typedef char PalmTlsAssertTrustProfile[sizeof(PalmTlsTrustProfile) == PALM_TLS_TRUST_PROFILE_SIZE ? 1 : -1];
+typedef char PalmTlsAssertStartupProfile[sizeof(PalmTlsSessionStartupProfile) == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE ? 1 : -1];
+
 static PalmTlsLibraryState *LibraryState(UInt16 refNum)
 {
     SysLibTblEntryPtr entryP = SysLibTblEntry(refNum);
@@ -201,7 +205,7 @@ Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
         PALM_TLS_CAP_COOPERATIVE_IO | PALM_TLS_CAP_VERIFY_PROFILE;
     if ((*capabilitiesP & PALM_TLS_CAP_TLS_1_3) != 0)
         *capabilitiesP |= PALM_TLS_CAP_HANDSHAKE_PROFILE | PALM_TLS_CAP_CONTEXT_REUSE |
-            PALM_TLS_CAP_ECDHE_PROFILE;
+            PALM_TLS_CAP_ECDHE_PROFILE | PALM_TLS_CAP_STARTUP_PROFILE;
     if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) == errNone &&
         sysFtrNumProcessorIsARM(processor)) {
         UInt16 index;
@@ -622,7 +626,8 @@ Err PalmTlsLibGetSessionProfile(UInt16 refNum, unsigned long sessionId,
     PalmTlsEngineResult result;
     UInt16 size;
     if (!resultP || (resultP->structSize != PALM_TLS_SESSION_PROFILE_SIZE &&
-        resultP->structSize != PALM_TLS_SESSION_ECDHE_PROFILE_SIZE))
+        resultP->structSize != PALM_TLS_SESSION_ECDHE_PROFILE_SIZE &&
+        resultP->structSize != PALM_TLS_SESSION_STARTUP_PROFILE_SIZE))
         return sysErrParamErr;
     size = resultP->structSize;
     MemSet(resultP, size, 0);

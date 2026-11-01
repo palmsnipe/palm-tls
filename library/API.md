@@ -233,6 +233,39 @@ not authentication success; it is zero until key-agreement processing ends.
 The normal profile's query lifetime, opt-in behavior, clock resolution, and
 instrumentation overhead also apply to this extension.
 
+### Cold-start and trust-loading profile
+
+Check `PALM_TLS_CAP_STARTUP_PROFILE` to use the optional 400-byte result:
+
+```c
+PalmTlsSessionStartupProfile startup;
+MemSet(&startup, sizeof(startup), 0);
+startup.session.base.structSize = PALM_TLS_SESSION_STARTUP_PROFILE_SIZE;
+PalmTlsLibGetSessionProfile(refNum, sessionId, &startup.session.base);
+```
+
+Open with `PALM_TLS_SESSION_PROFILE`. The original 240/288-byte results and
+trap offsets are unchanged. `session` contains the earlier ECDHE extension.
+`load` separates resource/database setup, resource allocation/copy, relocation,
+native initialization/known-answer tests, wolfSSL initialization, per-engine
+qualification, and other bookkeeping. Its tick sum and `elapsedTicks` equal
+that open's `loadTicks`. Warm opens have zero load ticks and calls; an earlier
+connection's load is never attributed to a later session.
+
+`trust` separates other configuration/owned-buffer work, PEM conversion,
+certificate decoding, and CA insertion/cleanup. Nested decoding is excluded
+from insertion. The cache phase is reserved and currently zero. Full context
+reuse avoids trust loading entirely and produces zero trust ticks/calls.
+The sum and `elapsedTicks` equal the main handshake's exclusive Trust phase.
+All clocks, completeness flags, query lifetime, and instrumentation caveats
+from the earlier profiles apply. These details describe successful engine
+loads; a failed load may return no session ID to query.
+
+CA certificates use the same public-data Base64 decoder already used for other
+public certificates. Private/encrypted key decoding is unchanged. Certificate
+parsing, restrictions, signatures, hostname checks, and exact trust identity
+remain in the normal verification path; no serialized CA cache is restored.
+
 ## Offline ARM self-test
 
 Zero a `PalmTlsSelfTestResult`, set `structSize`, and call

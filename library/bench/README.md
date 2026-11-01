@@ -142,6 +142,29 @@ about 20 ms in this run. Raw measurements, repeated runs, server confirmations,
 and an offline self-test ABI regression are archived. Development fixture keys
 remain only in ignored build directories.
 
+### Cold startup and public CA PEM comparison
+
+The current handshake app requests the optional 400-byte result and adds
+`# load` and `# trust` comments: **210 loader rows and 150 trust rows** per
+30-connection run, in addition to the earlier phases. Loader details must sum
+to each open's `load_ticks`; trust details must sum to the main Trust phase.
+Warm sessions must have no loader calls. Earlier result files remain readable.
+
+[`baselines/2026-11-01-startup`](baselines/2026-11-01-startup) includes a patch
+adding identical profiling/workloads to `995460c` for the baseline. Both builds
+use the exact same eight-root fixture through `--reuse-fixture`. All startup
+checks remain enabled. Compare paired `load_ticks + handshake_ticks` samples
+for cold totals, rather than adding separately calculated medians. The final
+report also records older 240/288-byte profile and 52/188-byte self-test apps
+running against the final library.
+
+The measured changes accelerate public CA PEM decoding, relocation, and
+startup test-vector reset. Existing parsed-context caching stays enabled.
+Serialized certificate-cache persistence remains disabled because the upstream
+format omits signer policy fields. No CA is removed and no certificate check
+is skipped to obtain the measurements. Private fixture keys, PRCs, SDKs and
+session/ROM images stay out of the archived data.
+
 ## Repeatable emulator runs
 
 Use a supplied, already initialized OS 5 session. The runner copies it into a

@@ -10,6 +10,8 @@ from pathlib import Path
 PHASES=('other','context','trust','keyshare','key_agreement','certificate',
         'signature','kdf','finished','record','network','ticket','idle')
 ECDHE_PHASES=('other','import','validate','multiply','map')
+LOAD_PHASES=('setup','copy','relocate','native','wolf','qualify','other')
+TRUST_PHASES=('other','pem','decode','store','cache')
 CASES={f'{cache}_{kind}' for cache in ('nocache','cache')
        for kind in ('full_cold','full_warm','resumed')}
 REGRESSIONS={'owned_exact_trust','hostname_mode_and_bad_ca','purge',
@@ -92,6 +94,7 @@ def load(text):
         if name.endswith('_resumed') and profiles[name,sample,0,'certificate'][1]:
             raise ValueError('resumed handshake processed a certificate')
     load_ecdhe(text, grouped, profiles)
+    load_startup(text, grouped, profiles)
     return grouped,profiles
 
 
@@ -113,6 +116,30 @@ def load_ecdhe(text, rows, profiles):
         if any(not detailed[name,sample,p][1] for p in ECDHE_PHASES):
             raise ValueError('ECDHE subphase was not exercised')
     return detailed
+
+
+def load_startup(text, rows, profiles):
+    result={}
+    for kind,phases in (('load',LOAD_PHASES),('trust',TRUST_PHASES)):
+        data={}
+        for line in text.splitlines():
+            if not line.startswith('# '+kind+','): continue
+            _,case,sample,phase,ticks,calls=line.split(',');key=(case,int(sample),phase)
+            if key in data or phase not in phases or min(int(ticks),int(calls))<0:
+                raise ValueError('invalid/duplicate startup detail')
+            data[key]=(int(ticks),int(calls))
+        if data:
+            if set(data)!={(case,sample,phase) for case,sample in rows for phase in phases}:
+                raise ValueError('incomplete startup details')
+            for case,sample in rows:
+                expected=rows[case,sample]['load_ticks'] if kind=='load' else profiles[case,sample,0,'trust'][0]
+                if sum(data[case,sample,phase][0] for phase in phases)!=expected:
+                    raise ValueError('startup detail sum mismatch')
+                if kind=='load' and not case.endswith('full_cold') and any(data[case,sample,phase][1] for phase in phases):
+                    raise ValueError('warm open has loader calls')
+            result[kind]=data
+    if result and set(result)!={'load','trust'}: raise ValueError('partial startup extension')
+    return result
 
 
 def main():

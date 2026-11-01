@@ -136,6 +136,25 @@ int main(void) {
     clockTick=105; PalmTlsHandshakeProfileLeave();
     assert(!a.ecdhe.complete);
     clockTick=106; PalmTlsHandshakeProfileClose();
+    PalmTlsHandshakeProfileStart(&a,9,100,1);
+    clockTick=101; PalmTlsHandshakeProfileEnter(palmTlsHsTrust);
+    clockTick=103; PalmTlsTrustProfileEnter(palmTlsTrustPem);
+    clockTick=105; PalmTlsTrustProfileLeave();
+    clockTick=106; PalmTlsTrustProfileEnter(palmTlsTrustStore);
+    clockTick=108; PalmTlsTrustProfileEnter(palmTlsTrustDecode);
+    clockTick=112; PalmTlsTrustProfileLeave();
+    clockTick=113; PalmTlsTrustProfileLeave();
+    clockTick=114; PalmTlsHandshakeProfileLeave();
+    assert(a.trust.complete && a.trust.elapsedTicks==13);
+    assert(a.trust.ticks[palmTlsTrustPem]==2);
+    assert(a.trust.ticks[palmTlsTrustDecode]==4);
+    assert(a.trust.ticks[palmTlsTrustStore]==3);
+    assert(a.trust.ticks[palmTlsTrustOther]==4);
+    assert(a.result.handshake.ticks[palmTlsHsTrust]==13);
+    PalmTlsHandshakeProfileFinish(115);
+    i=reads; PalmTlsTrustProfileEnter(palmTlsTrustDecode);
+    PalmTlsTrustProfileLeave(); assert(reads==i);
+    clockTick=116; PalmTlsHandshakeProfileClose();
     return 0;
 }
 ''')

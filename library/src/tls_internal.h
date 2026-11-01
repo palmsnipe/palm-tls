@@ -8,6 +8,7 @@
 
 #define PALM_TLS_ENGINE_DISABLE_ARM 0x80000000UL
 #define PALM_TLS_ENGINE_CONTROL_ONLY 0x40000000UL
+#define PALM_TLS_ENGINE_PROFILE_STARTUP 0x20000000UL
 #define PALM_TLS_MAX_SESSIONS PALM_TLS_MAX_CONCURRENT_SESSIONS
 
 typedef enum PalmTlsEngineCommand {
@@ -26,6 +27,7 @@ typedef enum PalmTlsEngineCommand {
 
 typedef struct PalmTlsEngineControl {
     PalmTlsHandshakeProfiler profiler;
+    PalmTlsLoadProfile loadProfile;
     void *contextP;
     void *contextTrustP;
     UInt32 contextTrustLength;
@@ -92,6 +94,7 @@ typedef struct PalmTlsEngineResult {
     UInt32 sharedTicks;
     UInt32 verifyTicks;
     PalmTlsVerifyProfile verifyProfile;
+    PalmTlsLoadProfile loadProfile;
     UInt32 sessionId;
     UInt16 sessionReused;
     UInt16 armStatus;
@@ -105,6 +108,7 @@ typedef struct PalmTlsLoadedEngine {
     LocalID workDbID;
     UInt16 protocol;
     UInt16 loaded;
+    PalmTlsLoadProfile loadProfile;
     PalmTlsEngineControl controls[PALM_TLS_MAX_SESSIONS];
 } PalmTlsLoadedEngine;
 

@@ -1,0 +1,15 @@
+diff --git a/wolfcrypt/src/asn.c b/wolfcrypt/src/asn.c
+--- a/wolfcrypt/src/asn.c
++++ b/wolfcrypt/src/asn.c
+@@ -27455,6 +27455,11 @@
+     case CERT_TYPE:
+     case TRUSTED_CERT_TYPE:
+     case CRL_TYPE:
++#ifdef PALM_WOLFSSL_PUBLIC_CA_PEM
++    /* Trust anchors are public certificates, like CERT_TYPE above. Preserve
++     * the constant-time decoder for private/encrypted key material. */
++    case CA_TYPE:
++#endif
+         if (Base64_Decode_nonCT((const byte*)headerEnd, (word32)neededSz,
+                           der->buffer, &der->length) < 0)
+         {

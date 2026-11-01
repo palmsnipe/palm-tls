@@ -11,6 +11,7 @@
 #define WOLFSSL_PALM_STATELESS_INIT
 #define PALM_WOLFSSL_VERIFY_PROFILE
 #define PALM_WOLFSSL_HANDSHAKE_PROFILE
+#define PALM_WOLFSSL_PUBLIC_CA_PEM
 #ifndef PALM_WOLFSSL_DISABLE_FAST_HEX
 #define PALM_WOLFSSL_FAST_HEX
 #endif
@@ -39,6 +40,8 @@ extern void PalmTlsHandshakeProfileEnter(unsigned short phase);
 extern void PalmTlsHandshakeProfileLeave(void);
 extern void PalmTlsEcdheProfileEnter(unsigned short phase);
 extern void PalmTlsEcdheProfileLeave(void);
+extern void PalmTlsTrustProfileEnter(unsigned short phase);
+extern void PalmTlsTrustProfileLeave(void);
 #endif
 #define XMALLOC(size, heap, type) WolfPalmMalloc((unsigned long)(size))
 #define XFREE(pointer, heap, type) WolfPalmFree(pointer)

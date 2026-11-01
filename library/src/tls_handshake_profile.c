@@ -15,6 +15,10 @@ static void Charge(PalmTlsHandshakeProfiler *p, UInt32 now)
         p->ecdhe.ticks[p->ecdhePhase] += elapsed;
         p->ecdhe.elapsedTicks += elapsed;
     }
+    if (!p->finished && p->phase == palmTlsHsTrust) {
+        p->trust.ticks[p->trustPhase] += elapsed;
+        p->trust.elapsedTicks += elapsed;
+    }
     p->lastTick = now;
     Bucket(p)->elapsedTicks = (UInt32)(now - p->periodStart);
 }
@@ -56,6 +60,10 @@ void PalmTlsHandshakeProfileEnter(unsigned short phase)
     p->stack[p->depth++] = p->phase;
     p->phase = phase;
     Bucket(p)->calls[phase]++;
+    if (phase == palmTlsHsTrust && !p->finished) {
+        p->trust.complete = 0;
+        p->trust.calls[palmTlsTrustOther]++;
+    }
     if (phase == palmTlsHsKeyAgreement && !p->finished) {
         p->ecdhe.complete = 0;
         p->ecdhe.calls[palmTlsEcdheOther]++;
@@ -69,6 +77,8 @@ void PalmTlsHandshakeProfileLeave(void)
     Charge(p, TimGetTicks());
     if (p->phase == palmTlsHsKeyAgreement && !p->finished)
         p->ecdhe.complete = !p->ecdheBroken && !p->ecdheDepth;
+    if (p->phase == palmTlsHsTrust && !p->finished)
+        p->trust.complete = !p->trustBroken && !p->trustDepth;
     p->phase = p->stack[--p->depth];
 }
 /* Share the enclosing phase's clock and charge function, so detailed ticks
@@ -95,6 +105,29 @@ void PalmTlsEcdheProfileLeave(void)
     if (!p->ecdheDepth) { p->ecdheBroken = true; return; }
     Charge(p, TimGetTicks());
     p->ecdhePhase = p->ecdheStack[--p->ecdheDepth];
+}
+void PalmTlsTrustProfileEnter(unsigned short phase)
+{
+    PalmTlsHandshakeProfiler *p = gCurrent;
+    if (!p || p->broken || p->finished || p->phase != palmTlsHsTrust ||
+        p->trustBroken) return;
+    if (phase >= palmTlsTrustPhaseCount || p->trustDepth == 8) {
+        p->trustBroken = true;
+        return;
+    }
+    Charge(p, TimGetTicks());
+    p->trustStack[p->trustDepth++] = p->trustPhase;
+    p->trustPhase = phase;
+    p->trust.calls[phase]++;
+}
+void PalmTlsTrustProfileLeave(void)
+{
+    PalmTlsHandshakeProfiler *p = gCurrent;
+    if (!p || p->broken || p->finished || p->phase != palmTlsHsTrust ||
+        p->trustBroken) return;
+    if (!p->trustDepth) { p->trustBroken = true; return; }
+    Charge(p, TimGetTicks());
+    p->trustPhase = p->trustStack[--p->trustDepth];
 }
 void PalmTlsHandshakeProfileSuspend(void)
 {

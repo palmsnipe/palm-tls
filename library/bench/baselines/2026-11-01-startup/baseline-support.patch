@@ -1,0 +1,732 @@
+diff --git a/library/bench/handshake.c b/library/bench/handshake.c
+--- a/library/bench/handshake.c
++++ b/library/bench/handshake.c
+@@ -88,9 +88,10 @@
+ }
+ 
+ static Boolean EmitProfile(DmOpenRef db, const char *name, UInt16 sample,
+-    const PalmTlsSessionEcdheProfile *detail, const PalmTlsSessionOpenResult *open)
++    const PalmTlsSessionStartupProfile *startup, const PalmTlsSessionOpenResult *open)
+ {
+     char row[200];
++    const PalmTlsSessionEcdheProfile *detail = &startup->session;
+     UInt16 phase, period;
+     UInt32 sum = 0;
+     const PalmTlsSessionProfile *profile = &detail->base;
+@@ -120,6 +121,28 @@
+             names[phase], detail->ecdhe.ticks[phase], detail->ecdhe.calls[phase]);
+         if (!Emit(db, row)) return false;
+     }
++    {
++        static const char loadNames[][12] = {"setup","copy","relocate","native","wolf","qualify","other"};
++        static const char trustNames[][12] = {"other","pem","decode","store","cache"};
++        UInt32 total = 0;
++        for (phase = 0; phase < palmTlsLoadPhaseCount; phase++) total += startup->load.ticks[phase];
++        if (total != open->loadTicks || startup->load.elapsedTicks != total ||
++            (total && !startup->load.complete)) return false;
++        total = 0;
++        for (phase = 0; phase < palmTlsTrustPhaseCount; phase++) total += startup->trust.ticks[phase];
++        if (total != profile->handshake.ticks[palmTlsHsTrust] || startup->trust.elapsedTicks != total ||
++            (profile->handshake.calls[palmTlsHsTrust] && !startup->trust.complete)) return false;
++        for (phase = 0; phase < palmTlsLoadPhaseCount; phase++) {
++            StrPrintF(row,"# load,%s,%u,%s,%lu,%lu\n",name,sample,
++                loadNames[phase],startup->load.ticks[phase],startup->load.calls[phase]);
++            if (!Emit(db,row)) return false;
++        }
++        for (phase = 0; phase < palmTlsTrustPhaseCount; phase++) {
++            StrPrintF(row,"# trust,%s,%u,%s,%lu,%lu\n",name,sample,
++                trustNames[phase],startup->trust.ticks[phase],startup->trust.calls[phase]);
++            if (!Emit(db,row)) return false;
++        }
++    }
+     return true;
+ }
+ 
+@@ -130,7 +153,7 @@
+     Int16 socket;
+     UInt16 check, tls12;
+     PalmTlsSessionOpenResult open;
+-    PalmTlsSessionEcdheProfile profile;
++    PalmTlsSessionStartupProfile profile;
+ } Connection;
+ 
+ static Boolean Connect(UInt16 tls, UInt16 net, Connection *c,
+@@ -222,9 +245,9 @@
+         c->socket = -1;
+         return true;
+     }
+-    c->profile.base.structSize = sizeof(c->profile);
+-    error = PalmTlsLibGetSessionProfile(tls, c->open.sessionId, &c->profile.base);
+-    profileOk = !error && c->profile.base.status == palmTlsStatusOk;
++    c->profile.session.base.structSize = sizeof(c->profile);
++    error = PalmTlsLibGetSessionProfile(tls, c->open.sessionId, &c->profile.session.base);
++    profileOk = !error && c->profile.session.base.status == palmTlsStatusOk;
+     NetLibSocketClose(net, c->socket, SysTicksPerSecond(), &error);
+     c->socket = -1;
+     return profileOk;
+@@ -246,9 +269,9 @@
+     c->check = true;
+     if (!Finish(tls, net, c)) return false;
+     return c->tls12 ? c->open.sessionReused == expectedResume :
+-        c->profile.base.contextReused == expectedContext &&
+-        c->profile.base.sessionReused == expectedResume &&
+-        SumProfile(&c->profile.base.handshake) && SumProfile(&c->profile.base.postHandshake);
++        c->profile.session.base.contextReused == expectedContext &&
++        c->profile.session.base.sessionReused == expectedResume &&
++        SumProfile(&c->profile.session.base.handshake) && SumProfile(&c->profile.session.base.postHandshake);
+ }
+ 
+ static Boolean Reject(UInt16 tls, UInt16 net, UInt16 mode,
+@@ -337,9 +360,9 @@
+     }
+     a.check=true;
+     if (a.open.status!=palmTlsStatusOk || !Finish(tls,net,&a) ||
+-        a.profile.base.sessionId == b.profile.base.sessionId ||
+-        !a.profile.base.handshake.ticks[palmTlsHsIdle] ||
+-        !SumProfile(&a.profile.base.handshake) || !SumProfile(&b.profile.base.handshake)) return false;
++        a.profile.session.base.sessionId == b.profile.session.base.sessionId ||
++        !a.profile.session.base.handshake.ticks[palmTlsHsIdle] ||
++        !SumProfile(&a.profile.session.base.handshake) || !SumProfile(&b.profile.session.base.handshake)) return false;
+     if (!Emit(db,"# regression,cooperative_slot_isolation,passed\n")) return false;
+     if (!CheckedConnect(tls,net,&a,BENCH_TLS12|PALM_TLS_SESSION_ALLOW_RESUME,
+         palmTlsVerifyCaStore,"localhost",kHandshakeTrust,sizeof(kHandshakeTrust),false,false)) return false;
+@@ -378,12 +401,12 @@
+                     return false;
+                 }
+                 if (!Finish(tls, net, &c)) { Emit(db, "# finish_failed\n"); return false; }
+-                if (c.profile.base.contextReused != (cache && kind != 0) ||
+-                    c.profile.base.sessionReused != (kind == 2) ||
+-                    (kind != 1 && !c.profile.base.ticketReady)) {
++                if (c.profile.session.base.contextReused != (cache && kind != 0) ||
++                    c.profile.session.base.sessionReused != (kind == 2) ||
++                    (kind != 1 && !c.profile.session.base.ticketReady)) {
+                     char row[100];
+                     StrPrintF(row, "# flags_failed,%s,%u,%u,%u\n", names[cache][kind],
+-                        c.profile.base.contextReused, c.profile.base.sessionReused, c.profile.base.ticketReady);
++                        c.profile.session.base.contextReused, c.profile.session.base.sessionReused, c.profile.session.base.ticketReady);
+                     Emit(db, row);
+                     return false;
+                 }
+diff --git a/library/bench/handshake_results.py b/library/bench/handshake_results.py
+--- a/library/bench/handshake_results.py
++++ b/library/bench/handshake_results.py
+@@ -10,6 +10,8 @@
+ PHASES=('other','context','trust','keyshare','key_agreement','certificate',
+         'signature','kdf','finished','record','network','ticket','idle')
+ ECDHE_PHASES=('other','import','validate','multiply','map')
++LOAD_PHASES=('setup','copy','relocate','native','wolf','qualify','other')
++TRUST_PHASES=('other','pem','decode','store','cache')
+ CASES={f'{cache}_{kind}' for cache in ('nocache','cache')
+        for kind in ('full_cold','full_warm','resumed')}
+ REGRESSIONS={'owned_exact_trust','hostname_mode_and_bad_ca','purge',
+@@ -92,6 +94,7 @@
+         if name.endswith('_resumed') and profiles[name,sample,0,'certificate'][1]:
+             raise ValueError('resumed handshake processed a certificate')
+     load_ecdhe(text, grouped, profiles)
++    load_startup(text, grouped, profiles)
+     return grouped,profiles
+ 
+ 
+@@ -113,6 +116,30 @@
+         if any(not detailed[name,sample,p][1] for p in ECDHE_PHASES):
+             raise ValueError('ECDHE subphase was not exercised')
+     return detailed
++
++
++def load_startup(text, rows, profiles):
++    result={}
++    for kind,phases in (('load',LOAD_PHASES),('trust',TRUST_PHASES)):
++        data={}
++        for line in text.splitlines():
++            if not line.startswith('# '+kind+','): continue
++            _,case,sample,phase,ticks,calls=line.split(',');key=(case,int(sample),phase)
++            if key in data or phase not in phases or min(int(ticks),int(calls))<0:
++                raise ValueError('invalid/duplicate startup detail')
++            data[key]=(int(ticks),int(calls))
++        if data:
++            if set(data)!={(case,sample,phase) for case,sample in rows for phase in phases}:
++                raise ValueError('incomplete startup details')
++            for case,sample in rows:
++                expected=rows[case,sample]['load_ticks'] if kind=='load' else profiles[case,sample,0,'trust'][0]
++                if sum(data[case,sample,phase][0] for phase in phases)!=expected:
++                    raise ValueError('startup detail sum mismatch')
++                if kind=='load' and not case.endswith('full_cold') and any(data[case,sample,phase][1] for phase in phases):
++                    raise ValueError('warm open has loader calls')
++            result[kind]=data
++    if result and set(result)!={'load','trust'}: raise ValueError('partial startup extension')
++    return result
+ 
+ 
+ def main():
+diff --git a/library/bench/test_handshake_results.py b/library/bench/test_handshake_results.py
+--- a/library/bench/test_handshake_results.py
++++ b/library/bench/test_handshake_results.py
+@@ -1,6 +1,6 @@
+ """Check the handshake reader rejects false reuse and incomplete profiles."""
+ import unittest
+-from handshake_results import CASES, PHASES, REGRESSIONS, ECDHE_PHASES, load
++from handshake_results import CASES, PHASES, REGRESSIONS, ECDHE_PHASES, LOAD_PHASES, TRUST_PHASES, load
+ 
+ 
+ def fixture():
+@@ -42,6 +42,21 @@
+         with self.assertRaises(ValueError):
+             load(text+'# ecdhe,cache_resumed,0,map,0,1\n')
+ 
++    def test_startup_details(self):
++        text=fixture()
++        for case in CASES:
++            for sample in range(5):
++                for kind,phases in (('load',LOAD_PHASES),('trust',TRUST_PHASES)):
++                    for phase in phases:
++                        text+=f'# {kind},{case},{sample},{phase},0,0\n'
++        load(text)
++        with self.assertRaises(ValueError):
++            load(text+'# load,cache_full_warm,0,copy,0,0\n')
++        with self.assertRaises(ValueError):
++            load(text.replace(',pem,0,0', ',pem,1,0'))
++        with self.assertRaises(ValueError):
++            load(text.replace('# load,cache_full_warm,0,copy,0,0', '# load,cache_full_warm,0,copy,0,1'))
++
+     def test_false_resume(self):
+         with self.assertRaises(ValueError):
+             load(fixture().replace('cache_resumed,0,0,10,1,1,1','cache_resumed,0,0,10,1,1,0'))
+diff --git a/library/include/palm_tls.h b/library/include/palm_tls.h
+--- a/library/include/palm_tls.h
++++ b/library/include/palm_tls.h
+@@ -24,6 +24,9 @@
+ #define PALM_TLS_SESSION_PROFILE_SIZE 240
+ #define PALM_TLS_ECDHE_PHASE_PROFILE_SIZE 48
+ #define PALM_TLS_SESSION_ECDHE_PROFILE_SIZE 288
++#define PALM_TLS_LOAD_PROFILE_SIZE 64
++#define PALM_TLS_TRUST_PROFILE_SIZE 48
++#define PALM_TLS_SESSION_STARTUP_PROFILE_SIZE 400
+ 
+ #define PALM_TLS_CAP_TLS_1_2 0x00000001UL
+ #define PALM_TLS_CAP_EXACT_PEER 0x00000002UL
+@@ -44,6 +47,7 @@
+ #define PALM_TLS_CAP_HANDSHAKE_PROFILE 0x00010000UL
+ #define PALM_TLS_CAP_CONTEXT_REUSE 0x00020000UL
+ #define PALM_TLS_CAP_ECDHE_PROFILE 0x00040000UL
++#define PALM_TLS_CAP_STARTUP_PROFILE 0x00080000UL
+ #define PALM_TLS_MAX_CONCURRENT_SESSIONS 2
+ #define PALM_TLS_SESSION_ALLOW_RESUME 0x00000001UL
+ #define PALM_TLS_SESSION_COOPERATIVE 0x00000002UL
+@@ -204,6 +208,35 @@
+     PalmTlsSessionProfile base;
+     PalmTlsEcdhePhaseProfile ecdhe;
+ } PalmTlsSessionEcdheProfile;
++
++typedef enum PalmTlsLoadPhase {
++    palmTlsLoadSetup = 0, palmTlsLoadCopy, palmTlsLoadRelocate,
++    palmTlsLoadNative, palmTlsLoadWolf, palmTlsLoadQualify, palmTlsLoadOther,
++    palmTlsLoadPhaseCount
++} PalmTlsLoadPhase;
++typedef struct PalmTlsLoadProfile {
++    unsigned long ticks[palmTlsLoadPhaseCount];
++    unsigned long calls[palmTlsLoadPhaseCount];
++    unsigned long elapsedTicks;
++    unsigned short complete, reserved;
++} PalmTlsLoadProfile;
++typedef enum PalmTlsTrustPhase {
++    palmTlsTrustOther = 0, palmTlsTrustPem, palmTlsTrustDecode,
++    palmTlsTrustStore, palmTlsTrustCache, palmTlsTrustPhaseCount
++} PalmTlsTrustPhase;
++typedef struct PalmTlsTrustProfile {
++    unsigned long ticks[palmTlsTrustPhaseCount];
++    unsigned long calls[palmTlsTrustPhaseCount];
++    unsigned long elapsedTicks;
++    unsigned short complete, reserved;
++} PalmTlsTrustProfile;
++/* GetSessionProfile extension; pass &result.session.base with structSize=400.
++ * Load is zero for warm opens; trust partitions the exclusive Trust phase. */
++typedef struct PalmTlsSessionStartupProfile {
++    PalmTlsSessionEcdheProfile session;
++    PalmTlsLoadProfile load;
++    PalmTlsTrustProfile trust;
++} PalmTlsSessionStartupProfile;
+ 
+ /* Return zero to accept a chunk. A non-zero result aborts the exchange and is
+  * returned in PalmTlsStreamResult.sinkError. The data is valid only for the
+diff --git a/library/src/palm_library.c b/library/src/palm_library.c
+--- a/library/src/palm_library.c
++++ b/library/src/palm_library.c
+@@ -46,6 +46,10 @@
+ typedef char PalmTlsAssertSessionEcdheProfile[
+     sizeof(PalmTlsSessionEcdheProfile) == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE ? 1 : -1];
+ 
++typedef char PalmTlsAssertLoadProfile[sizeof(PalmTlsLoadProfile) == PALM_TLS_LOAD_PROFILE_SIZE ? 1 : -1];
++typedef char PalmTlsAssertTrustProfile[sizeof(PalmTlsTrustProfile) == PALM_TLS_TRUST_PROFILE_SIZE ? 1 : -1];
++typedef char PalmTlsAssertStartupProfile[sizeof(PalmTlsSessionStartupProfile) == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE ? 1 : -1];
++
+ static PalmTlsLibraryState *LibraryState(UInt16 refNum)
+ {
+     SysLibTblEntryPtr entryP = SysLibTblEntry(refNum);
+@@ -201,7 +205,7 @@
+         PALM_TLS_CAP_COOPERATIVE_IO | PALM_TLS_CAP_VERIFY_PROFILE;
+     if ((*capabilitiesP & PALM_TLS_CAP_TLS_1_3) != 0)
+         *capabilitiesP |= PALM_TLS_CAP_HANDSHAKE_PROFILE | PALM_TLS_CAP_CONTEXT_REUSE |
+-            PALM_TLS_CAP_ECDHE_PROFILE;
++            PALM_TLS_CAP_ECDHE_PROFILE | PALM_TLS_CAP_STARTUP_PROFILE;
+     if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) == errNone &&
+         sysFtrNumProcessorIsARM(processor)) {
+         UInt16 index;
+@@ -622,7 +626,8 @@
+     PalmTlsEngineResult result;
+     UInt16 size;
+     if (!resultP || (resultP->structSize != PALM_TLS_SESSION_PROFILE_SIZE &&
+-        resultP->structSize != PALM_TLS_SESSION_ECDHE_PROFILE_SIZE))
++        resultP->structSize != PALM_TLS_SESSION_ECDHE_PROFILE_SIZE &&
++        resultP->structSize != PALM_TLS_SESSION_STARTUP_PROFILE_SIZE))
+         return sysErrParamErr;
+     size = resultP->structSize;
+     MemSet(resultP, size, 0);
+diff --git a/library/src/tls_engine.c b/library/src/tls_engine.c
+--- a/library/src/tls_engine.c
++++ b/library/src/tls_engine.c
+@@ -832,30 +832,52 @@
+         case palmTlsEngineGetProfile:
+             if (controlP->profiler.enabled && paramsP->responseP &&
+                 (paramsP->responseCapacity == PALM_TLS_SESSION_PROFILE_SIZE ||
+-                 paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE)) {
++                 paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE ||
++                 paramsP->responseCapacity == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE)) {
+                 PalmTlsHandshakeProfileSnapshot(&controlP->profiler,
+                     (PalmTlsSessionProfile *)paramsP->responseP);
+-                if (paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE) {
++                if (paramsP->responseCapacity >= PALM_TLS_SESSION_ECDHE_PROFILE_SIZE) {
+                     PalmTlsSessionEcdheProfile *profileP = paramsP->responseP;
+-                    profileP->base.structSize = PALM_TLS_SESSION_ECDHE_PROFILE_SIZE;
++                    profileP->base.structSize = paramsP->responseCapacity;
+                     MemMove(&profileP->ecdhe, &controlP->profiler.ecdhe,
+                             sizeof(profileP->ecdhe));
+                 }
++                if (paramsP->responseCapacity == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE) {
++                    PalmTlsSessionStartupProfile *profileP = paramsP->responseP;
++                    profileP->load = controlP->loadProfile;
++                    profileP->trust = controlP->profiler.trust;
++                }
+                 resultP->status = palmTlsStatusOk;
+             }
+             break;
+         case palmTlsEngineInitialize:
+             if (!controlP->initialized) {
++                Boolean profile = (paramsP->options & PALM_TLS_ENGINE_PROFILE_STARTUP) != 0;
++                UInt32 start = profile ? TimGetTicks() : 0;
+                 PalmTlsArmletInitialize();
+                 if ((paramsP->options & PALM_TLS_ENGINE_DISABLE_ARM) != 0)
+                     PalmTlsArmletDisable();
++                if (profile) {
++                    resultP->loadProfile.ticks[palmTlsLoadNative] = TimGetTicks() - start;
++                    resultP->loadProfile.calls[palmTlsLoadNative] = 1;
++                    start = TimGetTicks();
++                }
+                 int initialized = wolfSSL_Init();
++                if (profile) {
++                    resultP->loadProfile.ticks[palmTlsLoadWolf] = TimGetTicks() - start;
++                    resultP->loadProfile.calls[palmTlsLoadWolf] = 1;
++                }
+                 if (initialized != WOLFSSL_SUCCESS) {
+                     resultP->status = palmTlsStatusInitializationFailed;
+                     resultP->tlsError = (Int16)initialized;
+                     break;
+                 }
++                if (profile) start = TimGetTicks();
+                 ValidateArmMath(controlP);
++                if (profile) {
++                    resultP->loadProfile.ticks[palmTlsLoadQualify] = TimGetTicks() - start;
++                    resultP->loadProfile.calls[palmTlsLoadQualify] = 1;
++                }
+                 controlP->initialized = true;
+             }
+             resultP->status = palmTlsStatusOk;
+diff --git a/library/src/tls_handshake_profile.c b/library/src/tls_handshake_profile.c
+--- a/library/src/tls_handshake_profile.c
++++ b/library/src/tls_handshake_profile.c
+@@ -14,6 +14,10 @@
+     if (!p->finished && p->phase == palmTlsHsKeyAgreement) {
+         p->ecdhe.ticks[p->ecdhePhase] += elapsed;
+         p->ecdhe.elapsedTicks += elapsed;
++    }
++    if (!p->finished && p->phase == palmTlsHsTrust) {
++        p->trust.ticks[p->trustPhase] += elapsed;
++        p->trust.elapsedTicks += elapsed;
+     }
+     p->lastTick = now;
+     Bucket(p)->elapsedTicks = (UInt32)(now - p->periodStart);
+@@ -56,6 +60,10 @@
+     p->stack[p->depth++] = p->phase;
+     p->phase = phase;
+     Bucket(p)->calls[phase]++;
++    if (phase == palmTlsHsTrust && !p->finished) {
++        p->trust.complete = 0;
++        p->trust.calls[palmTlsTrustOther]++;
++    }
+     if (phase == palmTlsHsKeyAgreement && !p->finished) {
+         p->ecdhe.complete = 0;
+         p->ecdhe.calls[palmTlsEcdheOther]++;
+@@ -69,6 +77,8 @@
+     Charge(p, TimGetTicks());
+     if (p->phase == palmTlsHsKeyAgreement && !p->finished)
+         p->ecdhe.complete = !p->ecdheBroken && !p->ecdheDepth;
++    if (p->phase == palmTlsHsTrust && !p->finished)
++        p->trust.complete = !p->trustBroken && !p->trustDepth;
+     p->phase = p->stack[--p->depth];
+ }
+ /* Share the enclosing phase's clock and charge function, so detailed ticks
+@@ -95,6 +105,29 @@
+     if (!p->ecdheDepth) { p->ecdheBroken = true; return; }
+     Charge(p, TimGetTicks());
+     p->ecdhePhase = p->ecdheStack[--p->ecdheDepth];
++}
++void PalmTlsTrustProfileEnter(unsigned short phase)
++{
++    PalmTlsHandshakeProfiler *p = gCurrent;
++    if (!p || p->broken || p->finished || p->phase != palmTlsHsTrust ||
++        p->trustBroken) return;
++    if (phase >= palmTlsTrustPhaseCount || p->trustDepth == 8) {
++        p->trustBroken = true;
++        return;
++    }
++    Charge(p, TimGetTicks());
++    p->trustStack[p->trustDepth++] = p->trustPhase;
++    p->trustPhase = phase;
++    p->trust.calls[phase]++;
++}
++void PalmTlsTrustProfileLeave(void)
++{
++    PalmTlsHandshakeProfiler *p = gCurrent;
++    if (!p || p->broken || p->finished || p->phase != palmTlsHsTrust ||
++        p->trustBroken) return;
++    if (!p->trustDepth) { p->trustBroken = true; return; }
++    Charge(p, TimGetTicks());
++    p->trustPhase = p->trustStack[--p->trustDepth];
+ }
+ void PalmTlsHandshakeProfileSuspend(void)
+ {
+diff --git a/library/src/tls_handshake_profile.h b/library/src/tls_handshake_profile.h
+--- a/library/src/tls_handshake_profile.h
++++ b/library/src/tls_handshake_profile.h
+@@ -5,6 +5,9 @@
+ typedef struct PalmTlsHandshakeProfiler {
+     PalmTlsSessionProfile result;
+     PalmTlsEcdhePhaseProfile ecdhe;
++    PalmTlsTrustProfile trust;
++    unsigned short trustStack[8];
++    unsigned short trustPhase, trustDepth, trustBroken;
+     unsigned short ecdheStack[8];
+     unsigned short ecdhePhase, ecdheDepth, ecdheBroken;
+     unsigned long lastTick;
+@@ -21,6 +24,8 @@
+ void PalmTlsHandshakeProfileLeave(void);
+ void PalmTlsEcdheProfileEnter(unsigned short phase);
+ void PalmTlsEcdheProfileLeave(void);
++void PalmTlsTrustProfileEnter(unsigned short phase);
++void PalmTlsTrustProfileLeave(void);
+ void PalmTlsHandshakeProfileFinish(unsigned long ticks);
+ void PalmTlsHandshakeProfileClose(void);
+ void PalmTlsHandshakeProfileSnapshot(PalmTlsHandshakeProfiler *p,
+diff --git a/library/src/tls_internal.h b/library/src/tls_internal.h
+--- a/library/src/tls_internal.h
++++ b/library/src/tls_internal.h
+@@ -8,6 +8,7 @@
+ 
+ #define PALM_TLS_ENGINE_DISABLE_ARM 0x80000000UL
+ #define PALM_TLS_ENGINE_CONTROL_ONLY 0x40000000UL
++#define PALM_TLS_ENGINE_PROFILE_STARTUP 0x20000000UL
+ #define PALM_TLS_MAX_SESSIONS PALM_TLS_MAX_CONCURRENT_SESSIONS
+ 
+ typedef enum PalmTlsEngineCommand {
+@@ -26,6 +27,7 @@
+ 
+ typedef struct PalmTlsEngineControl {
+     PalmTlsHandshakeProfiler profiler;
++    PalmTlsLoadProfile loadProfile;
+     void *contextP;
+     void *contextTrustP;
+     UInt32 contextTrustLength;
+@@ -92,6 +94,7 @@
+     UInt32 sharedTicks;
+     UInt32 verifyTicks;
+     PalmTlsVerifyProfile verifyProfile;
++    PalmTlsLoadProfile loadProfile;
+     UInt32 sessionId;
+     UInt16 sessionReused;
+     UInt16 armStatus;
+@@ -105,6 +108,7 @@
+     LocalID workDbID;
+     UInt16 protocol;
+     UInt16 loaded;
++    PalmTlsLoadProfile loadProfile;
+     PalmTlsEngineControl controls[PALM_TLS_MAX_SESSIONS];
+ } PalmTlsLoadedEngine;
+ 
+diff --git a/library/src/tls_loader.c b/library/src/tls_loader.c
+--- a/library/src/tls_loader.c
++++ b/library/src/tls_loader.c
+@@ -145,7 +145,7 @@
+ }
+ 
+ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
+-                          PalmTlsEngineResult *resultP)
++                          UInt32 options, PalmTlsEngineResult *resultP)
+ {
+     MemHandle resourceHandles[PALM_TLS_SEGMENT_COUNT];
+     MemHandle relocH = 0;
+@@ -156,6 +156,8 @@
+     DmResID relocId;
+     UInt16 index;
+     UInt32 loadStart = TimGetTicks();
++    UInt32 cursor = loadStart, now;
++    Boolean profile = (options & PALM_TLS_SESSION_PROFILE) != 0;
+     PalmTlsLoadedEngine *engineP = &stateP->engine;
+ 
+     for (index = 0; index < PALM_TLS_SEGMENT_COUNT; index++)
+@@ -199,6 +201,11 @@
+         goto cleanup;
+     }
+ 
++    if (profile) {
++        now = TimGetTicks();
++        engineP->loadProfile.ticks[palmTlsLoadSetup] = now - cursor;
++        engineP->loadProfile.calls[palmTlsLoadSetup] = 1; cursor = now;
++    }
+     for (index = 0; index < PALM_TLS_SEGMENT_COUNT; index++) {
+         const UInt8 *resourceP;
+         resourceHandles[index] = GetLibraryResource(libraryDbP,
+@@ -248,6 +255,11 @@
+         resourceHandles[index] = 0;
+     }
+ 
++    if (profile) {
++        now = TimGetTicks();
++        engineP->loadProfile.ticks[palmTlsLoadCopy] = now - cursor;
++        engineP->loadProfile.calls[palmTlsLoadCopy] = 1; cursor = now;
++    }
+     relocH = GetLibraryResource(libraryDbP, PALM_TLS_RELOC_TYPE,
+         relocId);
+     if (relocH == 0) {
+@@ -261,19 +273,38 @@
+         goto cleanup;
+     }
+ 
++    if (profile) {
++        now = TimGetTicks();
++        engineP->loadProfile.ticks[palmTlsLoadRelocate] = now - cursor;
++        engineP->loadProfile.calls[palmTlsLoadRelocate] = 1;
++    }
+     engineP->protocol = protocol;
+     engineP->loaded = true;
+     {
+         PalmTlsEngineParams initParams;
+         MemSet(&initParams, sizeof(initParams), 0);
+         initParams.command = palmTlsEngineInitialize;
++        if (profile) initParams.options |= PALM_TLS_ENGINE_PROFILE_STARTUP;
+         initParams.controlP = &engineP->controls[0];
+         if (stateP->armStatus == palmTlsArmSelfTestFailed)
+-            initParams.options = PALM_TLS_ENGINE_DISABLE_ARM;
++            initParams.options |= PALM_TLS_ENGINE_DISABLE_ARM;
+         ((PalmTlsEntryProc)engineP->segments[0])(&initParams, resultP);
+         if (resultP->status != palmTlsStatusOk) goto cleanup;
+     }
+     resultP->loadTicks = TimGetTicks() - loadStart;
++    if (profile) {
++        UInt32 accounted = 0;
++        for (index = palmTlsLoadNative; index <= palmTlsLoadQualify; index++) {
++            engineP->loadProfile.ticks[index] = resultP->loadProfile.ticks[index];
++            engineP->loadProfile.calls[index] = resultP->loadProfile.calls[index];
++        }
++        for (index = 0; index < palmTlsLoadPhaseCount; index++)
++            accounted += engineP->loadProfile.ticks[index];
++        engineP->loadProfile.ticks[palmTlsLoadOther] = resultP->loadTicks - accounted;
++        engineP->loadProfile.calls[palmTlsLoadOther] = 1;
++        engineP->loadProfile.elapsedTicks = resultP->loadTicks;
++        engineP->loadProfile.complete = true;
++    }
+ 
+ cleanup:
+     if (relocationsP != 0) MemHandleUnlock(relocH);
+@@ -339,6 +370,7 @@
+     PalmTlsEngineParams params;
+     PalmTlsEngineControl *controlP;
+     UInt32 loadTicks = 0;
++    Boolean loadedHere = false;
+     ClearEngineResult(resultP);
+     resultP->status = palmTlsStatusBadParameter;
+     if (stateP == 0 || paramsP == 0) return resultP->status;
+@@ -351,9 +383,10 @@
+         PalmTlsUnloadEngine(stateP);
+     }
+     if (!stateP->engine.loaded) {
+-        if (!LoadEngine(stateP, paramsP->protocol, resultP))
++        if (!LoadEngine(stateP, paramsP->protocol, paramsP->options, resultP))
+             return resultP->status;
+         loadTicks = resultP->loadTicks;
++        loadedHere = true;
+     }
+     CopyEngineParams(&params, paramsP);
+     switch (params.command) {
+@@ -365,6 +398,9 @@
+                 return resultP->status;
+             }
+             params.controlP = controlP;
++            MemSet(&controlP->loadProfile, sizeof(controlP->loadProfile), 0);
++            if (loadedHere) MemMove(&controlP->loadProfile, &stateP->engine.loadProfile,
++                                   sizeof(controlP->loadProfile));
+             break;
+         case palmTlsEngineGetProfile: {
+             UInt16 slot;
+diff --git a/library/tests/handshake_profile_test.py b/library/tests/handshake_profile_test.py
+--- a/library/tests/handshake_profile_test.py
++++ b/library/tests/handshake_profile_test.py
+@@ -136,6 +136,25 @@
+     clockTick=105; PalmTlsHandshakeProfileLeave();
+     assert(!a.ecdhe.complete);
+     clockTick=106; PalmTlsHandshakeProfileClose();
++    PalmTlsHandshakeProfileStart(&a,9,100,1);
++    clockTick=101; PalmTlsHandshakeProfileEnter(palmTlsHsTrust);
++    clockTick=103; PalmTlsTrustProfileEnter(palmTlsTrustPem);
++    clockTick=105; PalmTlsTrustProfileLeave();
++    clockTick=106; PalmTlsTrustProfileEnter(palmTlsTrustStore);
++    clockTick=108; PalmTlsTrustProfileEnter(palmTlsTrustDecode);
++    clockTick=112; PalmTlsTrustProfileLeave();
++    clockTick=113; PalmTlsTrustProfileLeave();
++    clockTick=114; PalmTlsHandshakeProfileLeave();
++    assert(a.trust.complete && a.trust.elapsedTicks==13);
++    assert(a.trust.ticks[palmTlsTrustPem]==2);
++    assert(a.trust.ticks[palmTlsTrustDecode]==4);
++    assert(a.trust.ticks[palmTlsTrustStore]==3);
++    assert(a.trust.ticks[palmTlsTrustOther]==4);
++    assert(a.result.handshake.ticks[palmTlsHsTrust]==13);
++    PalmTlsHandshakeProfileFinish(115);
++    i=reads; PalmTlsTrustProfileEnter(palmTlsTrustDecode);
++    PalmTlsTrustProfileLeave(); assert(reads==i);
++    clockTick=116; PalmTlsHandshakeProfileClose();
+     return 0;
+ }
+ ''')
+diff --git a/scripts/bootstrap.sh b/scripts/bootstrap.sh
+--- a/scripts/bootstrap.sh
++++ b/scripts/bootstrap.sh
+@@ -31,6 +31,7 @@
+   wolfssl-palm-handshake-profile.patch
+   wolfssl-palm-ecdhe-profile.patch
+   wolfssl-palm-p256-validation.patch
++  wolfssl-palm-trust-profile.patch
+ )
+ for patch_name in "${patches[@]}"; do
+   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
+diff --git a/wolfssl/user_settings.h b/wolfssl/user_settings.h
+--- a/wolfssl/user_settings.h
++++ b/wolfssl/user_settings.h
+@@ -39,6 +39,8 @@
+ extern void PalmTlsHandshakeProfileLeave(void);
+ extern void PalmTlsEcdheProfileEnter(unsigned short phase);
+ extern void PalmTlsEcdheProfileLeave(void);
++extern void PalmTlsTrustProfileEnter(unsigned short phase);
++extern void PalmTlsTrustProfileLeave(void);
+ #endif
+ #define XMALLOC(size, heap, type) WolfPalmMalloc((unsigned long)(size))
+ #define XFREE(pointer, heap, type) WolfPalmFree(pointer)
+diff --git a/patches/wolfssl/wolfssl-palm-trust-profile.patch b/patches/wolfssl/wolfssl-palm-trust-profile.patch
+new file mode 100644
+--- /dev/null
++++ b/patches/wolfssl/wolfssl-palm-trust-profile.patch
+@@ -0,0 +1,97 @@
++diff --git a/wolfcrypt/src/asn.c b/wolfcrypt/src/asn.c
++--- a/wolfcrypt/src/asn.c
+++++ b/wolfcrypt/src/asn.c
++@@ -24249,7 +24249,7 @@
++ 
++ #endif /* WOLFSSL_ASN_TEMPLATE */
++ 
++-int ParseCert(DecodedCert* cert, int type, int verify, void* cm)
+++static int PalmTrustRaw_ParseCert(DecodedCert* cert, int type, int verify, void* cm)
++ {
++     int   ret;
++ #if (!defined(WC_ASN_NO_HEAP) && !defined(NO_WOLFSSL_CM_VERIFY)) || \
++@@ -24298,6 +24298,20 @@
++ #endif
++ 
++     return ret;
+++}
+++
+++
+++int ParseCert(DecodedCert* cert, int type, int verify, void* cm)
+++{
+++    int result;
+++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+++    PalmTlsTrustProfileEnter(palmTlsTrustDecode);
+++#endif
+++    result = PalmTrustRaw_ParseCert(cert, type, verify, cm);
+++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+++    PalmTlsTrustProfileLeave();
+++#endif
+++    return result;
++ }
++ 
++ int wc_ParseCert(DecodedCert* cert, int type, int verify, void* cm)
++@@ -27129,7 +27143,7 @@
++ 
++ /* Remove PEM header/footer, convert to ASN1, store any encrypted data
++    info->consumed tracks of PEM bytes consumed in case multiple parts */
++-int PemToDer(const unsigned char* buff, long longSz, int type,
+++static int PalmTrustRaw_PemToDer(const unsigned char* buff, long longSz, int type,
++               DerBuffer** pDer, void* heap, EncryptedInfo* info, int* keyFormat)
++ {
++     const char* header      = NULL;
++@@ -27608,6 +27622,21 @@
++ #endif /* WOLFSSL_ENCRYPTED_KEYS */
++ 
++     return ret;
+++}
+++
+++
+++int PemToDer(const unsigned char* buff, long longSz, int type,
+++              DerBuffer** pDer, void* heap, EncryptedInfo* info, int* keyFormat)
+++{
+++    int result;
+++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+++    PalmTlsTrustProfileEnter(palmTlsTrustPem);
+++#endif
+++    result = PalmTrustRaw_PemToDer(buff, longSz, type, pDer, heap, info, keyFormat);
+++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+++    PalmTlsTrustProfileLeave();
+++#endif
+++    return result;
++ }
++ 
++ int wc_PemToDer(const unsigned char* buff, long longSz, int type,
++diff --git a/src/ssl_certman.c b/src/ssl_certman.c
++--- a/src/ssl_certman.c
+++++ b/src/ssl_certman.c
++@@ -3064,7 +3064,7 @@
++ /* owns der, internal now uses too */
++ /* type flag ids from user or from chain received during verify
++    don't allow chain ones to be added w/o isCA extension */
++-int AddCA(WOLFSSL_CERT_MANAGER* cm, DerBuffer** pDer, int type, int verify)
+++static int PalmTrustRaw_AddCA(WOLFSSL_CERT_MANAGER* cm, DerBuffer** pDer, int type, int verify)
++ {
++     int         ret = 0;
++     Signer*     signer = NULL;
++@@ -3338,6 +3338,20 @@
++     return ret == 0 ? WOLFSSL_SUCCESS : ret;
++ }
++ 
+++
+++int AddCA(WOLFSSL_CERT_MANAGER* cm, DerBuffer** pDer, int type, int verify)
+++{
+++    int result;
+++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+++    PalmTlsTrustProfileEnter(palmTlsTrustStore);
+++#endif
+++    result = PalmTrustRaw_AddCA(cm, pDer, type, verify);
+++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+++    PalmTlsTrustProfileLeave();
+++#endif
+++    return result;
+++}
+++
++ /* Removes the CA with the passed in subject hash from the
++    cert manager's CA cert store. */
++ int RemoveCA(WOLFSSL_CERT_MANAGER* cm, byte* hash, int type)

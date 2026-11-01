@@ -100,12 +100,25 @@ static int ValidateSelfTestPoint(ecc_key *keyP)
     UInt16 check;
     for (check = 0; check < 14; check++) {
         int expected = 0;
-        int ret = fp_read_unsigned_bin(keyP->pubkey.x,
-            kP256SelfTestKey + sizeof(kP256SelfTestKey) - 64, 32);
-        if (ret == 0) ret = fp_read_unsigned_bin(keyP->pubkey.y,
-            kP256SelfTestKey + sizeof(kP256SelfTestKey) - 32, 32);
-        if (ret != 0) return ret;
-        fp_set(keyP->pubkey.z, 1);
+        int ret = 0;
+        UInt16 limb;
+        const UInt8 *generator = kP256SelfTestKey + sizeof(kP256SelfTestKey) - 64;
+        /* The decoded generator already owns initialized TFM storage. Restore
+         * its 16 used limbs instead of clearing all 264 limbs twice per case.
+         * The only test touching a higher limb writes limb 16; clear it too.
+         * All 14 cases and their exact expected errors remain unchanged. */
+        for (limb = 0; limb < 16; limb++) {
+            UInt16 offset = 30 - limb * 2;
+            keyP->pubkey.x->dp[limb] = ((UInt16)generator[offset] << 8) | generator[offset + 1];
+            keyP->pubkey.y->dp[limb] = ((UInt16)generator[32 + offset] << 8) | generator[33 + offset];
+        }
+        keyP->pubkey.x->dp[16] = keyP->pubkey.y->dp[16] = 0;
+        keyP->pubkey.x->used = keyP->pubkey.y->used = 16;
+        keyP->pubkey.x->sign = keyP->pubkey.y->sign = FP_ZPOS;
+        /* Z tests change only its low limb, used count and sign. */
+        keyP->pubkey.z->dp[0] = 1;
+        keyP->pubkey.z->used = 1;
+        keyP->pubkey.z->sign = FP_ZPOS;
         switch (check) {
         case 0: break; /* Valid generator. */
         case 1:
@@ -832,30 +845,52 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
         case palmTlsEngineGetProfile:
             if (controlP->profiler.enabled && paramsP->responseP &&
                 (paramsP->responseCapacity == PALM_TLS_SESSION_PROFILE_SIZE ||
-                 paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE)) {
+                 paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE ||
+                 paramsP->responseCapacity == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE)) {
                 PalmTlsHandshakeProfileSnapshot(&controlP->profiler,
                     (PalmTlsSessionProfile *)paramsP->responseP);
-                if (paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE) {
+                if (paramsP->responseCapacity >= PALM_TLS_SESSION_ECDHE_PROFILE_SIZE) {
                     PalmTlsSessionEcdheProfile *profileP = paramsP->responseP;
-                    profileP->base.structSize = PALM_TLS_SESSION_ECDHE_PROFILE_SIZE;
+                    profileP->base.structSize = paramsP->responseCapacity;
                     MemMove(&profileP->ecdhe, &controlP->profiler.ecdhe,
                             sizeof(profileP->ecdhe));
+                }
+                if (paramsP->responseCapacity == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE) {
+                    PalmTlsSessionStartupProfile *profileP = paramsP->responseP;
+                    profileP->load = controlP->loadProfile;
+                    profileP->trust = controlP->profiler.trust;
                 }
                 resultP->status = palmTlsStatusOk;
             }
             break;
         case palmTlsEngineInitialize:
             if (!controlP->initialized) {
+                Boolean profile = (paramsP->options & PALM_TLS_ENGINE_PROFILE_STARTUP) != 0;
+                UInt32 start = profile ? TimGetTicks() : 0;
                 PalmTlsArmletInitialize();
                 if ((paramsP->options & PALM_TLS_ENGINE_DISABLE_ARM) != 0)
                     PalmTlsArmletDisable();
+                if (profile) {
+                    resultP->loadProfile.ticks[palmTlsLoadNative] = TimGetTicks() - start;
+                    resultP->loadProfile.calls[palmTlsLoadNative] = 1;
+                    start = TimGetTicks();
+                }
                 int initialized = wolfSSL_Init();
+                if (profile) {
+                    resultP->loadProfile.ticks[palmTlsLoadWolf] = TimGetTicks() - start;
+                    resultP->loadProfile.calls[palmTlsLoadWolf] = 1;
+                }
                 if (initialized != WOLFSSL_SUCCESS) {
                     resultP->status = palmTlsStatusInitializationFailed;
                     resultP->tlsError = (Int16)initialized;
                     break;
                 }
+                if (profile) start = TimGetTicks();
                 ValidateArmMath(controlP);
+                if (profile) {
+                    resultP->loadProfile.ticks[palmTlsLoadQualify] = TimGetTicks() - start;
+                    resultP->loadProfile.calls[palmTlsLoadQualify] = 1;
+                }
                 controlP->initialized = true;
             }
             resultP->status = palmTlsStatusOk;
