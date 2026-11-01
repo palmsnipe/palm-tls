@@ -1,0 +1,17 @@
+case,sample,frequency,open_ticks,load_ticks,reported_handshake_ticks,session_reused
+cold_full,0,100,57,10,47,0
+warm_full,0,100,36,0,36,0
+resumed,0,100,17,0,16,1
+cold_full,1,100,57,11,46,0
+warm_full,1,100,36,0,35,0
+resumed,1,100,16,0,16,1
+cold_full,2,100,58,11,47,0
+warm_full,2,100,35,0,35,0
+resumed,2,100,17,0,17,1
+cold_full,3,100,58,10,47,0
+warm_full,3,100,35,0,35,0
+resumed,3,100,17,0,17,1
+cold_full,4,100,57,10,47,0
+warm_full,4,100,35,0,35,0
+resumed,4,100,17,0,16,1
+# complete release-v1

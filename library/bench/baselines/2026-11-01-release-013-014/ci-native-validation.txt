@@ -1,0 +1,3 @@
+CI native image SHA-256: 0de4dab953f66382ae925aea71c72b86056af326c3064d05571030e866027ac4
+Crypto oracles passed (ti925t): 99 ChaCha records, 168 AES-GCM records, 1881 raw-field chains, 69 inversions/maps, 84 scalar products, 85 double-scalar cases, 432 order preparations, 270 point validations, 24 ECDSA valid/tampered cases; alignment offsets 0..3
+Crypto oracles passed (pxa270): 99 ChaCha records, 168 AES-GCM records, 1881 raw-field chains, 69 inversions/maps, 84 scalar products, 85 double-scalar cases, 432 order preparations, 270 point validations, 24 ECDSA valid/tampered cases; alignment offsets 0..3

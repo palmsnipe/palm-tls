@@ -1,0 +1,35 @@
+{
+  "benchmark_version": 1,
+  "benchmark_type": "tls_release",
+  "mips": 100,
+  "device": "auto",
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "emulator_sha256": "3349f1b450c596c55bf8a7652f1a596e613c6c2876faf6d46f5f5dcef5e5f7cb",
+  "prc_sha256": "1abec5b211639f26d1e86fcc2cf7ea57256a875f8bac58b2fb77b173e5063748",
+  "library_sha256": "b44a1c08163d469e41c1e8ea63e8f3b239b4a042fca8f935269715261dc3db01",
+  "arm_image_sha256": "0de4dab953f66382ae925aea71c72b86056af326c3064d05571030e866027ac4",
+  "arm_image_bytes": 38224,
+  "git_revision": "629ff27cd7ae7762a0cb2c3a30577b13eeea2236",
+  "git_dirty": false,
+  "command": [
+    "/Users/cyril/projects/cloudpilot-emu/src/uarm/cp-uarm",
+    "--net-native",
+    "--mips",
+    "100",
+    "--no-sound",
+    "--device",
+    "auto",
+    "/Users/cyril/projects/palm-tls/library/build/bench/release-014-ci-run2/session.img"
+  ],
+  "local_arm_build_config": null,
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "edb34cf7251f75047812494c2510072ae0dd68c9b0e4adb56e0474c094b5acdf"
+  },
+  "library_release": "0.1.4",
+  "library_source_revision": "629ff27cd7ae7762a0cb2c3a30577b13eeea2236",
+  "library_provenance": "GitHub Actions run 41349839326; exact uploaded v0.1.4 release asset, SHA-256 verified",
+  "toolchain_image": "ghcr.io/palmsnipe/palm-toolchain-sdk@sha256:2c441bfa432785cf90e34fb5f4efe241c07a9e3666ee475119d856f96db3299f"
+}

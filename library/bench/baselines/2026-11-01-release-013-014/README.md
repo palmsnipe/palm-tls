@@ -1,5 +1,27 @@
 # Published 0.1.3 versus the 0.1.4 release candidate
 
+## Final CI-built release verification
+
+`ci-014-run1` and `ci-014-run2` repeat the same benchmark with the exact uploaded
+GitHub Actions release asset from run **41349839326**, source/tag
+`629ff27cd7ae7762a0cb2c3a30577b13eeea2236`. Both give medians **570 ms cold,
+350 ms warm full, 170 ms resumed**. The published 0.1.3 baseline remains
+1510/1320/580 ms: **62%, 73%, 71% less time**, respectively. Both versions now
+use binaries from the same pinned GitHub CI toolchain image; the candidate
+measurements below were local builds and are preserved separately.
+
+Final PalmTLSArm.prc SHA-256:
+`b44a1c08163d469e41c1e8ea63e8f3b239b4a042fca8f935269715261dc3db01`.
+All three ARM protocol profiles share the same 38,224-byte native image:
+`0de4dab953f66382ae925aea71c72b86056af326c3064d05571030e866027ac4`.
+The exact CI native image also passes the independent crypto oracle suite on
+both TI925T and PXA270 CPU models; see `ci-native-validation.txt`.
+Every packaged/uploaded binary and ZIP was checked against the CI checksums
+and GitHub release asset digests. The two final runs independently confirm
+20 full and 10 resumed TLS 1.3 / ChaCha20-Poly1305 connections.
+
+## Local candidate comparison
+
 Two independent private-session runs per version, five samples per case per
 run. Both runs reproduce cold medians **1510 → 570 ms**, warm full **1320 →
 350 ms**, and resumed **580 → 160/170 ms**. All 60 server records independently

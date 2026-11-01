@@ -3,12 +3,12 @@
 ## Release 0.1.3 to 0.1.4
 
 The common-ABI, profiling-disabled benchmark compares the **published 0.1.3
-binary** against the local 0.1.4 candidate with its ChaCha20 support retained.
+binary** against the CI-built 0.1.4 release with its ChaCha20 support retained.
 Two runs give cold full medians **1510 → 570 ms** (62% less time), warm full
-**1320 → 350 ms** (73% less), and resumed **580 → 160–170 ms** (71–72% less).
+**1320 → 350 ms** (73% less), and resumed **580 → 170 ms** (71% less).
 The external API timer includes engine/context/trust/keyshare setup. Both
 versions negotiate ChaCha20-Poly1305 and validate the same eight-root trust
-bundle. Builds use different compiler environments. This is 100 MIPS emulator
+bundle. Both releases use the same pinned CI toolchain image. This is 100 MIPS emulator
 comparison data, not physical-device timing. See the [raw data and method](bench/baselines/2026-11-01-release-013-014/README.md)
 and [release notes](../docs/releases/0.1.4.md). Earlier sections below compare
 individual development stages, not published 0.1.3.

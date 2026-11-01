@@ -1,0 +1,20 @@
+{
+  "handshakes": {
+    "cold_full": {
+      "median_ms": 570.0,
+      "min_ms": 570.0,
+      "max_ms": 580.0
+    },
+    "warm_full": {
+      "median_ms": 350.0,
+      "min_ms": 350.0,
+      "max_ms": 360.0
+    },
+    "resumed": {
+      "median_ms": 170.0,
+      "min_ms": 160.0,
+      "max_ms": 170.0
+    }
+  },
+  "server_cipher": "TLS_CHACHA20_POLY1305_SHA256"
+}
