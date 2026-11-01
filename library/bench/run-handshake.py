@@ -20,6 +20,7 @@ def main():
     p.add_argument('--output',type=Path,required=True,help='new directory, includes development-only fixture keys')
     p.add_argument('--server-python',default=sys.executable,help='Python with TLS 1.3 / OpenSSL support')
     p.add_argument('--port',type=int,default=19443)
+    p.add_argument('--reuse-fixture',type=Path,help='copy an existing fixture unchanged; requires the same port')
     p.add_argument('--anchors',type=int,default=8)
     p.add_argument('--mips',type=int,default=100)
     p.add_argument('--runs',type=int,default=2)
@@ -28,12 +29,22 @@ def main():
         p.error('invalid port, anchors, runs or MIPS')
     output=args.output.resolve();output.mkdir(parents=True,exist_ok=False)
     fixture=output/'fixture'
+    server_options=[]
+    if args.reuse_fixture:
+        previous=json.loads((args.reuse_fixture/'server.json').read_text())
+        if previous['port']!=args.port or previous['trust_anchor_count']!=args.anchors:
+            p.error('reused fixture must have the same port and anchor count')
+        shutil.copytree(args.reuse_fixture,fixture)
+        # Each invocation needs a fresh log and readiness marker.
+        (fixture/'connections.jsonl').unlink(missing_ok=True)
+        (fixture/'ready').unlink(missing_ok=True)
+        server_options=['--reuse-fixtures']
     log=(output/'server.log').open('w')
     process=subprocess.Popen([args.server_python,str(root/'library/bench/handshake-server.py'),
-        '--directory',str(fixture),'--port',str(args.port),'--anchors',str(args.anchors)],stdout=log,stderr=log)
+        '--directory',str(fixture),'--port',str(args.port),'--anchors',str(args.anchors)]+server_options,stdout=log,stderr=log)
     try:
         deadline=time.monotonic()+60
-        while not (fixture/'server.json').exists():
+        while not (fixture/'ready').exists():
             if process.poll() is not None: raise RuntimeError('TLS fixture failed; see server.log')
             if time.monotonic()>deadline: raise TimeoutError('TLS fixture not ready')
             time.sleep(0.1)

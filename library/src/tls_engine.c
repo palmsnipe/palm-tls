@@ -763,9 +763,16 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
     switch (paramsP->command) {
         case palmTlsEngineGetProfile:
             if (controlP->profiler.enabled && paramsP->responseP &&
-                paramsP->responseCapacity == sizeof(PalmTlsSessionProfile)) {
+                (paramsP->responseCapacity == PALM_TLS_SESSION_PROFILE_SIZE ||
+                 paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE)) {
                 PalmTlsHandshakeProfileSnapshot(&controlP->profiler,
                     (PalmTlsSessionProfile *)paramsP->responseP);
+                if (paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE) {
+                    PalmTlsSessionEcdheProfile *profileP = paramsP->responseP;
+                    profileP->base.structSize = PALM_TLS_SESSION_ECDHE_PROFILE_SIZE;
+                    MemMove(&profileP->ecdhe, &controlP->profiler.ecdhe,
+                            sizeof(profileP->ecdhe));
+                }
                 resultP->status = palmTlsStatusOk;
             }
             break;

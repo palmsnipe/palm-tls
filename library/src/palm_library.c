@@ -41,6 +41,11 @@ typedef char PalmTlsAssertHandshakePhaseProfile[
 typedef char PalmTlsAssertSessionProfile[
     sizeof(PalmTlsSessionProfile) == PALM_TLS_SESSION_PROFILE_SIZE ? 1 : -1];
 
+typedef char PalmTlsAssertEcdhePhaseProfile[
+    sizeof(PalmTlsEcdhePhaseProfile) == PALM_TLS_ECDHE_PHASE_PROFILE_SIZE ? 1 : -1];
+typedef char PalmTlsAssertSessionEcdheProfile[
+    sizeof(PalmTlsSessionEcdheProfile) == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE ? 1 : -1];
+
 static PalmTlsLibraryState *LibraryState(UInt16 refNum)
 {
     SysLibTblEntryPtr entryP = SysLibTblEntry(refNum);
@@ -195,7 +200,8 @@ Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
         PALM_TLS_CAP_ENGINE_CACHE | PALM_TLS_CAP_RESUMPTION |
         PALM_TLS_CAP_COOPERATIVE_IO | PALM_TLS_CAP_VERIFY_PROFILE;
     if ((*capabilitiesP & PALM_TLS_CAP_TLS_1_3) != 0)
-        *capabilitiesP |= PALM_TLS_CAP_HANDSHAKE_PROFILE | PALM_TLS_CAP_CONTEXT_REUSE;
+        *capabilitiesP |= PALM_TLS_CAP_HANDSHAKE_PROFILE | PALM_TLS_CAP_CONTEXT_REUSE |
+            PALM_TLS_CAP_ECDHE_PROFILE;
     if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) == errNone &&
         sysFtrNumProcessorIsARM(processor)) {
         UInt16 index;
@@ -614,10 +620,13 @@ Err PalmTlsLibGetSessionProfile(UInt16 refNum, unsigned long sessionId,
     PalmTlsLibraryState *stateP = LibraryState(refNum);
     PalmTlsEngineParams params;
     PalmTlsEngineResult result;
-    if (!resultP || resultP->structSize != PALM_TLS_SESSION_PROFILE_SIZE)
+    UInt16 size;
+    if (!resultP || (resultP->structSize != PALM_TLS_SESSION_PROFILE_SIZE &&
+        resultP->structSize != PALM_TLS_SESSION_ECDHE_PROFILE_SIZE))
         return sysErrParamErr;
-    MemSet(resultP, sizeof(*resultP), 0);
-    resultP->structSize = sizeof(*resultP);
+    size = resultP->structSize;
+    MemSet(resultP, size, 0);
+    resultP->structSize = size;
     resultP->status = palmTlsStatusBadParameter;
     if (!stateP || !stateP->engine.loaded || !sessionId) return sysErrParamErr;
     MemSet(&params, sizeof(params), 0);
@@ -625,7 +634,7 @@ Err PalmTlsLibGetSessionProfile(UInt16 refNum, unsigned long sessionId,
     params.protocol = stateP->engine.protocol;
     params.sessionId = sessionId;
     params.responseP = resultP;
-    params.responseCapacity = sizeof(*resultP);
+    params.responseCapacity = size;
     PalmTlsExecute(stateP, &params, &result);
     if (result.status != palmTlsStatusOk) resultP->status = result.status;
     return errNone;

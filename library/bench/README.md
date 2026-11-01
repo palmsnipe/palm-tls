@@ -88,6 +88,44 @@ images. Final repeated measurements are in
 These local emulator measurements include profiling overhead and do not
 establish physical-device or Internet handshake latency.
 
+### ECDHE mixed-coordinate comparison
+
+The current handshake app requests the optional 288-byte ECDHE profile and
+adds 150 `# ecdhe` rows (five exclusive phases × 30 samples). It requires a
+complete detail whose sum exactly matches each key-agreement phase. The reader
+still accepts earlier results without this extension. The five phases separate
+remaining setup/export, import, validation, scalar multiplication, and mapping;
+zero ticks retain entry counts at the Palm clock's 10 ms resolution.
+
+For arithmetic comparisons, reuse the *same* fixture so trust bytes, leaf
+certificate, ports, and benchmark application code remain identical:
+
+```sh
+# After running a baseline with the command above, build the candidate, then:
+python3 library/bench/run-handshake.py \
+  --emulator /Users/cyril/projects/cloudpilot-emu/src/uarm/cp-uarm \
+  --session /Users/cyril/projects/cloudpilot-emu/web/embedded/public/session_os5.img \
+  --server-python /opt/homebrew/bin/python3.12 \
+  --port 22443 --runs 2 --mips 100 \
+  --reuse-fixture library/build/bench/tls13-new-comparison/fixture \
+  --output library/build/bench/tls13-candidate
+```
+
+The driver copies development fixtures only into the ignored build directory,
+requires matching port/anchor count, resets connection logs, and waits for a
+new readiness marker written after all three listeners bind. The application
+still verifies the embedded trust bytes against the live fixture. TLS keys
+and signatures remain fresh per connection.
+
+[`baselines/2026-11-01-ecdhe-mixed`](baselines/2026-11-01-ecdhe-mixed) contains
+two runs per handshake configuration, native primitive comparisons, and a
+support patch for the instrumented `6adbf09` baseline. Baseline/candidate PRCs
+differ only in `armc:1`; the profile and workload code is identical. The native
+`p256_general_affine` case batches four operations per sample, giving finer
+per-operation resolution than individual handshakes. Preserve the raw tick
+samples; a 10 ms handshake difference should not be presented as a precise
+sub-tick physical-device speedup.
+
 ## Repeatable emulator runs
 
 Use a supplied, already initialized OS 5 session. The runner copies it into a

@@ -742,61 +742,63 @@ static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
     PointSelect(resultP, &result, &affine, wasInfinity);
 }
 
-/* Complete Jacobian addition. Exceptional equal, opposite, and infinity
- * cases are selected without data-dependent branches. */
-static void PointAdd(Point256 *resultP, const Point256 *leftP,
-                     const Point256 *rightP)
+/* Mixed addition ONLY for the fixed 64-window radix-16 loop below. Before
+ * an addition P = 16*prefix*Q and the selected point is digit*Q (1..15).
+ * For a nonzero Q of prime order n, equality requires 16*prefix = n+digit:
+ * earlier windows are too small, 2*n > 2^256, and n mod 16 = 1. Thus equality
+ * is possible only for digit=15 in the final window, at scalar n+30; its
+ * result is 30*Q. Supply that public precomputed fallback. Zero digits use Q
+ * as a dummy and discard the result. Opposite/infinity cases are still masked.
+ * This is not a general-purpose complete mixed addition routine. */
+static void PointAddMixedWindow(Point256 *resultP, const Point256 *pointP,
+                          const Fe256 *affineXP, const Fe256 *affineYP,
+                          const Point256 *equalResultP)
 {
-    Fe256 z1z1, z2z2, u1, u2, s1, s2, h, i, j, r, v;
+    Fe256 zSquared, u2, s2, h, hh, i, j, r, v;
     Fe256 temporary1;
-    Point256 added, doubled, infinity, selected;
-    u32 leftInfinity = FeIsZero(&leftP->z);
-    u32 rightInfinity = FeIsZero(&rightP->z);
-    u32 hZero;
-    u32 rZero;
-    FeSquare(&z1z1, &leftP->z);
-    FeSquare(&z2z2, &rightP->z);
-    FeMultiply(&u1, &leftP->x, &z2z2);
-    FeMultiply(&u2, &rightP->x, &z1z1);
-    FeMultiply(&temporary1, &rightP->z, &z2z2);
-    FeMultiply(&s1, &leftP->y, &temporary1);
-    FeMultiply(&temporary1, &leftP->z, &z1z1);
-    FeMultiply(&s2, &rightP->y, &temporary1);
-    FeSubtract(&h, &u2, &u1);
-    FeDouble(&temporary1, &h);
-    FeSquare(&i, &temporary1);
+    Point256 result;
+    Point256 affine, infinity, selected;
+    u32 hZero, rZero;
+    u32 wasInfinity = FeIsZero(&pointP->z);
+    FeSquare(&zSquared, &pointP->z);
+    FeMultiply(&u2, affineXP, &zSquared);
+    FeMultiply(&temporary1, &pointP->z, &zSquared);
+    FeMultiply(&s2, affineYP, &temporary1);
+    FeSubtract(&h, &u2, &pointP->x);
+    FeSquare(&hh, &h);
+    FeTimes4(&i, &hh);
     FeMultiply(&j, &h, &i);
-    FeSubtract(&r, &s2, &s1);
-    FeDouble(&r, &r);
-    FeMultiply(&v, &u1, &i);
-    FeSquare(&added.x, &r);
-    FeSubtract(&added.x, &added.x, &j);
-    FeDouble(&temporary1, &v);
-    FeSubtract(&added.x, &added.x, &temporary1);
-    FeSubtract(&temporary1, &v, &added.x);
-    FeMultiply(&added.y, &r, &temporary1);
-    FeMultiply(&temporary1, &s1, &j);
-    FeDouble(&temporary1, &temporary1);
-    FeSubtract(&added.y, &added.y, &temporary1);
-    FeAdd(&temporary1, &leftP->z, &rightP->z);
-    FeSquare(&added.z, &temporary1);
-    FeSubtract(&added.z, &added.z, &z1z1);
-    FeSubtract(&added.z, &added.z, &z2z2);
-    FeMultiply(&added.z, &added.z, &h);
-    PointDouble(&doubled, leftP);
-    PointSetInfinity(&infinity);
+    FeSubtract(&r, &s2, &pointP->y);
     hZero = FeIsZero(&h);
     rZero = FeIsZero(&r);
-    PointSelect(&selected, &added, &doubled, hZero & rZero);
+    FeDouble(&r, &r);
+    FeMultiply(&v, &pointP->x, &i);
+    FeSquare(&result.x, &r);
+    FeSubtract(&result.x, &result.x, &j);
+    FeDouble(&temporary1, &v);
+    FeSubtract(&result.x, &result.x, &temporary1);
+    FeSubtract(&temporary1, &v, &result.x);
+    FeMultiply(&result.y, &r, &temporary1);
+    FeMultiply(&temporary1, &pointP->y, &j);
+    FeDouble(&temporary1, &temporary1);
+    FeSubtract(&result.y, &result.y, &temporary1);
+    FeAdd(&temporary1, &pointP->z, &h);
+    FeSquare(&result.z, &temporary1);
+    FeSubtract(&result.z, &result.z, &zSquared);
+    FeSubtract(&result.z, &result.z, &hh);
+    FeCopy(&affine.x, affineXP);
+    FeCopy(&affine.y, affineYP);
+    FeCopy(&affine.z, &kR);
+    PointSetInfinity(&infinity);
+    PointSelect(&selected, &result, equalResultP, hZero & rZero);
     PointSelect(&selected, &selected, &infinity, hZero & (rZero ^ 1U));
-    PointSelect(&selected, &selected, rightP, leftInfinity);
-    PointSelect(resultP, &selected, leftP, rightInfinity);
+    PointSelect(resultP, &selected, &affine, wasInfinity);
 }
 
 /* ECDSA verification points and scalars are public. This complete addition
  * can therefore branch on exceptional cases and avoids calculating a
  * Jacobian doubling during every ordinary table addition. Secret-scalar
- * multiplication continues to use PointAdd above. */
+ * multiplication uses the bounded fixed-window mixed addition above. */
 static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
                            const Point256 *rightP)
 {
@@ -1010,6 +1012,31 @@ static void FeWriteRawBigEndian(volatile u8 *bytesP, const Fe256 *valueP)
     }
 }
 
+/* Normalize the 15 nonzero multiples of a validated public P-256 point.
+ * All Z values are nonzero (the prime order exceeds 15). Montgomery's batch
+ * trick uses one inversion and a fixed reverse pass; scalar bits are untouched. */
+static void NormalizePointTable(Point256 *tableP)
+{
+    Fe256 products[15], inverse, zInverse, squared, cubed;
+    int index;
+    FeCopy(&products[0], &tableP[1].z);
+    for (index = 2; index < 16; index++)
+        FeMultiply(&products[index - 1], &products[index - 2], &tableP[index].z);
+    FeInverse(&inverse, &products[14]);
+    for (index = 15; index > 0; index--) {
+        if (index > 1)
+            FeMultiply(&zInverse, &inverse, &products[index - 2]);
+        else
+            FeCopy(&zInverse, &inverse);
+        FeMultiply(&inverse, &inverse, &tableP[index].z);
+        FeSquare(&squared, &zInverse);
+        FeMultiply(&cubed, &squared, &zInverse);
+        FeMultiply(&tableP[index].x, &tableP[index].x, &squared);
+        FeMultiply(&tableP[index].y, &tableP[index].y, &cubed);
+        FeCopy(&tableP[index].z, &kR);
+    }
+}
+
 static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                             const volatile u8 *inputP, Point256 *resultP)
 {
@@ -1057,9 +1084,13 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
         PointDouble(&table[2], &table[1]);
         for (index = 3; index < 16; index++)
             PointAddMixed(&table[index], &table[index - 1], &affineX, &affineY);
+        /* table[0] is not selected by a scalar digit. Reuse it for the
+         * exceptional equal-point result, in Jacobian coordinates. */
+        PointDouble(&table[0], &table[15]);
+        NormalizePointTable(table);
         PointSetInfinity(&result);
         for (window = 63; window >= 0; window--) {
-            Point256 selected;
+            Affine256 selected;
             Point256 added;
             u32 byte = scalarP[31U - ((u32)window >> 1)];
             u32 digit = ((u32)window & 1U) != 0 ? byte >> 4 : byte & 0x0fU;
@@ -1068,12 +1099,17 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                 PointDouble(&doubled, &result);
                 PointCopy(&result, &doubled);
             }
-            PointCopy(&selected, &table[0]);
-            for (index = 1; index < 16; index++)
-                PointSelect(&selected, &selected, &table[index],
-                            EqualSmall(index, digit));
-            PointAdd(&added, &result, &selected);
-            PointCopy(&result, &added);
+            FeCopy(&selected.x, &table[1].x);
+            FeCopy(&selected.y, &table[1].y);
+            for (index = 2; index < 16; index++) {
+                FeSelect(&selected.x, &selected.x, &table[index].x,
+                         EqualSmall(index, digit));
+                FeSelect(&selected.y, &selected.y, &table[index].y,
+                         EqualSmall(index, digit));
+            }
+            PointAddMixedWindow(&added, &result, &selected.x, &selected.y,
+                                &table[0]);
+            PointSelect(&result, &result, &added, EqualSmall(digit, 0) ^ 1U);
         }
     }
     if (FeIsZero(&result.z)) return PALM_TLS_ARMLET_ERROR;

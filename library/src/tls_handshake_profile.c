@@ -9,7 +9,12 @@ static PalmTlsHandshakePhaseProfile *Bucket(PalmTlsHandshakeProfiler *p)
 }
 static void Charge(PalmTlsHandshakeProfiler *p, UInt32 now)
 {
-    Bucket(p)->ticks[p->phase] += (UInt32)(now - (UInt32)p->lastTick);
+    UInt32 elapsed = (UInt32)(now - (UInt32)p->lastTick);
+    Bucket(p)->ticks[p->phase] += elapsed;
+    if (!p->finished && p->phase == palmTlsHsKeyAgreement) {
+        p->ecdhe.ticks[p->ecdhePhase] += elapsed;
+        p->ecdhe.elapsedTicks += elapsed;
+    }
     p->lastTick = now;
     Bucket(p)->elapsedTicks = (UInt32)(now - p->periodStart);
 }
@@ -51,6 +56,10 @@ void PalmTlsHandshakeProfileEnter(unsigned short phase)
     p->stack[p->depth++] = p->phase;
     p->phase = phase;
     Bucket(p)->calls[phase]++;
+    if (phase == palmTlsHsKeyAgreement && !p->finished) {
+        p->ecdhe.complete = 0;
+        p->ecdhe.calls[palmTlsEcdheOther]++;
+    }
 }
 void PalmTlsHandshakeProfileLeave(void)
 {
@@ -58,7 +67,34 @@ void PalmTlsHandshakeProfileLeave(void)
     if (!p || p->broken) return;
     if (!p->depth) { p->broken = true; return; }
     Charge(p, TimGetTicks());
+    if (p->phase == palmTlsHsKeyAgreement && !p->finished)
+        p->ecdhe.complete = !p->ecdheBroken && !p->ecdheDepth;
     p->phase = p->stack[--p->depth];
+}
+/* Share the enclosing phase's clock and charge function, so detailed ticks
+ * sum exactly to the exclusive key-agreement phase, including nested scopes. */
+void PalmTlsEcdheProfileEnter(unsigned short phase)
+{
+    PalmTlsHandshakeProfiler *p = gCurrent;
+    if (!p || p->broken || p->finished || p->phase != palmTlsHsKeyAgreement ||
+        p->ecdheBroken) return;
+    if (phase >= palmTlsEcdhePhaseCount || p->ecdheDepth == 8) {
+        p->ecdheBroken = true;
+        return;
+    }
+    Charge(p, TimGetTicks());
+    p->ecdheStack[p->ecdheDepth++] = p->ecdhePhase;
+    p->ecdhePhase = phase;
+    p->ecdhe.calls[phase]++;
+}
+void PalmTlsEcdheProfileLeave(void)
+{
+    PalmTlsHandshakeProfiler *p = gCurrent;
+    if (!p || p->broken || p->finished || p->phase != palmTlsHsKeyAgreement ||
+        p->ecdheBroken) return;
+    if (!p->ecdheDepth) { p->ecdheBroken = true; return; }
+    Charge(p, TimGetTicks());
+    p->ecdhePhase = p->ecdheStack[--p->ecdheDepth];
 }
 void PalmTlsHandshakeProfileSuspend(void)
 {

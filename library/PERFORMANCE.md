@@ -1,5 +1,100 @@
 # ARM performance review — November 1, 2026
 
+## ECDHE peer-point multiplication with mixed-coordinate additions
+
+The arbitrary-point private-scalar path now batch-normalizes its table of
+`Q..15Q` with one field inversion, selects only affine X/Y coordinates with
+full-table scans, and uses mixed additions in the fixed 64-window radix-16
+loop. Fixed-base key generation, public double-scalar arithmetic, the volatile
+selector reads, CPU allowlist, and fallback are preserved.
+
+The loop has a bounded exceptional case that avoids an extra doubling on
+every addition. Before addition the accumulator is `16*prefix*Q`. For a valid
+nonzero P-256 point of prime order `n`, equality with `digit*Q` requires
+`16*prefix = n+digit`: earlier windows are smaller than `n`, and `2n > 2^256`.
+Since `n mod 16 = 1`, this can occur only for digit 15 in the final window,
+at input scalar `n+30`. The implementation precomputes `30Q` once in the
+otherwise unused table-zero slot and selects it without branching. Zero digits
+perform a dummy addition and select the old accumulator; opposite and infinity
+cases use masks. This helper is specific to the documented fixed-window loop,
+not a general complete mixed-addition routine. Scalars zero and `n` still fail
+with output unchanged. Tests include `n+30`, values above `n`, sparse/dense
+scalars, both coordinate-return modes, and unaligned requests.
+
+An optional **288-byte session profile** extends the existing 240-byte result
+without changing it or adding a trap. Its five exclusive phases separate peer
+import, validation, scalar multiplication, affine mapping, and remaining
+setup/export/cleanup. Nested validation is excluded from import; detail ticks
+sum exactly to the enclosing key-agreement phase. Hooks are active only inside
+profiled TLS 1.3 handshake key agreement. Existing phase and self-test ABIs
+remain valid; [API.md](API.md#detailed-ecdhe-profile) describes the extension.
+
+The baseline is `6adbf09` plus the **same** detailed profiling and benchmark
+support, with its original native arithmetic. Both configurations use identical
+wolfSSL 5.9.4 archives, trust/leaf fixtures, emulator/session, ARMv4T `-Os`
+settings, and **100 MIPS**. Resource comparisons show that both the library and
+handshake application PRCs differ **only in `armc:1`**. This comparison isolates
+the native kernel; no context-cache or timing-boundary changes are mixed in.
+
+Five-sample medians from two fresh emulator sessions per handshake build:
+
+| Operation | Baseline first / repeat | Optimized first / repeat |
+| --- | ---: | ---: |
+| Native arbitrary-point affine multiply | 75 ms | 65 / 65 ms |
+| Warm full handshake, cached context | 430 / 420 ms | 420 / 410 ms |
+| Resumed handshake, cached context | 190 / 200 ms | 190 / 190 ms |
+| Full handshake, context reuse disabled | 580 / 580 ms | 570 / 570 ms |
+| Resumed handshake, context reuse disabled | 350 / 350 ms | 340 / 340 ms |
+| Cold full handshake, after purge | 580 / 580 ms | 570 / 570 ms |
+| Warm full key-agreement phase | 110 / 110 ms | 100 / 100 ms |
+
+Both optimized native runs reproduce the **13.3%** improvement, including the
+additional table normalization. The native suite batches four operations per
+sample; final samples span 62.5–65 ms versus baseline 72.5–75 ms. Fixed-base
+multiplication remains 26.25 ms, mapping 3.44 ms, and raw field multiplication
+12.82 us. The roughly 10 ms warm-full improvement is reproduced; cached
+resumption overlaps the baseline at the 10 ms clock resolution, so a reliable
+percentage improvement for that case is not established. Cold engine loading
+remains separate at 130–140 ms. Per-phase medians need not sum to total medians.
+
+Detailed warm-full profiles place validation around **20 ms**, multiplication
+at **70–80 ms before / 70 ms after**, mapping at 0–10 ms, and other setup at
+about 10 ms. These phase samples are coarser than the native batched measurement.
+Zero import/mapping ticks mean sub-tick work when entry counts are nonzero.
+Each handshake run independently confirms 20 full and 10 resumed TLS 1.3
+connections using P-256/AES-128-GCM and the same eight-root, 4,560-byte CA bundle.
+Owned trust, bad CA/hostname/mode, purge, cancellation, slot isolation, and real
+TLS 1.2 full/resumed regressions all pass. Measurements include profiling
+and native-call overhead; they establish emulator behavior, not physical Palm
+or Internet latency.
+
+The final image grows **320 bytes**, from 33,904 to **34,224 bytes**, SHA-256
+`e8a1178462e295ca8c80e0f541031c9587d5a80b8f1827e6c1782e10beaf9bbd`.
+All existing ARM profiles and both benchmark apps share this single ARMv4T
+image; no CPU-specific PRC is introduced. A native execution probe observed
+3,840 bytes of stack use versus 3,552 for the baseline for a mapped general
+multiplication; this is a measured call, not a whole-application stack bound.
+
+Project/package checks, host integer oracles, and the extracted native image
+pass on **TI925T and PXA270**: 168 AES-GCM records, 1,881 raw-field chains,
+69 inversions/maps, 84 scalar products, 85 double-scalar cases, 432 order
+preparations, and 24 valid/tampered ECDSA cases, with request alignment 0–3.
+New tests compare complete basic-block and data-address traces for scalars
+`1`, `n-1`, a sparse pattern, and `n+30` on the same peer point, with translation
+caches flushed and nonempty trace checks. Existing field instruction/address
+traces also pass. These preserve tested control/address behavior, without
+claiming physical constant-time multiplication on every processor. Profiler
+nesting, overflow, idle/inactive checks, slot isolation, and tick wraparound
+pass; the vendor patch stack reproduces cleanly and ECC compiles with profiling
+disabled. Actual Palm PRCs exercise the extended/old profile APIs and both
+self-test result sizes.
+
+Raw data, both handshake repeats, native samples, binary manifests, independent
+server logs and the baseline support patch are saved under
+[bench/baselines/2026-11-01-ecdhe-mixed](bench/baselines/2026-11-01-ecdhe-mixed).
+The final library SHA-256 is
+`e6e5c288d4d9a61a26d09613c423086c967210471d4e098f71a1db180bf8f1c1`.
+
 ## TLS 1.3 phase profiling and context/trust-store reuse
 
 TLS 1.3 now exposes opt-in, per-session exclusive timings for context creation,

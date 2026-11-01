@@ -99,6 +99,43 @@ int main(void) {
     PalmTlsHandshakeProfileLeave();
     PalmTlsHandshakeProfileSuspend();
     assert(reads==i);
+    /* Detail hooks outside key agreement are inactive, including keygen. */
+    i=reads; PalmTlsEcdheProfileEnter(palmTlsEcdheMultiply);
+    PalmTlsEcdheProfileLeave(); assert(reads==i);
+    PalmTlsHandshakeProfileStart(&a,6,100,1);
+    clockTick=102; PalmTlsHandshakeProfileEnter(palmTlsHsKeyAgreement);
+    clockTick=104; PalmTlsEcdheProfileEnter(palmTlsEcdheImport);
+    clockTick=105; PalmTlsEcdheProfileEnter(palmTlsEcdheValidate);
+    clockTick=109; PalmTlsEcdheProfileLeave();
+    clockTick=111; PalmTlsEcdheProfileLeave();
+    clockTick=112; PalmTlsEcdheProfileEnter(palmTlsEcdheMultiply);
+    clockTick=120; PalmTlsEcdheProfileLeave();
+    clockTick=121; PalmTlsEcdheProfileEnter(palmTlsEcdheMap);
+    clockTick=123; PalmTlsEcdheProfileLeave();
+    clockTick=124; PalmTlsHandshakeProfileLeave();
+    PalmTlsHandshakeProfileFinish(125);
+    assert(a.ecdhe.complete && a.ecdhe.elapsedTicks==22);
+    assert(a.ecdhe.ticks[palmTlsEcdheImport]==3);
+    assert(a.ecdhe.ticks[palmTlsEcdheValidate]==4);
+    assert(a.ecdhe.ticks[palmTlsEcdheMultiply]==8);
+    assert(a.ecdhe.ticks[palmTlsEcdheMap]==2);
+    assert(a.ecdhe.ticks[palmTlsEcdheOther]==5);
+    assert(a.result.handshake.ticks[palmTlsHsKeyAgreement]==22);
+    assert(!b.ecdhe.elapsedTicks);
+    clockTick=126; PalmTlsHandshakeProfileClose();
+    PalmTlsHandshakeProfileStart(&a,7,0xfffffff0UL,1);
+    clockTick=0xfffffff2UL; PalmTlsHandshakeProfileEnter(palmTlsHsKeyAgreement);
+    clockTick=0xfffffff4UL; PalmTlsEcdheProfileEnter(palmTlsEcdheMultiply);
+    clockTick=2; PalmTlsEcdheProfileLeave();
+    clockTick=4; PalmTlsHandshakeProfileLeave();
+    assert(a.ecdhe.complete && a.ecdhe.elapsedTicks==18);
+    assert(a.ecdhe.ticks[palmTlsEcdheMultiply]==14);
+    PalmTlsHandshakeProfileStart(&a,8,100,1);
+    clockTick=101; PalmTlsHandshakeProfileEnter(palmTlsHsKeyAgreement);
+    for(i=0;i<9;i++) PalmTlsEcdheProfileEnter(palmTlsEcdheImport);
+    clockTick=105; PalmTlsHandshakeProfileLeave();
+    assert(!a.ecdhe.complete);
+    clockTick=106; PalmTlsHandshakeProfileClose();
     return 0;
 }
 ''')

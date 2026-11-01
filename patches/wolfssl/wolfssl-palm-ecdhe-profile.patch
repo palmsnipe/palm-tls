@@ -1,0 +1,125 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -5137,6 +5137,9 @@
+ 
+         if (err == MP_OKAY) {
+             /* Map in a separate call as this should be constant time */
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++            PalmTlsEcdheProfileEnter(palmTlsEcdheMultiply);
++#endif
+ #ifdef ECC_TIMING_RESISTANT
+             err = wc_ecc_mulmod_ex2(k, point, result, curve->Af, curve->prime,
+                                               curve->order, private_key->rng, 0,
+@@ -5144,6 +5147,9 @@
+ #else
+             err = wc_ecc_mulmod_ex2(k, point, result, curve->Af, curve->prime,
+                                       curve->order, NULL, 0, private_key->heap);
++#endif
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++            PalmTlsEcdheProfileLeave();
+ #endif
+         }
+         if (err == MP_OKAY) {
+@@ -5157,7 +5163,13 @@
+         }
+         if (err == MP_OKAY) {
+             /* Use constant time map if compiled in */
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++            PalmTlsEcdheProfileEnter(palmTlsEcdheMap);
++#endif
+             err = ecc_map_ex(result, curve->prime, mp, 1);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++            PalmTlsEcdheProfileLeave();
++#endif
+         }
+         if (err == MP_OKAY) {
+             /* SP 800-56Ar3 5.7.1.2: the shared secret must not be the point at
+@@ -5459,7 +5471,7 @@
+ #endif /* HAVE_ECC_DHE */
+ 
+ /* Checks if a point p lies on the curve with index curve_idx */
+-int wc_ecc_point_is_on_curve(ecc_point *p, int curve_idx)
++static int PalmRaw_wc_ecc_point_is_on_curve(ecc_point *p, int curve_idx)
+ {
+     int err = MP_OKAY;
+     DECLARE_CURVE_SPECS(3);
+@@ -5488,6 +5500,19 @@
+ 
+     return err;
+ }
++int wc_ecc_point_is_on_curve(ecc_point *p, int curve_idx)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsEcdheProfileEnter(palmTlsEcdheValidate);
++#endif
++    result = PalmRaw_wc_ecc_point_is_on_curve(p, curve_idx);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsEcdheProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ #if !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
+     !defined(WOLFSSL_CRYPTOCELL) && \
+@@ -11705,7 +11730,7 @@
+ 
+ /* perform sanity checks on ecc key validity, 0 on success */
+ WOLFSSL_ABI
+-int wc_ecc_check_key(ecc_key* key)
++static int PalmRaw_wc_ecc_check_key(ecc_key* key)
+ {
+     int ret;
+     /* _ecc_validate_public_key is the single validation entry point: it is
+@@ -11715,6 +11740,19 @@
+     ret = _ecc_validate_public_key(key, 0, 1);
+     return ret;
+ }
++int wc_ecc_check_key(ecc_key* key)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsEcdheProfileEnter(palmTlsEcdheValidate);
++#endif
++    result = PalmRaw_wc_ecc_check_key(key);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsEcdheProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ 
+ #ifdef HAVE_ECC_KEY_IMPORT
+@@ -12121,7 +12159,7 @@
+ }
+ 
+ /* import public ECC key in ANSI X9.63 format */
+-int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
++static int PalmRaw_wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
+                            int curve_id, int untrusted)
+ {
+ #if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_SETKEY)
+@@ -12189,6 +12227,20 @@
+ 
+     return _ecc_import_x963_ex2(in, inLen, key, curve_id, untrusted);
+ }
++int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
++                           int curve_id, int untrusted)
++{
++    int result;
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsEcdheProfileEnter(palmTlsEcdheImport);
++#endif
++    result = PalmRaw_wc_ecc_import_x963_ex2(in, inLen, key, curve_id, untrusted);
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsEcdheProfileLeave();
++#endif
++    return result;
++}
++
+ 
+ /* import public ECC key in ANSI X9.63 format */
+ int wc_ecc_import_x963_ex(const byte* in, word32 inLen, ecc_key* key,

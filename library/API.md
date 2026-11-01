@@ -200,6 +200,36 @@ include instrumentation overhead. Profiling is opt-in: inactive hooks do not
 read the clock. `PALM_TLS_CAP_CONTEXT_REUSE` separately advertises the TLS 1.3
 context cache, which works without enabling profiling.
 
+### Detailed ECDHE profile
+
+When `PALM_TLS_CAP_ECDHE_PROFILE` is present, the same trap also accepts the
+288-byte `PalmTlsSessionEcdheProfile` extension:
+
+```c
+PalmTlsSessionEcdheProfile detail;
+MemSet(&detail, sizeof(detail), 0);
+detail.base.structSize = PALM_TLS_SESSION_ECDHE_PROFILE_SIZE;
+PalmTlsLibGetSessionProfile(refNum, sessionId, &detail.base);
+```
+
+Open with `PALM_TLS_SESSION_PROFILE` as before. The original 240-byte result
+is still accepted; no trap offsets or existing structure sizes change.
+`detail.ecdhe` contains exclusive ticks and entry counts for other/setup,
+peer X9.63 import, public-key validation, scalar multiplication, and affine
+mapping. Nested validation is excluded from import. Multiplication includes
+native marshaling, public-point table construction/normalization, and the
+secret scalar loop; it returns Jacobian coordinates. Mapping includes the
+separate conversion to affine coordinates. Other covers curve allocation,
+parameter loading, secret serialization, and cleanup.
+
+The detail is active only inside the TLS 1.3 handshake key-agreement phase,
+so key generation, certificate verification, and post-handshake work do not
+pollute it. Its tick sum and `elapsedTicks` equal
+`base.handshake.ticks[palmTlsHsKeyAgreement]`. `complete` means balanced scopes,
+not authentication success; it is zero until key-agreement processing ends.
+The normal profile's query lifetime, opt-in behavior, clock resolution, and
+instrumentation overhead also apply to this extension.
+
 ## Offline ARM self-test
 
 Zero a `PalmTlsSelfTestResult`, set `structSize`, and call

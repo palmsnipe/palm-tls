@@ -4,6 +4,9 @@
 #include "palm_tls.h"
 typedef struct PalmTlsHandshakeProfiler {
     PalmTlsSessionProfile result;
+    PalmTlsEcdhePhaseProfile ecdhe;
+    unsigned short ecdheStack[8];
+    unsigned short ecdhePhase, ecdheDepth, ecdheBroken;
     unsigned long lastTick;
     unsigned long periodStart;
     unsigned short stack[16];
@@ -16,6 +19,8 @@ void PalmTlsHandshakeProfileBind(PalmTlsHandshakeProfiler *p);
 void PalmTlsHandshakeProfileSuspend(void);
 void PalmTlsHandshakeProfileEnter(unsigned short phase);
 void PalmTlsHandshakeProfileLeave(void);
+void PalmTlsEcdheProfileEnter(unsigned short phase);
+void PalmTlsEcdheProfileLeave(void);
 void PalmTlsHandshakeProfileFinish(unsigned long ticks);
 void PalmTlsHandshakeProfileClose(void);
 void PalmTlsHandshakeProfileSnapshot(PalmTlsHandshakeProfiler *p,

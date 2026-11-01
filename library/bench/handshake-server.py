@@ -127,6 +127,7 @@ def serve(args):
         threading.Thread(target=legacy.serve_forever,daemon=True).start()
         metadata.update(port=server.server_address[1],openssl=ssl.OPENSSL_VERSION)
         (directory/'server.json').write_text(json.dumps(metadata,indent=2)+'\n')
+        (directory/'ready').write_text('ready\n')
         print(json.dumps(metadata),flush=True)
         server.serve_forever()
 

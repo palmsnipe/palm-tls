@@ -9,6 +9,7 @@ from pathlib import Path
 
 PHASES=('other','context','trust','keyshare','key_agreement','certificate',
         'signature','kdf','finished','record','network','ticket','idle')
+ECDHE_PHASES=('other','import','validate','multiply','map')
 CASES={f'{cache}_{kind}' for cache in ('nocache','cache')
        for kind in ('full_cold','full_warm','resumed')}
 REGRESSIONS={'owned_exact_trust','hostname_mode_and_bad_ca','purge',
@@ -90,7 +91,28 @@ def load(text):
             raise ValueError('full handshake did not verify a signature')
         if name.endswith('_resumed') and profiles[name,sample,0,'certificate'][1]:
             raise ValueError('resumed handshake processed a certificate')
+    load_ecdhe(text, grouped, profiles)
     return grouped,profiles
+
+
+def load_ecdhe(text, rows, profiles):
+    detailed={}
+    for line in text.splitlines():
+        if not line.startswith('# ecdhe,'): continue
+        _,name,sample,phase,ticks,calls=line.split(',')
+        key=(name,int(sample),phase)
+        if key in detailed or phase not in ECDHE_PHASES or min(int(ticks),int(calls))<0:
+            raise ValueError('invalid/duplicate ECDHE phase')
+        detailed[key]=(int(ticks),int(calls))
+    if not detailed: return detailed  # Historical 240-byte profiles remain readable.
+    expected={(name,sample,phase) for name,sample in rows for phase in ECDHE_PHASES}
+    if set(detailed)!=expected: raise ValueError('incomplete ECDHE phases')
+    for name,sample in rows:
+        if sum(detailed[name,sample,p][0] for p in ECDHE_PHASES)!=profiles[name,sample,0,'key_agreement'][0]:
+            raise ValueError('ECDHE phases do not partition key agreement')
+        if any(not detailed[name,sample,p][1] for p in ECDHE_PHASES):
+            raise ValueError('ECDHE subphase was not exercised')
+    return detailed
 
 
 def main():

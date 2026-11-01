@@ -37,6 +37,8 @@ extern void PalmTlsVerifyProfileEnter(unsigned short phase);
 extern void PalmTlsVerifyProfileLeave(void);
 extern void PalmTlsHandshakeProfileEnter(unsigned short phase);
 extern void PalmTlsHandshakeProfileLeave(void);
+extern void PalmTlsEcdheProfileEnter(unsigned short phase);
+extern void PalmTlsEcdheProfileLeave(void);
 #endif
 #define XMALLOC(size, heap, type) WolfPalmMalloc((unsigned long)(size))
 #define XFREE(pointer, heap, type) WolfPalmFree(pointer)

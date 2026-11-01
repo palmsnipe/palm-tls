@@ -239,6 +239,39 @@ def field_traces(backend):
         machine.ctl_remove_cache(backend.CODE, backend.CODE + 0x10000)
 
 
+def secret_scalar_traces(backend):
+    """Compare complete general-point control/data-address traces for valid keys."""
+    import hashlib
+    import unicorn as uc
+    digest = None
+    events = [0, 0]
+    def block(machine, address, size, context):
+        events[0] += 1
+        digest.update(b'B' + address.to_bytes(4,'little') + size.to_bytes(4,'little'))
+    def memory(machine, access, address, size, value, context):
+        events[1] += 1
+        digest.update(bytes([access,size]) + address.to_bytes(4,'little'))
+    machine=backend.machine
+    hooks=[machine.hook_add(uc.UC_HOOK_BLOCK,block),
+           machine.hook_add(uc.UC_HOOK_MEM_READ | uc.UC_HOOK_MEM_WRITE,memory)]
+    machine.ctl_remove_cache(backend.CODE,backend.CODE+0x10000)
+    try:
+        reference=None
+        for scalar in (1, N-1, int('10'*32,16), N+30):
+            digest=hashlib.sha256();events[:]=[0,0]
+            data=request(1)
+            data[LEFT:LEFT+32]=integer(scalar)
+            data[RIGHT:RIGHT+64]=point(multiply(7,G))
+            assert backend.invoke(data)==SUCCESS
+            assert all(events), 'secret trace hooks did not execute'
+            current=digest.digest()
+            if reference is None: reference=current
+            assert current==reference, 'secret scalar control/address trace varies'
+    finally:
+        for hook in hooks: machine.hook_del(hook)
+        machine.ctl_remove_cache(backend.CODE,backend.CODE+0x10000)
+
+
 def p256(backend, rng):
     # Mapping constructed Montgomery/Jacobian points exercises inversion of
     # arbitrary nonzero z in the *extracted* ARM code, not only host C.
@@ -260,13 +293,23 @@ def p256(backend, rng):
         actual = ctypes.create_string_buffer(32)
         backend.inverse(integer(0), actual)
         assert actual.raw == integer(0), 'zero inverse convention'
-    scalars = [1, 2, 3, N - 1] + [rng.randrange(1, N) for _ in range(12)]
+    # N+30 reaches an equal-point addition in the final radix-16 window.
+    # Sparse/dense digits exercise infinity and zero-window selection.
+    scalars = [1, 2, 3, N - 1, N + 1, N + 30, 2**256 - 1,
+               2**252, int('10' * 32, 16)] + [rng.randrange(1, N) for _ in range(12)]
     q = multiply(7, G)
     for base in (G, q):
         data = request(1)
         data[1] = 1
         data[RIGHT:RIGHT + 64] = point(base)
         assert backend.invoke(data) == ERROR, 'zero scalar must return infinity/error'
+        for mapped in (False, True):
+            data=request(1);data[1]=mapped
+            data[LEFT:LEFT+32]=integer(N)
+            data[RIGHT:RIGHT+64]=point(base)
+            data[OUTPUT:OUTPUT+96]=b'\xa5'*96
+            assert backend.invoke(data)==ERROR, 'order scalar must return infinity/error'
+            assert data[OUTPUT:OUTPUT+96]==b'\xa5'*96, 'infinity modified output'
     for index, scalar in enumerate(scalars):
         for base in (G, q):
             expected = point(multiply(scalar, base))
@@ -384,6 +427,7 @@ def main():
     inverses, multiplies, verifies = p256(backend, rng)
     orders = order_scalars(backend, rng)
     signatures = ecdsa_math(backend, rng)
+    if isinstance(backend, Arm): secret_scalar_traces(backend)
     print(f'Crypto oracles passed ({args.cpu if args.arm_image else "host"}): '
           f'{records} AES-GCM records, {fields} raw-field chains, {inverses} inversions/maps, '
           f'{multiplies} scalar products, {verifies} double-scalar cases, '

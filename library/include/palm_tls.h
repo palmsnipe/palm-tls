@@ -22,6 +22,8 @@
 #define PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE 188
 #define PALM_TLS_HANDSHAKE_PHASE_PROFILE_SIZE 112
 #define PALM_TLS_SESSION_PROFILE_SIZE 240
+#define PALM_TLS_ECDHE_PHASE_PROFILE_SIZE 48
+#define PALM_TLS_SESSION_ECDHE_PROFILE_SIZE 288
 
 #define PALM_TLS_CAP_TLS_1_2 0x00000001UL
 #define PALM_TLS_CAP_EXACT_PEER 0x00000002UL
@@ -41,6 +43,7 @@
 #define PALM_TLS_CAP_VERIFY_PROFILE 0x00008000UL
 #define PALM_TLS_CAP_HANDSHAKE_PROFILE 0x00010000UL
 #define PALM_TLS_CAP_CONTEXT_REUSE 0x00020000UL
+#define PALM_TLS_CAP_ECDHE_PROFILE 0x00040000UL
 #define PALM_TLS_MAX_CONCURRENT_SESSIONS 2
 #define PALM_TLS_SESSION_ALLOW_RESUME 0x00000001UL
 #define PALM_TLS_SESSION_COOPERATIVE 0x00000002UL
@@ -174,6 +177,33 @@ typedef struct PalmTlsSessionProfile {
     PalmTlsHandshakePhaseProfile handshake;
     PalmTlsHandshakePhaseProfile postHandshake;
 } PalmTlsSessionProfile;
+
+/* Exclusive breakdown of TLS 1.3 server key-share processing. Import
+ * excludes nested public-key validation; multiply returns Jacobian coordinates
+ * and map covers the separate affine conversion. */
+typedef enum PalmTlsEcdhePhase {
+    palmTlsEcdheOther = 0,
+    palmTlsEcdheImport,
+    palmTlsEcdheValidate,
+    palmTlsEcdheMultiply,
+    palmTlsEcdheMap,
+    palmTlsEcdhePhaseCount
+} PalmTlsEcdhePhase;
+
+typedef struct PalmTlsEcdhePhaseProfile {
+    unsigned long ticks[palmTlsEcdhePhaseCount];
+    unsigned long calls[palmTlsEcdhePhaseCount];
+    unsigned long elapsedTicks;
+    unsigned short complete;
+    unsigned short reserved;
+} PalmTlsEcdhePhaseProfile;
+
+/* Optional GetSessionProfile extension. Check PALM_TLS_CAP_ECDHE_PROFILE,
+ * set base.structSize to 288, and pass &result.base to the existing trap. */
+typedef struct PalmTlsSessionEcdheProfile {
+    PalmTlsSessionProfile base;
+    PalmTlsEcdhePhaseProfile ecdhe;
+} PalmTlsSessionEcdheProfile;
 
 /* Return zero to accept a chunk. A non-zero result aborts the exchange and is
  * returned in PalmTlsStreamResult.sinkError. The data is valid only for the

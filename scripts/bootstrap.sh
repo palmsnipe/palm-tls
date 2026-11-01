@@ -29,6 +29,7 @@ patches=(
   wolfssl-palm-verify-profile.patch
   wolfssl-palm-16bit-hex.patch
   wolfssl-palm-handshake-profile.patch
+  wolfssl-palm-ecdhe-profile.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
