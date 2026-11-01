@@ -17,6 +17,7 @@ VERIFY_PHASES = ('other', 'signature', 'range', 'curve', 'hex', 'order', 'point'
 PROFILE_CASES = {f'{protocol}_verify_phase_{phase}'
                  for protocol in ('tls12', 'tls13') for phase in VERIFY_PHASES}
 GENERATOR_CASES = {'p256_mul2add_generator', 'p256_mul2add_generator_right'}
+FIELD_CASES = {'p256_field_multiply', 'p256_field_square', 'p256_field_reduce'}
 
 
 def extract(archive):
@@ -71,6 +72,11 @@ def load(text):
     # contain both, so a truncated generator comparison cannot pass as complete.
     if GENERATOR_CASES.intersection(grouped) and not GENERATOR_CASES.issubset(grouped):
         raise ValueError('missing generator benchmark case')
+    if FIELD_CASES.intersection(grouped) and not FIELD_CASES.issubset(grouped):
+        raise ValueError('missing field benchmark case')
+    for name in FIELD_CASES.intersection(grouped):
+        if any(row['iterations'] % 128 or row['bytes_per_op'] != 0 for row in grouped[name]):
+            raise ValueError('field benchmark must count all 128 operations per call')
     for protocol in ('tls12', 'tls13'):
         names = [f'{protocol}_verify_phase_{phase}' for phase in VERIFY_PHASES]
         if any(name in grouped for name in names):

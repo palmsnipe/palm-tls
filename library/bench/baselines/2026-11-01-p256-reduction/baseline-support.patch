@@ -1,0 +1,214 @@
+diff --git a/library/arm/armlet_abi.h b/library/arm/armlet_abi.h
+--- a/library/arm/armlet_abi.h
++++ b/library/arm/armlet_abi.h
+@@ -9,6 +9,17 @@
+ #define PALM_TLS_ARMLET_COMMAND_P256_MUL2ADD 4
+ #define PALM_TLS_ARMLET_COMMAND_P256_MAP 5
+ #define PALM_TLS_ARMLET_COMMAND_P256_ORDER 6
++#define PALM_TLS_ARMLET_COMMAND_P256_FIELD 7
++/* Checked diagnostics: request[1] selects multiply/square/reduce; request[2]
++ * is a public iteration count in [1,255]. Inputs/output are raw big-endian
++ * limbs, without Montgomery conversion. Multiply chains a <- a*b/R mod p;
++ * square chains a <- a*a/R mod p; reduce chains a <- (b*R+a)/R mod p.
++ * Multiply requires a,b<p; square requires a<p and ignores b. Reduction
++ * requires b<p, while its low half a may be any 256-bit value (T<p*R).
++ * No production wolfSSL operation dispatches this diagnostic command. */
++#define PALM_TLS_ARMLET_FIELD_MULTIPLY 0
++#define PALM_TLS_ARMLET_FIELD_SQUARE 1
++#define PALM_TLS_ARMLET_FIELD_REDUCE 2
+ /* ORDER input: left = e || r || s (three unsigned big-endian 32-byte values).
+  * Output = u1 || u2 || s^-1 mod n in the same format. r,s must be in [1,n).
+  * This variable-time command is for public ECDSA verification values only. */
+diff --git a/library/arm/multiply.c b/library/arm/multiply.c
+--- a/library/arm/multiply.c
++++ b/library/arm/multiply.c
+@@ -1462,6 +1462,52 @@
+     return PALM_TLS_ARMLET_SUCCESS;
+ }
+
++static u32 FeIsCanonical(const Fe256 *valueP)
++{
++    u64 borrow = 0;
++    u32 index;
++    for (index = 0; index < 8U; index++) {
++        u64 right = (u64)kP.v[index] + borrow;
++        borrow = (u64)valueP->v[index] < right;
++    }
++    return (u32)borrow;
++}
++
++/* Batched raw-field diagnostics use the production primitives, including
++ * in-place aliases. The public iteration count amortizes PceNativeCall and
++ * byte marshaling; every result feeds the next operation. */
++static u32 P256Field(const volatile u8 *leftP, const volatile u8 *rightP,
++                     volatile u8 *outputP, u32 operation, u32 count)
++{
++    Fe256 a, b;
++    u32 index;
++    if (count == 0U || operation > PALM_TLS_ARMLET_FIELD_REDUCE)
++        return PALM_TLS_ARMLET_ERROR;
++    FeReadRawBigEndian(&a, leftP);
++    FeReadRawBigEndian(&b, rightP);
++    if ((operation != PALM_TLS_ARMLET_FIELD_REDUCE && !FeIsCanonical(&a)) ||
++        (operation != PALM_TLS_ARMLET_FIELD_SQUARE && !FeIsCanonical(&b)))
++        return PALM_TLS_ARMLET_ERROR;
++    for (index = 0; index < count; index++) {
++        if (operation == PALM_TLS_ARMLET_FIELD_MULTIPLY)
++            FeMultiply(&a, &a, &b);
++        else if (operation == PALM_TLS_ARMLET_FIELD_SQUARE)
++            FeSquare(&a, &a);
++        else {
++            u32 wide[17];
++            u32 limb;
++            for (limb = 0; limb < 8U; limb++) {
++                wide[limb] = a.v[limb];
++                wide[limb + 8U] = b.v[limb];
++            }
++            wide[16] = 0;
++            FeReduceWide(&a, wide);
++        }
++    }
++    FeWriteRawBigEndian(outputP, &a);
++    return PALM_TLS_ARMLET_SUCCESS;
++}
++
+ ARMLET_ENTRY_ATTRIBUTES
+ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
+                        void *call68KFuncP)
+@@ -1493,6 +1539,8 @@
+         return P256Map(rightP, outputP);
+     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_ORDER)
+         return P256OrderScalars(leftP, outputP);
++    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_FIELD)
++        return P256Field(leftP, rightP, outputP, requestP[1], requestP[2]);
+     if (requestP[3] != PALM_TLS_ARMLET_COMMAND_MULTIPLY)
+         return PALM_TLS_ARMLET_ERROR;
+     leftUsed = requestP[1];
+diff --git a/library/bench/bench.c b/library/bench/bench.c
+--- a/library/bench/bench.c
++++ b/library/bench/bench.c
+@@ -15,13 +15,16 @@
+ #endif
+ #include "bench_vectors.inc"
+
+-enum { multiply, fixed, general, raw, mapping, verify, sha, encrypt, decrypt };
++enum { multiply, fixed, general, raw, mapping, verify, sha, encrypt, decrypt, field };
+ #ifdef PALMOS
+ __attribute__((section(".text.bench_cases")))
+ #endif
+ const BenchCase BenchCases[] = {
+     {"multiply_256", multiply, 16},
+     {"multiply_2048", multiply, 128},
++    {"p256_field_multiply", field, PALM_TLS_ARMLET_FIELD_MULTIPLY},
++    {"p256_field_square", field, PALM_TLS_ARMLET_FIELD_SQUARE},
++    {"p256_field_reduce", field, PALM_TLS_ARMLET_FIELD_REDUCE},
+     {"p256_fixed_affine", fixed, 0},
+     {"p256_general_affine", general, 0},
+     {"p256_fixed_raw", raw, 0},
+@@ -77,6 +80,14 @@
+     ZERO(r, sizeof(context->request));
+     r[0] = PALM_TLS_ARMLET_VERSION;
+     switch (test->kind) {
++    case field:
++        r[3] = PALM_TLS_ARMLET_COMMAND_P256_FIELD;
++        r[1] = (unsigned char)test->size;
++        r[2] = BENCH_FIELD_ITERATIONS;
++        /* Raw canonical residues; conversion is outside these workloads. */
++        Hex(left, kScalar, 32);
++        Hex(right, "eeabcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567", 32);
++        break;
+     case multiply:
+         r[1] = r[2] = (unsigned char)test->size;
+         r[3] = PALM_TLS_ARMLET_COMMAND_MULTIPLY;
+@@ -162,6 +173,10 @@
+     unsigned char *output = r + PALM_TLS_ARMLET_OUTPUT_OFFSET;
+     unsigned char expected[64];
+     unsigned short i;
++    if (test->kind == field) {
++        Hex(expected, kFieldVectors[test->size], 32);
++        return CMP(output, expected, 32) == 0;
++    }
+     if (test->kind == multiply) {
+         for (i = 0; i < test->size * 2; i++) {
+             unsigned short digit = i == 0 ? 1 : i < test->size ? 0 :
+@@ -246,7 +261,8 @@
+     for (sample = 0; sample < BENCH_SAMPLES; sample++) {
+         if (!Batch(context, test, count, &elapsed) || elapsed == 0) return 0;
+         FORMAT(row, "%s,%lu,%lu,%lu,%lu,%lu\n", test->name,
+-            (unsigned long)sample, (unsigned long)count,
++            (unsigned long)sample, (unsigned long)count *
++                (test->kind == field ? BENCH_FIELD_ITERATIONS : 1),
+             (unsigned long)elapsed, (unsigned long)frequency, (unsigned long)bytes);
+         if (!emit(output, row)) return 0;
+     }
+diff --git a/library/bench/bench.h b/library/bench/bench.h
+--- a/library/bench/bench.h
++++ b/library/bench/bench.h
+@@ -14,6 +14,7 @@
+
+ #define BENCH_SAMPLES 5
+ #define BENCH_VERSION 1
++#define BENCH_FIELD_ITERATIONS 128
+ #define BENCH_CSV_HEADER "case,sample,iterations,elapsed,frequency,bytes_per_op\n"
+
+ typedef struct BenchCase {
+diff --git a/library/bench/generate-vectors.mjs b/library/bench/generate-vectors.mjs
+--- a/library/bench/generate-vectors.mjs
++++ b/library/bench/generate-vectors.mjs
+@@ -22,7 +22,32 @@
+     return `{${checksum(bytes.subarray(-Math.min(size, 512)))}UL,` +
+            `${array(tag)},${array(decryptTag)}}`;
+ });
++// Independent BigInt oracle for the raw Montgomery-residue chains. Keep this
++// count synchronized with BENCH_FIELD_ITERATIONS in bench.h.
++const p = (1n << 256n) - (1n << 224n) + (1n << 192n) + (1n << 96n) - 1n;
++const r = 1n << 256n;
++function power(base, exponent) {
++    let value = 1n;
++    while (exponent) {
++        if (exponent & 1n) value = value * base % p;
++        base = base * base % p;
++        exponent >>= 1n;
++    }
++    return value;
++}
++const inverseR = power(r % p, p - 2n);
++const a = 0xc9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721n;
++const b = 0xeeabcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567n;
++const fieldRows = [0, 1, 2].map(operation => {
++    let value = a;
++    for (let index = 0; index < 128; index++)
++        value = (operation === 0 ? value * b * inverseR :
++                 operation === 1 ? value * value * inverseR :
++                 value * inverseR + b) % p;
++    return `"${value.toString(16).padStart(64, '0')}"`;
++});
+ writeFileSync(process.argv[2],
+     '/* Generated by bench/generate-vectors.mjs; do not edit. */\n' +
+     'static const struct { BenchWord tail; unsigned char encrypt[16], decrypt[16]; }\n' +
+-    `kGcmVectors[] = {${rows.join(',\n')}};\n`);
++    `kGcmVectors[] = {${rows.join(',\n')}};\n` +
++    `static const char kFieldVectors[3][65] = {${fieldRows.join(',\n')}};\n`);
+diff --git a/library/bench/results.py b/library/bench/results.py
+--- a/library/bench/results.py
++++ b/library/bench/results.py
+@@ -17,6 +17,7 @@
+ PROFILE_CASES = {f'{protocol}_verify_phase_{phase}'
+                  for protocol in ('tls12', 'tls13') for phase in VERIFY_PHASES}
+ GENERATOR_CASES = {'p256_mul2add_generator', 'p256_mul2add_generator_right'}
++FIELD_CASES = {'p256_field_multiply', 'p256_field_square', 'p256_field_reduce'}
+
+
+ def extract(archive):
+@@ -71,6 +72,11 @@
+     # contain both, so a truncated generator comparison cannot pass as complete.
+     if GENERATOR_CASES.intersection(grouped) and not GENERATOR_CASES.issubset(grouped):
+         raise ValueError('missing generator benchmark case')
++    if FIELD_CASES.intersection(grouped) and not FIELD_CASES.issubset(grouped):
++        raise ValueError('missing field benchmark case')
++    for name in FIELD_CASES.intersection(grouped):
++        if any(row['iterations'] % 128 or row['bytes_per_op'] != 0 for row in grouped[name]):
++            raise ValueError('field benchmark must count all 128 operations per call')
+     for protocol in ('tls12', 'tls13'):
+         names = [f'{protocol}_verify_phase_{phase}' for phase in VERIFY_PHASES]
+         if any(name in grouped for name in names):

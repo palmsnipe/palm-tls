@@ -112,6 +112,39 @@ final comparison. The order offload is measured through those integrated
 rows rather than an isolated native microbenchmark. Modified-message and
 modified-signature checks run afterward, outside the recorded positive timing.
 
+## Field-arithmetic and reduction comparison
+
+The suite adds `p256_field_multiply`, `p256_field_square` and
+`p256_field_reduce`, bringing the native workload count to 22. Each diagnostic
+native call chains **128 dependent operations** through the real field kernels.
+The CSV `iterations` field counts field operations, including those 128 steps,
+so reported microseconds are per field operation. Native crossings, raw-byte
+marshaling and the small chain loop remain included, amortized over 128 steps.
+All three cases must be present if any is present; older saved suites remain
+readable. The benchmark verifies full final residues with independent Node
+BigInt arithmetic.
+
+Inputs and outputs are raw big-endian residues: no conversion is timed.
+With `R=2^256`, multiply chains `a <- a*b/R mod p`, square chains
+`a <- a*a/R mod p`, and reduction chains `a <- (b*R+a)/R mod p`, where division
+means modular multiplication by `R^-1`. The reduction high half satisfies
+`b<p`, guaranteeing the required `T<p*R` bound. Every result feeds the next
+iteration so redundant calls cannot be removed by the compiler.
+
+The internal `P256_FIELD` command is available in the same native image as the
+library; no separate benchmark-only image or CPU-specific PRC is built. Its
+public operation/count fields are validated, and invalid inputs preserve the
+output. Ordinary wolfSSL operations do not dispatch this diagnostic command.
+
+Measurements are saved under
+[`baselines/2026-11-01-p256-reduction`](baselines/2026-11-01-p256-reduction).
+Both comparison builds include these diagnostics and identical benchmark code.
+Apply the saved `baseline-support.patch` to `3676d42` to reproduce the baseline
+source, then run `make -C library benchmark-palm test`. The baseline retains
+that commit's field arithmetic and selection. The candidate
+specializes both reducers and ensures the selector always reads both operands.
+The same emulator/session/build settings are captured in each manifest.
+
 ## Generator-table comparison
 
 The double-scalar suite includes the original two-general-point
@@ -120,7 +153,8 @@ The double-scalar suite includes the original two-general-point
 scalars, with full affine outputs checked against independent Python arithmetic.
 The generator cases exercise both operand positions and their precomputed
 affine table; the original case checks the general Jacobian path. Historical
-runs have 17 primitive cases, while this suite has 19. Comparisons require the
+runs have 17 primitive cases; that comparison has 19, and the field suite above
+adds three more. Comparisons require the
 same case sets; the CSV validator accepts older runs but requires both new
 generator cases if either is present.
 
@@ -150,6 +184,16 @@ two-generator and two-general-point combinations, equal/opposite points,
 zero scalars, bit-256 carries, infinity/error results, and recovery after an
 intermediate cancellation. These run against both host C and the extracted
 native image, including request addresses with alignment offsets 0–3.
+
+Raw field tests add 1,881 chains against Python integer arithmetic, including
+carry-heavy residues, powers-of-two limb edges, values near `p`, random inputs,
+counts through 255, and reduction inputs up to `p*R-1`. Native trace tests flush
+Unicorn's translated-code cache before adding instrumentation and require
+nonempty instruction and data-address traces. For each operation, 20 different
+valid operand pairs with the same public count must produce identical traces.
+The original selector fails this check; the fixed selector passes on both CPU
+models. These checks do not establish physical multiply timing or formal
+constant-time behavior on every Palm CPU.
 
 Optional instruction emulation runs the same extracted native image on both
 TI925T and PXA270 CPU models. This also checks that an ARMv5 `CLZ` probe traps

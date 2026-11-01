@@ -14,6 +14,7 @@ typedef uint32_t BenchWord;
 
 #define BENCH_SAMPLES 5
 #define BENCH_VERSION 1
+#define BENCH_FIELD_ITERATIONS 128
 #define BENCH_CSV_HEADER "case,sample,iterations,elapsed,frequency,bytes_per_op\n"
 
 typedef struct BenchCase {

@@ -451,9 +451,16 @@ static void FeSelect(Fe256 *resultP, const Fe256 *zeroP,
 {
     u32 mask = 0U - (selectOne & 1U);
     u32 index;
-    for (index = 0; index < 8; index++)
-        resultP->v[index] = (zeroP->v[index] & ~mask) |
-                            (oneP->v[index] & mask);
+    /* Both loads are observable: otherwise Clang can turn the bit mask into
+     * a conditional pointer selection and load only one secret-dependent
+     * address. Preserve the fixed read pattern, including in-place aliases. */
+    const volatile u32 *zeroWordsP = zeroP->v;
+    const volatile u32 *oneWordsP = oneP->v;
+    for (index = 0; index < 8; index++) {
+        u32 zero = zeroWordsP[index];
+        u32 one = oneWordsP[index];
+        resultP->v[index] = (zero & ~mask) | (one & mask);
+    }
 }
 
 static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
@@ -498,6 +505,33 @@ static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
     FeSelect(resultP, &sum, &reduced, (u32)carry | ((u32)borrow ^ 1U));
 }
 
+/* Cancel a low limb using p = (B-1,B-1,B-1,0,0,0,1,B-1), B=2^32.
+ * m=t[0] since -p^-1 mod B=1. m*(B-1)=(m<<32)-m; m*p[0]+m
+ * has low limb zero and carry m. Emit the next seven limbs and return the
+ * final carry. out may equal t (shifted result) or t+1 (in-place wide REDC).
+ * Each sum is <= (B-1)^2 + 2*(B-1) = B^2-1. All steps and addresses are
+ * fixed; no carry-dependent loop or branch is introduced. */
+static __inline__ u32 FeCancelP256Digit(const u32 *t, u32 *out)
+{
+    u32 m = t[0];
+    u64 product = ((u64)m << 32) - m;
+    u64 value = product + t[1] + m;
+    out[0] = (u32)value;
+    value = product + t[2] + (value >> 32);
+    out[1] = (u32)value;
+    value = (u64)t[3] + (value >> 32);
+    out[2] = (u32)value;
+    value = (u64)t[4] + (value >> 32);
+    out[3] = (u32)value;
+    value = (u64)t[5] + (value >> 32);
+    out[4] = (u32)value;
+    value = (u64)m + t[6] + (value >> 32);
+    out[5] = (u32)value;
+    value = product + t[7] + (value >> 32);
+    out[6] = (u32)value;
+    return (u32)(value >> 32);
+}
+
 /* Coarsely integrated operand-scanning Montgomery multiplication. P[0] is
  * 0xffffffff, therefore -P^-1 mod 2^32 is exactly one. */
 static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
@@ -509,7 +543,6 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
         u64 carry = 0;
         u64 top;
         u32 inner;
-        u32 multiplier;
         for (inner = 0; inner < 8; inner++) {
             u64 value = (u64)leftP->v[inner] * rightP->v[outer] +
                         t[inner] + carry;
@@ -518,13 +551,7 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
         }
         top = (u64)t[8] + carry;
         t[8] = (u32)top;
-        multiplier = t[0];
-        carry = 0;
-        for (inner = 0; inner < 8; inner++) {
-            u64 value = (u64)multiplier * kP.v[inner] + t[inner] + carry;
-            if (inner != 0) t[inner - 1] = (u32)value;
-            carry = value >> 32;
-        }
+        carry = FeCancelP256Digit(t, t);
         {
             u64 value = (u64)t[8] + carry;
             t[7] = (u32)value;
@@ -570,16 +597,10 @@ static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
 {
     u32 outer;
     for (outer = 0; outer < 8U; outer++) {
-        u32 multiplier = accumulatorP[outer];
-        u64 carry = 0;
-        u32 inner;
+        /* The canceled low limb is discarded, so no zero store is needed. */
+        u64 carry = FeCancelP256Digit(accumulatorP + outer,
+                                     accumulatorP + outer + 1U);
         u32 index;
-        for (inner = 0; inner < 8U; inner++) {
-            u64 value = (u64)multiplier * kP.v[inner] +
-                        accumulatorP[outer + inner] + carry;
-            accumulatorP[outer + inner] = (u32)value;
-            carry = value >> 32;
-        }
         index = outer + 8U;
         while (index < 17U) {
             u64 value = (u64)accumulatorP[index] + (u32)carry;
@@ -1462,6 +1483,52 @@ static u32 P256OrderScalars(const volatile u8 *inputP, volatile u8 *outputP)
     return PALM_TLS_ARMLET_SUCCESS;
 }
 
+static u32 FeIsCanonical(const Fe256 *valueP)
+{
+    u64 borrow = 0;
+    u32 index;
+    for (index = 0; index < 8U; index++) {
+        u64 right = (u64)kP.v[index] + borrow;
+        borrow = (u64)valueP->v[index] < right;
+    }
+    return (u32)borrow;
+}
+
+/* Batched raw-field diagnostics use the production primitives, including
+ * in-place aliases. The public iteration count amortizes PceNativeCall and
+ * byte marshaling; every result feeds the next operation. */
+static u32 P256Field(const volatile u8 *leftP, const volatile u8 *rightP,
+                     volatile u8 *outputP, u32 operation, u32 count)
+{
+    Fe256 a, b;
+    u32 index;
+    if (count == 0U || operation > PALM_TLS_ARMLET_FIELD_REDUCE)
+        return PALM_TLS_ARMLET_ERROR;
+    FeReadRawBigEndian(&a, leftP);
+    FeReadRawBigEndian(&b, rightP);
+    if ((operation != PALM_TLS_ARMLET_FIELD_REDUCE && !FeIsCanonical(&a)) ||
+        (operation != PALM_TLS_ARMLET_FIELD_SQUARE && !FeIsCanonical(&b)))
+        return PALM_TLS_ARMLET_ERROR;
+    for (index = 0; index < count; index++) {
+        if (operation == PALM_TLS_ARMLET_FIELD_MULTIPLY)
+            FeMultiply(&a, &a, &b);
+        else if (operation == PALM_TLS_ARMLET_FIELD_SQUARE)
+            FeSquare(&a, &a);
+        else {
+            u32 wide[17];
+            u32 limb;
+            for (limb = 0; limb < 8U; limb++) {
+                wide[limb] = a.v[limb];
+                wide[limb + 8U] = b.v[limb];
+            }
+            wide[16] = 0;
+            FeReduceWide(&a, wide);
+        }
+    }
+    FeWriteRawBigEndian(outputP, &a);
+    return PALM_TLS_ARMLET_SUCCESS;
+}
+
 ARMLET_ENTRY_ATTRIBUTES
 u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
                        void *call68KFuncP)
@@ -1493,6 +1560,8 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
         return P256Map(rightP, outputP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_ORDER)
         return P256OrderScalars(leftP, outputP);
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_FIELD)
+        return P256Field(leftP, rightP, outputP, requestP[1], requestP[2]);
     if (requestP[3] != PALM_TLS_ARMLET_COMMAND_MULTIPLY)
         return PALM_TLS_ARMLET_ERROR;
     leftUsed = requestP[1];

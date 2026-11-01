@@ -15,13 +15,16 @@
 #endif
 #include "bench_vectors.inc"
 
-enum { multiply, fixed, general, raw, mapping, verify, sha, encrypt, decrypt };
+enum { multiply, fixed, general, raw, mapping, verify, sha, encrypt, decrypt, field };
 #ifdef PALMOS
 __attribute__((section(".text.bench_cases")))
 #endif
 const BenchCase BenchCases[] = {
     {"multiply_256", multiply, 16},
     {"multiply_2048", multiply, 128},
+    {"p256_field_multiply", field, PALM_TLS_ARMLET_FIELD_MULTIPLY},
+    {"p256_field_square", field, PALM_TLS_ARMLET_FIELD_SQUARE},
+    {"p256_field_reduce", field, PALM_TLS_ARMLET_FIELD_REDUCE},
     {"p256_fixed_affine", fixed, 0},
     {"p256_general_affine", general, 0},
     {"p256_fixed_raw", raw, 0},
@@ -77,6 +80,14 @@ int BenchPrepare(BenchContext *context, const BenchCase *test)
     ZERO(r, sizeof(context->request));
     r[0] = PALM_TLS_ARMLET_VERSION;
     switch (test->kind) {
+    case field:
+        r[3] = PALM_TLS_ARMLET_COMMAND_P256_FIELD;
+        r[1] = (unsigned char)test->size;
+        r[2] = BENCH_FIELD_ITERATIONS;
+        /* Raw canonical residues; conversion is outside these workloads. */
+        Hex(left, kScalar, 32);
+        Hex(right, "eeabcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567", 32);
+        break;
     case multiply:
         r[1] = r[2] = (unsigned char)test->size;
         r[3] = PALM_TLS_ARMLET_COMMAND_MULTIPLY;
@@ -162,6 +173,10 @@ int BenchVerify(BenchContext *context, const BenchCase *test)
     unsigned char *output = r + PALM_TLS_ARMLET_OUTPUT_OFFSET;
     unsigned char expected[64];
     unsigned short i;
+    if (test->kind == field) {
+        Hex(expected, kFieldVectors[test->size], 32);
+        return CMP(output, expected, 32) == 0;
+    }
     if (test->kind == multiply) {
         for (i = 0; i < test->size * 2; i++) {
             unsigned short digit = i == 0 ? 1 : i < test->size ? 0 :
@@ -246,7 +261,8 @@ int BenchRun(BenchContext *context, const BenchCase *test,
     for (sample = 0; sample < BENCH_SAMPLES; sample++) {
         if (!Batch(context, test, count, &elapsed) || elapsed == 0) return 0;
         FORMAT(row, "%s,%lu,%lu,%lu,%lu,%lu\n", test->name,
-            (unsigned long)sample, (unsigned long)count,
+            (unsigned long)sample, (unsigned long)count *
+                (test->kind == field ? BENCH_FIELD_ITERATIONS : 1),
             (unsigned long)elapsed, (unsigned long)frequency, (unsigned long)bytes);
         if (!emit(output, row)) return 0;
     }

@@ -151,6 +151,94 @@ def aes(backend, rng):
     return len(expected) * 2
 
 
+def field_request(operation, a, b, count=1):
+    data = request(7)
+    data[1], data[2] = operation, count
+    data[LEFT:LEFT + 32], data[RIGHT:RIGHT + 32] = integer(a), integer(b)
+    data[OUTPUT:OUTPUT + 32] = b'\xa5' * 32
+    return data
+
+
+def field_arithmetic(backend):
+    r = 1 << 256
+    inverse_r = pow(r, -1, P)
+    edges = [0, 1, 2, P - 1, P - 2, P - 3,
+             int('aaaaaaaa' * 8, 16), int('55555555' * 8, 16)]
+    for bit in (31, 32, 63, 64, 95, 96, 127, 128, 191, 192, 223, 224, 255):
+        edges += [(1 << bit) - 1, 1 << bit, (1 << bit) + 1]
+    rng = random.Random(0x524544554345)
+    pairs = [(a, b) for a in edges[:8] for b in edges[:8]]
+    pairs += [(a, edges[(index * 7 + 3) % len(edges)]) for index, a in enumerate(edges)]
+    pairs += [(rng.randrange(P), rng.randrange(P)) for _ in range(512)]
+    cases = 0
+    for operation in range(3):
+        vectors = [(a, b, 1) for a, b in pairs]
+        vectors += [(P - 1, P - 2, count) for count in (2, 128, 255)]
+        if operation == 2:
+            # T < p*R is the Montgomery reducer's domain; its low half need
+            # not be canonical. Include T=p*R-1 and the 256-bit carry edges.
+            vectors += [(r - 1, b, 1) for b in (0, 1, P - 1)]
+        for index, (a, b, count) in enumerate(vectors):
+            expected = a
+            for _ in range(count):
+                expected = ((expected * b * inverse_r) if operation == 0 else
+                            (expected * expected * inverse_r) if operation == 1 else
+                            (expected * inverse_r + b)) % P
+            data = field_request(operation, a, b, count)
+            assert backend.invoke(data, index % 4) == SUCCESS, ('field status', operation, index)
+            assert data[OUTPUT:OUTPUT + 32] == integer(expected), ('field oracle', operation, index)
+            cases += 1
+    for operation, a, b, count in ((3, 0, 0, 1), (0, 0, 0, 0),
+            (0, P, 1, 1), (0, 1, P, 1), (1, P, 0, 1), (2, 0, P, 1)):
+        data = field_request(operation, a, b, count)
+        assert backend.invoke(data) == ERROR, 'invalid raw-field request accepted'
+        assert data[OUTPUT:OUTPUT + 32] == b'\xa5' * 32, 'field error modified output'
+    if isinstance(backend, Arm):
+        field_traces(backend)
+    return cases
+
+
+def field_traces(backend):
+    # Instruction and data-address traces must be independent of valid field
+    # values for a fixed public operation/count. This is not a proof about
+    # operand-dependent timing on physical ARM processors.
+    import hashlib
+    import unicorn as uc
+    trace = None
+    events = [0, 0]
+    def instruction(machine, address, size, context):
+        events[0] += 1
+        trace.update(b'I' + address.to_bytes(4, 'little'))
+    def memory(machine, access, address, size, value, context):
+        events[1] += 1
+        trace.update(bytes([access, size]) + address.to_bytes(4, 'little'))
+    machine = backend.machine
+    hooks = [machine.hook_add(uc.UC_HOOK_CODE, instruction),
+             machine.hook_add(uc.UC_HOOK_MEM_READ | uc.UC_HOOK_MEM_WRITE, memory)]
+    machine.ctl_remove_cache(backend.CODE, backend.CODE + 0x10000)
+    try:
+        for operation in range(3):
+            reference = None
+            trace_rng = random.Random(0x53454c454354)
+            vectors = [(0, 0), (1, 1), (P - 1, P - 2),
+                       (int('aaaaaaaa' * 8, 16), int('55555555' * 8, 16))]
+            vectors += [(trace_rng.randrange(P), trace_rng.randrange(P)) for _ in range(16)]
+            for a, b in vectors:
+                trace = hashlib.sha256()
+                events[:] = [0, 0]
+                data = field_request(operation, a, b, 2)
+                assert backend.invoke(data) == SUCCESS
+                assert all(events), 'trace hooks did not record execution'
+                digest = trace.digest()
+                if reference is None:
+                    reference = digest
+                assert digest == reference, ('field control/address trace varies', operation)
+    finally:
+        for hook in hooks:
+            machine.hook_del(hook)
+        machine.ctl_remove_cache(backend.CODE, backend.CODE + 0x10000)
+
+
 def p256(backend, rng):
     # Mapping constructed Montgomery/Jacobian points exercises inversion of
     # arbitrary nonzero z in the *extracted* ARM code, not only host C.
@@ -292,11 +380,12 @@ def main():
     backend = Host(args.host_library) if args.host_library else Arm(args.arm_image, args.cpu)
     rng = random.Random(0x50414c4d)
     records = aes(backend, rng)
+    fields = field_arithmetic(backend)
     inverses, multiplies, verifies = p256(backend, rng)
     orders = order_scalars(backend, rng)
     signatures = ecdsa_math(backend, rng)
     print(f'Crypto oracles passed ({args.cpu if args.arm_image else "host"}): '
-          f'{records} AES-GCM records, {inverses} inversions/maps, '
+          f'{records} AES-GCM records, {fields} raw-field chains, {inverses} inversions/maps, '
           f'{multiplies} scalar products, {verifies} double-scalar cases, '
           f'{orders} order preparations, {signatures} ECDSA valid/tampered cases; alignment offsets 0..3')
 

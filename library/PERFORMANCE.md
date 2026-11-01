@@ -1,5 +1,90 @@
 # ARM performance review — November 1, 2026
 
+## P-256 fixed-prime Montgomery reduction and field benchmarks
+
+Both the integrated field multiply and the wide reducer used by squaring now
+share `FeCancelP256Digit`. In radix `B=2^32`, the P-256 prime has limbs
+`(B-1,B-1,B-1,0,0,0,1,B-1)`. The cancellation multiplier is the low limb
+itself. Its first product cancels exactly; the remaining steps use the fixed
+zero/unit limbs and `(m<<32)-m` for `m*(B-1)`. This removes the generic
+prime-limb scan while preserving the existing Montgomery domain and final
+conditional subtraction. Each accumulation fits an unsigned 64-bit word; loop
+bounds and addresses do not depend on carries. Apple Clang still chooses
+`UMLAL` for some all-ones products; this is portable C, not a new ISA backend.
+
+The audit also caught an existing compiler transformation in `FeSelect`:
+Clang replaced mask selection with a conditional pointer and loaded only one
+operand. The selector now explicitly reads both operands through volatile
+pointers before selecting their values. The final ARM assembly has two fixed
+loads and a register selection. An instrumented negative check detects the
+original address variation; the final build passes. This fix also preserves
+both reads in the private point-table selector. The results below include its
+cost, rather than reporting the reduction-only experiment as the final build.
+
+Three new internal diagnostic operations exercise the actual shipped kernels.
+Each call chains 128 dependent raw-residue multiplies, squares, or reductions.
+The CSV counts all 128 operations, amortizing the native crossing and byte
+marshaling. Final residues are checked against independent Node BigInt
+arithmetic. These timings include the diagnostic loop and its overhead; they
+are not bare instruction-cycle counts. Ordinary wolfSSL calls do not dispatch
+these diagnostics, and the public Palm library trap ABI remains unchanged.
+
+The baseline retains `3676d42` arithmetic/selection and adds the same diagnostic
+command and workloads as the candidate. The saved `baseline-support.patch`
+applies to that commit to reproduce the baseline source. Both builds use
+wolfSSL 5.9.4 with the fast hex parser, Apple Clang's shared ARMv4T `-Os` target,
+the same emulator binary/session, and **100 MIPS**. The benchmark PRCs differ
+only in `armc:1`, so their measurement code is identical.
+
+Five-sample medians from the supplied Frankenpilot / Tungsten E3 session:
+
+| Operation | Baseline | Final | Repeat | Less elapsed time |
+| --- | ---: | ---: | ---: | ---: |
+| Raw Montgomery multiply | 17.70 us | 12.82 us | 12.82 us | 27.6% |
+| Raw Montgomery square | 23.80 us | 18.92 us | 18.92 us | 20.5% |
+| Raw wide reduction | 14.04 us | 9.16 us | 9.16 us | 34.8% |
+| Native fixed-base affine multiply | 33.75 ms | 28.75 ms | 30 ms | 11.1–14.8% |
+| Native general-point affine multiply | 105 ms | 87.5 ms | 87.5 ms | 16.7% |
+| Native affine map | 6.25 ms | 5 ms | 5 ms | 20.0% |
+| Native generator double-scalar operation | 90 ms | 72.5 ms | 72.5 ms | 19.4% |
+| TLS 1.2/1.3 shared-secret calculation | 120 ms | 100 ms | 100 ms | 16.7% |
+| TLS 1.2 complete ECDSA verification | 110 ms | 100 ms | 100 ms | 9.1% |
+| TLS 1.3 complete ECDSA verification | 110 ms | 100 ms | 90 ms | 9.1–18.2% |
+
+Integrated operation timings have 10 ms resolution: final verification
+samples span 90–100 ms. The exclusive point phase moves from a 100 ms median
+in this fresh baseline to 80 ms (70–80 ms in the repeat). Phase boundaries
+and native batch sizes can shift results by one tick; use the raw samples
+rather than interpreting sub-tick differences as physical speedups. Other
+native algorithms remain within timer quantization. No physical-device or
+network-handshake performance is established by these measurements.
+
+The image grows from **33,848 to 33,976 bytes** (+128) for the reduction and
+selector changes. Relative to `3676d42`'s 33,340 bytes, the total increase is
+636 bytes, including the shared diagnostics. All existing ARM PRC profiles
+and the benchmark carry the same single ARMv4T image, SHA-256
+`237fa0f6a18472769e586debb5397e363da48bba3754124574281883dea42bc4`.
+The CPU allowlist and 68K fallback are preserved; no CPU-specific PRC is added.
+
+Project/profile/package checks pass. Python integer oracles check **1,881 raw
+field chains**: zero, limb carry boundaries, values near `p`, random residues,
+counts through 255, and wide inputs through `p*R-1`, with request alignment
+0–3. Existing 85 double-scalar, 64 scalar-product, 69 inverse/map, 432 order
+preparation, 24 valid/tampered ECDSA and 168 AES-GCM cases also pass on host C
+and the extracted image on **TI925T and PXA270** CPU emulation. Native trace
+checks compare both instruction and data-address sequences across 20 operand
+pairs per operation with a fixed public count. Instrumentation flushes cached
+translations and requires nonempty traces. These are execution/address checks,
+not a proof of physical constant-time multiplication on every processor.
+Cloudpilot separately exercises real Palm OS native calls, the original and
+extended self-test ABI, ECDSA rejection vectors and wolfSSL AES-GCM checks.
+
+Raw samples, build manifests, the baseline support patch and both comparisons
+are in [bench/baselines/2026-11-01-p256-reduction](bench/baselines/2026-11-01-p256-reduction).
+The suite now includes **22 native cases and 24 integrated engine/phase rows**;
+[bench/README.md](bench/README.md#field-arithmetic-and-reduction-comparison)
+defines the raw-field workloads and units.
+
 ## Public P-256 double-scalar generator table and mixed additions
 
 The native verification operation `u1*G + u2*Q` now recognizes a generator

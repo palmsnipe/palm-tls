@@ -22,6 +22,18 @@ def csv_text():
 
 
 class ResultsTests(unittest.TestCase):
+    def test_field_workloads(self):
+        text = csv_text()
+        for name in ('p256_field_multiply', 'p256_field_square', 'p256_field_reduce'):
+            for sample in range(5):
+                text += f'{name},{sample},128,20,100,0\n'
+        load(text)
+        with self.assertRaises(ValueError):
+            load(text.replace('p256_field_square,0,128', 'p256_field_square,0,1'))
+        with self.assertRaises(ValueError):
+            load('\n'.join(line for line in text.splitlines()
+                           if 'p256_field_reduce,' not in line))
+
     def test_generator_workloads(self):
         text = csv_text()
         for name in ('p256_mul2add_generator', 'p256_mul2add_generator_right'):
