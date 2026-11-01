@@ -31,6 +31,10 @@ typedef char PalmTlsAssertSessionIoResult[
         ? 1 : -1];
 typedef char PalmTlsAssertSelfTestResult[
     sizeof(PalmTlsSelfTestResult) == PALM_TLS_SELF_TEST_RESULT_SIZE ? 1 : -1];
+typedef char PalmTlsAssertVerifyProfile[
+    sizeof(PalmTlsVerifyProfile) == PALM_TLS_VERIFY_PROFILE_SIZE ? 1 : -1];
+typedef char PalmTlsAssertSelfTestProfileResult[
+    sizeof(PalmTlsSelfTestProfileResult) == PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE ? 1 : -1];
 
 static PalmTlsLibraryState *LibraryState(UInt16 refNum)
 {
@@ -172,7 +176,7 @@ Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
         PALM_TLS_CAP_CA_STORE | PALM_TLS_CAP_STREAMING |
         PALM_TLS_CAP_TIMINGS | PALM_TLS_CAP_SESSIONS |
         PALM_TLS_CAP_ENGINE_CACHE | PALM_TLS_CAP_RESUMPTION |
-        PALM_TLS_CAP_COOPERATIVE_IO;
+        PALM_TLS_CAP_COOPERATIVE_IO | PALM_TLS_CAP_VERIFY_PROFILE;
     if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) == errNone &&
         sysFtrNumProcessorIsARM(processor)) {
         UInt16 index;
@@ -207,12 +211,16 @@ Err PalmTlsLibRunSelfTest(UInt16 refNum, PalmTlsSelfTestResult *resultP)
     UInt32 totalTestTicks = 0;
     UInt32 capabilities = InstalledProtocolCapabilities();
     Boolean ranTest = false;
+    UInt16 resultSize;
     PalmTlsLibraryState *stateP = LibraryState(refNum);
-    if (resultP == 0 ||
-        resultP->structSize != PALM_TLS_SELF_TEST_RESULT_SIZE)
+    if (resultP == 0)
         return sysErrParamErr;
-    MemSet(resultP, sizeof(*resultP), 0);
-    resultP->structSize = sizeof(*resultP);
+    resultSize = resultP->structSize;
+    if (resultSize != PALM_TLS_SELF_TEST_RESULT_SIZE &&
+        resultSize != PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE)
+        return sysErrParamErr;
+    MemSet(resultP, resultSize, 0);
+    resultP->structSize = resultSize;
     resultP->status = palmTlsStatusBadParameter;
     if (stateP == 0) return sysErrParamErr;
     MemSet(&params, sizeof(params), 0);
@@ -229,6 +237,9 @@ Err PalmTlsLibRunSelfTest(UInt16 refNum, PalmTlsSelfTestResult *resultP)
         resultP->tls12KeygenTicks = result.keygenTicks;
         resultP->tls12SharedTicks = result.sharedTicks;
         resultP->tls12VerifyTicks = result.verifyTicks;
+        if (resultSize == PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE)
+            MemMove(&((PalmTlsSelfTestProfileResult *)resultP)->tls12Verify,
+                &result.verifyProfile, sizeof(result.verifyProfile));
         stateP->armStatus = result.armStatus;
     }
     if ((capabilities & PALM_TLS_CAP_TLS_1_3) != 0 &&
@@ -245,6 +256,9 @@ Err PalmTlsLibRunSelfTest(UInt16 refNum, PalmTlsSelfTestResult *resultP)
         resultP->tls13KeygenTicks = result.keygenTicks;
         resultP->tls13SharedTicks = result.sharedTicks;
         resultP->tls13VerifyTicks = result.verifyTicks;
+        if (resultSize == PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE)
+            MemMove(&((PalmTlsSelfTestProfileResult *)resultP)->tls13Verify,
+                &result.verifyProfile, sizeof(result.verifyProfile));
     }
     if (!ranTest) return sysErrParamErr;
     stateP->armStatus = result.armStatus;

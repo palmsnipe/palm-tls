@@ -1,7 +1,7 @@
 diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
 --- a/wolfcrypt/src/ecc.c
 +++ b/wolfcrypt/src/ecc.c
-@@ -226,6 +226,14 @@
+@@ -238,6 +238,14 @@
  extern int PalmTlsArmletP256Multiply2Add(const ecc_point* leftPointP,
      const mp_int* leftScalarP, const ecc_point* rightPointP,
      const mp_int* rightScalarP, ecc_point* resultP, mp_int* modulusP);
@@ -16,7 +16,7 @@ diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
  #endif
 
  #ifdef WOLFSSL_HAVE_SP_ECC
-@@ -9092,6 +9100,9 @@
+@@ -9694,6 +9702,9 @@
  #endif
     mp_int*    u1 = NULL;     /* Will be e. */
     mp_int*    u2 = NULL;     /* Will be w. */
@@ -26,9 +26,9 @@ diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
 
     if (MP_BITS_OVER_MAX(ECC_KEY_MAX_BITS_NONULLCHECK(key), MAX_ECC_BITS_USE)) {
         return WC_KEY_SIZE_E;
-@@ -9226,12 +9237,34 @@
-        err = wc_ecc_new_point_ex(&mQ, key->heap);
+@@ -9848,12 +9859,34 @@
     }
+ #endif
 
 +   /* Compute the public verification scalars together on supported Palm ARM
 +    * devices. MP_VAL means unsupported and leaves the generic path intact.
@@ -63,7 +63,7 @@ diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
         err = mp_mulmod(e, w, curve->order, u1);
 
  #ifdef WOLFSSL_CHECK_VER_FAULTS
-@@ -9241,7 +9274,11 @@
+@@ -9863,7 +9896,11 @@
  #endif
 
     /* u2 = rw */
@@ -76,7 +76,7 @@ diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
         err = mp_mulmod(r, w, curve->order, u2);
 
  #ifdef WOLFSSL_CHECK_VER_FAULTS
-@@ -9354,8 +9391,13 @@
+@@ -9985,8 +10022,13 @@
  #endif /* FREESCALE_LTC_ECC */
 
     /* v = X_x1 mod n */

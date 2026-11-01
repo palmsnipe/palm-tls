@@ -1,11 +1,11 @@
 diff --git a/wolfcrypt/src/aes.c b/wolfcrypt/src/aes.c
-index 41b01031c..fe1f7d149 100644
 --- a/wolfcrypt/src/aes.c
 +++ b/wolfcrypt/src/aes.c
-@@ -128,6 +128,15 @@ block cipher mechanism that uses n-bit binary string parameter key with 128-bits
+@@ -139,6 +139,16 @@
+ #endif
 
  #include <wolfssl/wolfcrypt/aes.h>
-
++
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +extern void PalmTlsArmletAesGcmSetKey(Aes* aesP, const byte* keyP,
 +    word32 length);
@@ -15,23 +15,22 @@ index 41b01031c..fe1f7d149 100644
 +    byte* tagP, word32 tagLength, const byte* aadP, word32 aadLength,
 +    int decrypt, int* resultP);
 +#endif
-+
+
  #ifdef WOLFSSL_AESNI
  #include <wmmintrin.h>
- #include <emmintrin.h>
-@@ -7786,6 +7795,10 @@ int wc_AesGcmSetKey(Aes* aes, const byte* key, word32 len)
-
- #ifdef WOLFSSL_IMX6_CAAM_BLOB
-     ForceZero(local, sizeof(local));
-+#endif
+@@ -8930,6 +8940,10 @@
+     wc_MemZero_Check(local, sizeof(local));
+ #endif
+ #endif
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +    if (ret == 0)
 +        PalmTlsArmletAesGcmSetKey(aes, key, len);
- #endif
++#endif
      return ret;
  }
-@@ -10058,6 +10071,12 @@ int wc_AesGcmEncrypt(Aes* aes, byte* out, const byte* in, word32 sz,
-         return BAD_FUNC_ARG;
+
+@@ -11503,6 +11517,12 @@
+         return MISSING_KEY;
      }
 
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
@@ -40,51 +39,54 @@ index 41b01031c..fe1f7d149 100644
 +        return ret;
 +#endif
 +
- #ifdef WOLF_CRYPTO_CB
-     #ifndef WOLF_CRYPTO_CB_FIND
-     if (aes->devId != INVALID_DEVID)
-@@ -10788,6 +10807,12 @@ int wc_AesGcmDecrypt(Aes* aes, byte* out, const byte* in, word32 sz,
-         return BAD_FUNC_ARG;
+ #if defined(WOLFSSL_ASYNC_CRYPT) && defined(WC_ASYNC_ENABLE_AES)
+     /* if async and byte count above threshold */
+     /* only 12-byte IV is supported in HW */
+@@ -12363,6 +12383,12 @@
+         WOLFSSL_MSG("AES key not set");
+         return MISSING_KEY;
      }
-
++
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +    if (PalmTlsArmletAesGcmCrypt(aes, out, in, sz, iv, ivSz, (byte*)authTag,
 +            authTagSz, authIn, authInSz, 1, &ret))
 +        return ret;
 +#endif
+
+ #if defined(WOLFSSL_ASYNC_CRYPT) && defined(WC_ASYNC_ENABLE_AES)
+     /* if async and byte count above threshold */
+@@ -16256,6 +16282,10 @@
+     if (aes == NULL) {
+         return;
+     }
 +
- #ifdef WOLF_CRYPTO_CB
-     #ifndef WOLF_CRYPTO_CB_FIND
-     if (aes->devId != INVALID_DEVID)
-@@ -14220,3 +14233,7 @@ void wc_AesFree(Aes* aes)
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +    PalmTlsArmletAesGcmFree(aes);
 +#endif
-+
+
  #if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_FREE)
      #ifndef WOLF_CRYPTO_CB_FIND
-     if (aes->devId != INVALID_DEVID)
 diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
-index 2b104f389..f069ecca7 100644
 --- a/wolfcrypt/src/ecc.c
 +++ b/wolfcrypt/src/ecc.c
-@@ -19,6 +19,12 @@
-  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
-  */
+@@ -21,6 +21,12 @@
 
+ #define WC_FIPS_LL_CRYPTO
+ #define _WC_BUILDING_ECC_C
++
 +#if defined(__m68k__) && defined(__GNUC__)
 +#pragma GCC optimize ("O1")
 +#pragma GCC target ("long-jump")
 +#endif
 +
-+
+
  #include <wolfssl/wolfcrypt/libwolfssl_sources.h>
 
- #ifdef WOLFSSL_ECC_NO_SMALL_STACK
-@@ -213,6 +219,15 @@ ECC Curve Sizes:
+@@ -224,6 +230,15 @@
+ #include <wolfssl/wolfcrypt/ecc.h>
  #include <wolfssl/wolfcrypt/asn.h>
  #include <wolfssl/wolfcrypt/hash.h>
-
++
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +extern int PalmTlsArmletP256Multiply(const mp_int* scalarP,
 +    const ecc_point* pointP, ecc_point* resultP, mp_int* modulusP, int map);
@@ -93,11 +95,10 @@ index 2b104f389..f069ecca7 100644
 +    const mp_int* leftScalarP, const ecc_point* rightPointP,
 +    const mp_int* rightScalarP, ecc_point* resultP, mp_int* modulusP);
 +#endif
-+
+
  #ifdef WOLFSSL_HAVE_SP_ECC
  #include <wolfssl/wolfcrypt/sp.h>
- #endif
-@@ -2745,6 +2760,12 @@ int ecc_map_ex(ecc_point* P, mp_int* modulus, mp_digit mp, int ct)
+@@ -2819,6 +2834,12 @@
      if (P == NULL || modulus == NULL){
          return ECC_BAD_ARG_E;
      }
@@ -110,7 +111,7 @@ index 2b104f389..f069ecca7 100644
      {
          #if !defined(WOLFSSL_SP_MATH)
          DECL_MP_INT_SIZE_DYN(t1, mp_bitsused(modulus), MAX_ECC_BITS_USE);
-@@ -3743,6 +3764,11 @@ int wc_ecc_mulmod_ex(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
+@@ -3827,6 +3848,11 @@
         goto exit;
     }
 
@@ -122,19 +123,19 @@ index 2b104f389..f069ecca7 100644
     /* k can't have more bits than modulus count plus 1 */
     if (mp_count_bits(k) > mp_count_bits(modulus) + 1) {
         err = ECC_OUT_OF_RANGE_E;
-@@ -3949,6 +3975,11 @@ int wc_ecc_mulmod_ex2(const mp_int* k, ecc_point* G, ecc_point* R, mp_int* a,
+@@ -4037,6 +4063,11 @@
+    if (k == NULL || G == NULL || R == NULL || modulus == NULL) {
        return ECC_BAD_ARG_E;
     }
-
++
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +   if (PalmTlsArmletP256Multiply(k, G, R, modulus, map) == MP_OKAY)
 +       return MP_OKAY;
 +#endif
-+
+
  #ifdef HAVE_ECC_CDH
     if (mp_count_bits(modulus) > mp_count_bits(order)) {
-       if (mp_count_bits(k) > mp_count_bits(modulus)) {
-@@ -9116,6 +9147,13 @@ static int ecc_verify_hash(mp_int *r, mp_int *s, const byte* hash,
+@@ -9866,6 +9897,13 @@
         err = wc_ecc_point_add(mG, mQ, mG, curve->prime);
  #else
  #ifndef ECC_SHAMIR
@@ -147,8 +148,8 @@ index 2b104f389..f069ecca7 100644
 +#endif
      if (err == MP_OKAY)
      {
-      #ifdef WOLFSSL_CHECK_VER_FAULTS
-@@ -13450,6 +13488,11 @@ int wc_ecc_mulmod_ex(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
+         mp_digit mp = 0;
+@@ -14740,6 +14778,11 @@
         return ECC_BAD_ARG_E;
     }
 
@@ -160,35 +161,34 @@ index 2b104f389..f069ecca7 100644
     /* k can't have more bits than modulus count plus 1 */
     if (mp_count_bits(k) > mp_count_bits(modulus) + 1) {
        return ECC_OUT_OF_RANGE_E;
-@@ -13621,6 +13664,11 @@ int wc_ecc_mulmod_ex2(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
+@@ -14899,6 +14942,11 @@
+                                                                 order == NULL) {
         return ECC_BAD_ARG_E;
     }
-
++
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +   if (PalmTlsArmletP256Multiply(k, G, R, modulus, map) == MP_OKAY)
 +       return MP_OKAY;
 +#endif
-+
+
     /* k can't have more bits than order */
     if (mp_count_bits(k) > mp_count_bits(order)) {
-       return ECC_OUT_OF_RANGE_E;
 diff --git a/wolfcrypt/src/sha256.c b/wolfcrypt/src/sha256.c
-index 9e44c5997..456bef703 100644
 --- a/wolfcrypt/src/sha256.c
 +++ b/wolfcrypt/src/sha256.c
-@@ -40,6 +40,11 @@ on the specific device platform.
+@@ -42,6 +42,11 @@
+ #define _WC_BUILDING_SHA256_C
 
  #include <wolfssl/wolfcrypt/libwolfssl_sources.h>
-
++
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +extern int PalmTlsArmletSha256Transform(word32* digestP, const byte* blockP,
 +    word32 blockCount);
 +#endif
-+
+
  /*
   * SHA256 Build Options:
-  * USE_SLOW_SHA256:            Reduces code size by not partially unrolling
-@@ -1248,6 +1253,11 @@ static WC_INLINE int Transform_Sha256_Len(wc_Sha256* sha256, const byte* data,
+@@ -1747,6 +1752,11 @@
          word32 S[8], t0, t1;
          int i;
 
@@ -200,7 +200,7 @@ index 9e44c5997..456bef703 100644
      #if defined(WOLFSSL_SMALL_STACK_CACHE) && !defined(WOLFSSL_NO_MALLOC)
          word32* W = sha256->W;
          if (W == NULL)
-@@ -1325,6 +1335,11 @@ static WC_INLINE int Transform_Sha256_Len(wc_Sha256* sha256, const byte* data,
+@@ -1829,6 +1839,11 @@
      {
          word32 S[8], t0, t1;
          int i;
@@ -212,7 +212,7 @@ index 9e44c5997..456bef703 100644
      #ifdef USE_SLOW_SHA256
          int j;
      #endif
-@@ -1377,6 +1392,34 @@ static WC_INLINE int Transform_Sha256_Len(wc_Sha256* sha256, const byte* data,
+@@ -1881,6 +1896,34 @@
          return 0;
      }
  #endif /* SHA256_MANY_REGISTERS */
@@ -248,21 +248,20 @@ index 9e44c5997..456bef703 100644
  /* End wc_ software implementation */
 
 diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
-index e521200ce..b3659552b 100644
 --- a/wolfcrypt/src/tfm.c
 +++ b/wolfcrypt/src/tfm.c
-@@ -46,6 +46,10 @@
+@@ -45,6 +45,10 @@
+ #include <wolfcrypt/src/asm.c>  /* will define asm MACROS or C ones */
  #include <wolfssl/wolfcrypt/wolfmath.h> /* common functions */
  #include <wolfssl/wolfcrypt/logging.h>
-
++
 +#ifdef PALM_WOLFSSL_ARMLET_MATH
 +extern int PalmTlsArmletMultiply(fp_int* left, fp_int* right, fp_int* output);
 +#endif
-+
+
  #ifdef WOLFSSL_ESPIDF
      #include <esp_log.h>
-     #include <wolfssl/wolfcrypt/port/Espressif/esp32-crypt.h>
-@@ -303,6 +307,11 @@ int fp_mul(fp_int *A, fp_int *B, fp_int *C)
+@@ -303,6 +307,11 @@
         goto clean;
      }
 
@@ -274,7 +273,7 @@ index e521200ce..b3659552b 100644
  #if defined(WOLFSSL_ESP32_CRYPT_RSA_PRI_MP_MUL)
      if (esp_hw_validation_active()) {
          ESP_LOGV(TAG, "Skipping call to esp_mp_mul "
-@@ -3172,6 +3181,13 @@ int fp_sqr(fp_int *A, fp_int *B)
+@@ -3227,6 +3236,13 @@
         goto clean;
      }
 

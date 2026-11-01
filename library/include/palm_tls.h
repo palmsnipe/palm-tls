@@ -18,6 +18,8 @@
 #define PALM_TLS_SESSION_IO_PARAMS_SIZE 22
 #define PALM_TLS_SESSION_IO_RESULT_SIZE 14
 #define PALM_TLS_SELF_TEST_RESULT_SIZE 52
+#define PALM_TLS_VERIFY_PROFILE_SIZE 68
+#define PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE 188
 
 #define PALM_TLS_CAP_TLS_1_2 0x00000001UL
 #define PALM_TLS_CAP_EXACT_PEER 0x00000002UL
@@ -34,6 +36,7 @@
 #define PALM_TLS_CAP_NATIVE_ARM 0x00001000UL
 #define PALM_TLS_CAP_ARM_SELF_TESTED 0x00002000UL
 #define PALM_TLS_CAP_ARM_SELF_TEST_FAILED 0x00004000UL
+#define PALM_TLS_CAP_VERIFY_PROFILE 0x00008000UL
 #define PALM_TLS_MAX_CONCURRENT_SESSIONS 2
 #define PALM_TLS_SESSION_ALLOW_RESUME 0x00000001UL
 #define PALM_TLS_SESSION_COOPERATIVE 0x00000002UL
@@ -94,6 +97,36 @@ typedef struct PalmTlsSelfTestResult {
     unsigned long tls13SharedTicks;
     unsigned long tls13VerifyTicks;
 } PalmTlsSelfTestResult;
+
+/* Exclusive phase times: nested hex conversion is excluded from curve time,
+ * and nested curve/hex time is excluded from signature range-check time. */
+typedef enum PalmTlsVerifyPhase {
+    palmTlsProfileOther = 0,
+    palmTlsProfileSignature,
+    palmTlsProfileRange,
+    palmTlsProfileCurve,
+    palmTlsProfileHex,
+    palmTlsProfileOrder,
+    palmTlsProfilePoint,
+    palmTlsProfileFinal,
+    palmTlsProfilePhaseCount
+} PalmTlsVerifyPhase;
+
+typedef struct PalmTlsVerifyProfile {
+    unsigned long ticks[palmTlsProfilePhaseCount];
+    unsigned long calls[palmTlsProfilePhaseCount];
+    unsigned short complete;
+    unsigned short reserved;
+} PalmTlsVerifyProfile;
+
+/* Optional extension of RunSelfTest's existing 52-byte result. Check
+ * PALM_TLS_CAP_VERIFY_PROFILE before passing sizeof(this structure) in
+ * base.structSize and &result.base to PalmTlsLibRunSelfTest. */
+typedef struct PalmTlsSelfTestProfileResult {
+    PalmTlsSelfTestResult base;
+    PalmTlsVerifyProfile tls12Verify;
+    PalmTlsVerifyProfile tls13Verify;
+} PalmTlsSelfTestProfileResult;
 
 /* Return zero to accept a chunk. A non-zero result aborts the exchange and is
  * returned in PalmTlsStreamResult.sinkError. The data is valid only for the

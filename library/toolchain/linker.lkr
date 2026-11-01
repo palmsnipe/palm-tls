@@ -29,6 +29,7 @@ SECTIONS
         *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text.wc_ecc_is_point*)
         *tls_engine_*.o(.text .text.* .rodata .rodata.*)
         *tls_armlet*.o(.text .text.* .rodata .rodata.*)
+        *tls_verify_profile.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-hash.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-random.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-aes.o(.text .text.* .rodata .rodata.*)

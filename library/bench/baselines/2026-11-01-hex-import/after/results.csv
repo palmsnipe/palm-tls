@@ -1,0 +1,287 @@
+case,sample,iterations,elapsed,frequency,bytes_per_op
+multiply_256,0,4096,23,100,0
+multiply_256,1,4096,23,100,0
+multiply_256,2,4096,23,100,0
+multiply_256,3,4096,23,100,0
+multiply_256,4,4096,23,100,0
+multiply_2048,0,128,34,100,0
+multiply_2048,1,128,34,100,0
+multiply_2048,2,128,34,100,0
+multiply_2048,3,128,34,100,0
+multiply_2048,4,128,34,100,0
+p256_fixed_affine,0,8,27,100,0
+p256_fixed_affine,1,8,27,100,0
+p256_fixed_affine,2,8,26,100,0
+p256_fixed_affine,3,8,26,100,0
+p256_fixed_affine,4,8,27,100,0
+p256_general_affine,0,2,21,100,0
+p256_general_affine,1,2,21,100,0
+p256_general_affine,2,2,22,100,0
+p256_general_affine,3,2,21,100,0
+p256_general_affine,4,2,21,100,0
+p256_fixed_raw,0,8,22,100,0
+p256_fixed_raw,1,8,22,100,0
+p256_fixed_raw,2,8,22,100,0
+p256_fixed_raw,3,8,22,100,0
+p256_fixed_raw,4,8,22,100,0
+p256_map,0,32,20,100,0
+p256_map,1,32,20,100,0
+p256_map,2,32,20,100,0
+p256_map,3,32,20,100,0
+p256_map,4,32,20,100,0
+p256_mul2add,0,4,37,100,0
+p256_mul2add,1,4,37,100,0
+p256_mul2add,2,4,38,100,0
+p256_mul2add,3,4,37,100,0
+p256_mul2add,4,4,37,100,0
+sha256_1_block,0,4096,21,100,64
+sha256_1_block,1,4096,21,100,64
+sha256_1_block,2,4096,21,100,64
+sha256_1_block,3,4096,21,100,64
+sha256_1_block,4,4096,21,100,64
+sha256_8_blocks,0,1024,33,100,512
+sha256_8_blocks,1,1024,34,100,512
+sha256_8_blocks,2,1024,33,100,512
+sha256_8_blocks,3,1024,34,100,512
+sha256_8_blocks,4,1024,33,100,512
+gcm_encrypt_16,0,1024,36,100,16
+gcm_encrypt_16,1,1024,35,100,16
+gcm_encrypt_16,2,1024,36,100,16
+gcm_encrypt_16,3,1024,35,100,16
+gcm_encrypt_16,4,1024,36,100,16
+gcm_encrypt_512,0,128,27,100,512
+gcm_encrypt_512,1,128,28,100,512
+gcm_encrypt_512,2,128,27,100,512
+gcm_encrypt_512,3,128,27,100,512
+gcm_encrypt_512,4,128,28,100,512
+gcm_encrypt_4096,0,16,24,100,4096
+gcm_encrypt_4096,1,16,25,100,4096
+gcm_encrypt_4096,2,16,25,100,4096
+gcm_encrypt_4096,3,16,24,100,4096
+gcm_encrypt_4096,4,16,24,100,4096
+gcm_encrypt_16384,0,4,24,100,16384
+gcm_encrypt_16384,1,4,24,100,16384
+gcm_encrypt_16384,2,4,24,100,16384
+gcm_encrypt_16384,3,4,24,100,16384
+gcm_encrypt_16384,4,4,25,100,16384
+gcm_decrypt_16,0,1024,35,100,16
+gcm_decrypt_16,1,1024,36,100,16
+gcm_decrypt_16,2,1024,35,100,16
+gcm_decrypt_16,3,1024,36,100,16
+gcm_decrypt_16,4,1024,35,100,16
+gcm_decrypt_512,0,128,28,100,512
+gcm_decrypt_512,1,128,27,100,512
+gcm_decrypt_512,2,128,27,100,512
+gcm_decrypt_512,3,128,28,100,512
+gcm_decrypt_512,4,128,27,100,512
+gcm_decrypt_4096,0,16,25,100,4096
+gcm_decrypt_4096,1,16,24,100,4096
+gcm_decrypt_4096,2,16,24,100,4096
+gcm_decrypt_4096,3,16,25,100,4096
+gcm_decrypt_4096,4,16,25,100,4096
+gcm_decrypt_16384,0,4,25,100,16384
+gcm_decrypt_16384,1,4,24,100,16384
+gcm_decrypt_16384,2,4,24,100,16384
+gcm_decrypt_16384,3,4,24,100,16384
+gcm_decrypt_16384,4,4,24,100,16384
+tls12_load,0,1,14,100,0
+tls12_keygen,0,1,5,100,0
+tls12_shared,0,1,12,100,0
+tls12_verify,0,1,12,100,0
+tls13_load,0,1,14,100,0
+tls13_keygen,0,1,4,100,0
+tls13_shared,0,1,12,100,0
+tls13_verify,0,1,12,100,0
+tls12_verify_phase_other,0,1,0,100,0
+# profile_calls,tls12,0,other,1
+tls12_verify_phase_signature,0,1,0,100,0
+# profile_calls,tls12,0,signature,1
+tls12_verify_phase_range,0,1,0,100,0
+# profile_calls,tls12,0,range,1
+tls12_verify_phase_curve,0,1,0,100,0
+# profile_calls,tls12,0,curve,2
+tls12_verify_phase_hex,0,1,1,100,0
+# profile_calls,tls12,0,hex,7
+tls12_verify_phase_order,0,1,0,100,0
+# profile_calls,tls12,0,order,1
+tls12_verify_phase_point,0,1,11,100,0
+# profile_calls,tls12,0,point,1
+tls12_verify_phase_final,0,1,0,100,0
+# profile_calls,tls12,0,final,1
+tls13_verify_phase_other,0,1,0,100,0
+# profile_calls,tls13,0,other,1
+tls13_verify_phase_signature,0,1,0,100,0
+# profile_calls,tls13,0,signature,1
+tls13_verify_phase_range,0,1,0,100,0
+# profile_calls,tls13,0,range,1
+tls13_verify_phase_curve,0,1,0,100,0
+# profile_calls,tls13,0,curve,2
+tls13_verify_phase_hex,0,1,1,100,0
+# profile_calls,tls13,0,hex,7
+tls13_verify_phase_order,0,1,0,100,0
+# profile_calls,tls13,0,order,1
+tls13_verify_phase_point,0,1,11,100,0
+# profile_calls,tls13,0,point,1
+tls13_verify_phase_final,0,1,0,100,0
+# profile_calls,tls13,0,final,1
+tls12_load,1,1,15,100,0
+tls12_keygen,1,1,4,100,0
+tls12_shared,1,1,12,100,0
+tls12_verify,1,1,12,100,0
+tls13_load,1,1,15,100,0
+tls13_keygen,1,1,4,100,0
+tls13_shared,1,1,11,100,0
+tls13_verify,1,1,12,100,0
+tls12_verify_phase_other,1,1,0,100,0
+# profile_calls,tls12,1,other,1
+tls12_verify_phase_signature,1,1,0,100,0
+# profile_calls,tls12,1,signature,1
+tls12_verify_phase_range,1,1,0,100,0
+# profile_calls,tls12,1,range,1
+tls12_verify_phase_curve,1,1,0,100,0
+# profile_calls,tls12,1,curve,2
+tls12_verify_phase_hex,1,1,1,100,0
+# profile_calls,tls12,1,hex,7
+tls12_verify_phase_order,1,1,1,100,0
+# profile_calls,tls12,1,order,1
+tls12_verify_phase_point,1,1,10,100,0
+# profile_calls,tls12,1,point,1
+tls12_verify_phase_final,1,1,0,100,0
+# profile_calls,tls12,1,final,1
+tls13_verify_phase_other,1,1,0,100,0
+# profile_calls,tls13,1,other,1
+tls13_verify_phase_signature,1,1,1,100,0
+# profile_calls,tls13,1,signature,1
+tls13_verify_phase_range,1,1,0,100,0
+# profile_calls,tls13,1,range,1
+tls13_verify_phase_curve,1,1,0,100,0
+# profile_calls,tls13,1,curve,2
+tls13_verify_phase_hex,1,1,0,100,0
+# profile_calls,tls13,1,hex,7
+tls13_verify_phase_order,1,1,1,100,0
+# profile_calls,tls13,1,order,1
+tls13_verify_phase_point,1,1,10,100,0
+# profile_calls,tls13,1,point,1
+tls13_verify_phase_final,1,1,0,100,0
+# profile_calls,tls13,1,final,1
+tls12_load,2,1,14,100,0
+tls12_keygen,2,1,5,100,0
+tls12_shared,2,1,12,100,0
+tls12_verify,2,1,11,100,0
+tls13_load,2,1,15,100,0
+tls13_keygen,2,1,5,100,0
+tls13_shared,2,1,12,100,0
+tls13_verify,2,1,12,100,0
+tls12_verify_phase_other,2,1,1,100,0
+# profile_calls,tls12,2,other,1
+tls12_verify_phase_signature,2,1,0,100,0
+# profile_calls,tls12,2,signature,1
+tls12_verify_phase_range,2,1,0,100,0
+# profile_calls,tls12,2,range,1
+tls12_verify_phase_curve,2,1,0,100,0
+# profile_calls,tls12,2,curve,2
+tls12_verify_phase_hex,2,1,0,100,0
+# profile_calls,tls12,2,hex,7
+tls12_verify_phase_order,2,1,0,100,0
+# profile_calls,tls12,2,order,1
+tls12_verify_phase_point,2,1,10,100,0
+# profile_calls,tls12,2,point,1
+tls12_verify_phase_final,2,1,0,100,0
+# profile_calls,tls12,2,final,1
+tls13_verify_phase_other,2,1,2,100,0
+# profile_calls,tls13,2,other,1
+tls13_verify_phase_signature,2,1,0,100,0
+# profile_calls,tls13,2,signature,1
+tls13_verify_phase_range,2,1,0,100,0
+# profile_calls,tls13,2,range,1
+tls13_verify_phase_curve,2,1,0,100,0
+# profile_calls,tls13,2,curve,2
+tls13_verify_phase_hex,2,1,0,100,0
+# profile_calls,tls13,2,hex,7
+tls13_verify_phase_order,2,1,0,100,0
+# profile_calls,tls13,2,order,1
+tls13_verify_phase_point,2,1,10,100,0
+# profile_calls,tls13,2,point,1
+tls13_verify_phase_final,2,1,0,100,0
+# profile_calls,tls13,2,final,1
+tls12_load,3,1,14,100,0
+tls12_keygen,3,1,4,100,0
+tls12_shared,3,1,12,100,0
+tls12_verify,3,1,12,100,0
+tls13_load,3,1,14,100,0
+tls13_keygen,3,1,4,100,0
+tls13_shared,3,1,12,100,0
+tls13_verify,3,1,12,100,0
+tls12_verify_phase_other,3,1,0,100,0
+# profile_calls,tls12,3,other,1
+tls12_verify_phase_signature,3,1,0,100,0
+# profile_calls,tls12,3,signature,1
+tls12_verify_phase_range,3,1,0,100,0
+# profile_calls,tls12,3,range,1
+tls12_verify_phase_curve,3,1,0,100,0
+# profile_calls,tls12,3,curve,2
+tls12_verify_phase_hex,3,1,1,100,0
+# profile_calls,tls12,3,hex,7
+tls12_verify_phase_order,3,1,0,100,0
+# profile_calls,tls12,3,order,1
+tls12_verify_phase_point,3,1,11,100,0
+# profile_calls,tls12,3,point,1
+tls12_verify_phase_final,3,1,0,100,0
+# profile_calls,tls12,3,final,1
+tls13_verify_phase_other,3,1,0,100,0
+# profile_calls,tls13,3,other,1
+tls13_verify_phase_signature,3,1,0,100,0
+# profile_calls,tls13,3,signature,1
+tls13_verify_phase_range,3,1,0,100,0
+# profile_calls,tls13,3,range,1
+tls13_verify_phase_curve,3,1,0,100,0
+# profile_calls,tls13,3,curve,2
+tls13_verify_phase_hex,3,1,1,100,0
+# profile_calls,tls13,3,hex,7
+tls13_verify_phase_order,3,1,1,100,0
+# profile_calls,tls13,3,order,1
+tls13_verify_phase_point,3,1,10,100,0
+# profile_calls,tls13,3,point,1
+tls13_verify_phase_final,3,1,0,100,0
+# profile_calls,tls13,3,final,1
+tls12_load,4,1,15,100,0
+tls12_keygen,4,1,5,100,0
+tls12_shared,4,1,11,100,0
+tls12_verify,4,1,12,100,0
+tls13_load,4,1,15,100,0
+tls13_keygen,4,1,5,100,0
+tls13_shared,4,1,11,100,0
+tls13_verify,4,1,12,100,0
+tls12_verify_phase_other,4,1,0,100,0
+# profile_calls,tls12,4,other,1
+tls12_verify_phase_signature,4,1,1,100,0
+# profile_calls,tls12,4,signature,1
+tls12_verify_phase_range,4,1,0,100,0
+# profile_calls,tls12,4,range,1
+tls12_verify_phase_curve,4,1,0,100,0
+# profile_calls,tls12,4,curve,2
+tls12_verify_phase_hex,4,1,0,100,0
+# profile_calls,tls12,4,hex,7
+tls12_verify_phase_order,4,1,1,100,0
+# profile_calls,tls12,4,order,1
+tls12_verify_phase_point,4,1,10,100,0
+# profile_calls,tls12,4,point,1
+tls12_verify_phase_final,4,1,0,100,0
+# profile_calls,tls12,4,final,1
+tls13_verify_phase_other,4,1,0,100,0
+# profile_calls,tls13,4,other,1
+tls13_verify_phase_signature,4,1,1,100,0
+# profile_calls,tls13,4,signature,1
+tls13_verify_phase_range,4,1,0,100,0
+# profile_calls,tls13,4,range,1
+tls13_verify_phase_curve,4,1,0,100,0
+# profile_calls,tls13,4,curve,2
+tls13_verify_phase_hex,4,1,0,100,0
+# profile_calls,tls13,4,hex,7
+tls13_verify_phase_order,4,1,1,100,0
+# profile_calls,tls13,4,order,1
+tls13_verify_phase_point,4,1,10,100,0
+# profile_calls,tls13,4,point,1
+tls13_verify_phase_final,4,1,0,100,0
+# profile_calls,tls13,4,final,1
+# complete v1

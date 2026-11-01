@@ -5,6 +5,10 @@
 #define WOLFSSL_USER_IO
 #define SINGLE_THREADED
 #define WOLFSSL_PALM_STATELESS_INIT
+#define PALM_WOLFSSL_VERIFY_PROFILE
+#ifndef PALM_WOLFSSL_DISABLE_FAST_HEX
+#define PALM_WOLFSSL_FAST_HEX
+#endif
 #define NO_FILESYSTEM
 #define NO_WRITEV
 #define NO_SIG_WRAPPER
@@ -14,6 +18,7 @@
 #define XMALLOC_OVERRIDE
 #define WC_INLINE __inline__
 #ifndef __ASSEMBLER__
+#include "../library/include/palm_tls.h"
 #include <time.h>
 #endif
 #define XMALLOC(size, heap, type) WolfPalmMalloc((unsigned long)(size))

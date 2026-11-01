@@ -1,0 +1,58 @@
+--- a/wolfcrypt/src/tfm.c
++++ b/wolfcrypt/src/tfm.c
+@@ -5726,6 +5726,43 @@
+ }
+ #endif
+ 
++#if DIGIT_BIT == 16 && defined(PALM_WOLFSSL_FAST_HEX)
++/* Pack four hex digits per limb. Match the generic parser's sign, leading
++ * zeros and trailing whitespace rules; do not use strlen (Palm int is 16 bit).
++ * Inputs are public curve constants, not secret scalar material. */
++static int fp_read_radix_16bit(fp_int *a, const char *str)
++{
++    const char *digits;
++    int count = 0, i, neg = FP_ZPOS;
++    if (*str == '-') {
++        neg = FP_NEG;
++        ++str;
++    }
++    while (*str == '0')
++        ++str;
++    digits = str;
++    while (HexCharToByte(*str) >= 0) {
++        if (count == FP_SIZE * 4)
++            return FP_VAL;
++        ++count;
++        ++str;
++    }
++    while (CharIsWhiteSpace(*str))
++        ++str;
++    if (*str != '\0')
++        return FP_VAL;
++    for (i = 0; i < count; ++i) {
++        a->dp[i / 4] |= (fp_digit)((fp_digit)HexCharToByte(
++            digits[count - i - 1]) << ((i % 4) * 4));
++    }
++    a->used = (count + 3) / 4;
++    fp_clamp(a);
++    if (fp_iszero(a) != FP_YES)
++        a->sign = neg;
++    return FP_OKAY;
++}
++#endif
++
+ static int fp_read_radix(fp_int *a, const char *str, int radix)
+ {
+   int     y, neg;
+@@ -5733,6 +5770,11 @@
+ 
+   /* set the integer to the default of zero */
+   fp_zero (a);
++
++#if DIGIT_BIT == 16 && defined(PALM_WOLFSSL_FAST_HEX)
++  if (radix == 16)
++      return fp_read_radix_16bit(a, str);
++#endif
+ 
+ #if DIGIT_BIT == 64 || DIGIT_BIT == 32
+   if (radix == 16)

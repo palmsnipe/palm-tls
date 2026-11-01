@@ -9,7 +9,7 @@ import zlib
 import zipfile
 from pathlib import Path
 
-from results import EXPECTED_CASES, extract, load, summarize
+from results import EXPECTED_CASES, VERIFY_PHASES, extract, load, summarize
 from screen import status
 
 
@@ -22,6 +22,21 @@ def csv_text():
 
 
 class ResultsTests(unittest.TestCase):
+    def test_exclusive_verification_phases(self):
+        text = csv_text()
+        for sample in range(5):
+            text += f'tls12_verify,{sample},1,10,100,0\n'
+            for phase in VERIFY_PHASES:
+                ticks = 10 if phase == 'point' else 0
+                text += f'tls12_verify_phase_{phase},{sample},1,{ticks},100,0\n'
+        load(text)
+        with self.assertRaises(ValueError):
+            load(text.replace('tls12_verify_phase_point,0,1,10',
+                              'tls12_verify_phase_point,0,1,9'))
+        with self.assertRaises(ValueError):
+            load('\n'.join(line for line in text.splitlines()
+                           if 'tls12_verify_phase_hex,' not in line))
+
     def test_native_image_selection(self):
         native_image = runpy.run_path(str(Path(__file__).with_name('run-emulator.py')))['native_image']
         with tempfile.TemporaryDirectory() as directory:

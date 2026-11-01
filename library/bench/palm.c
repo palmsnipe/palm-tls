@@ -89,6 +89,29 @@ static int EngineRow(DmOpenRef database, const char *name, UInt16 sample,
     return Emit(database, row);
 }
 
+static int VerifyProfile(DmOpenRef database, const char *protocol, UInt16 sample,
+                         const PalmTlsVerifyProfile *profile, UInt32 total)
+{
+    static const char names[][12] = {
+        "other", "signature", "range", "curve", "hex", "order", "point", "final"
+    };
+    UInt16 phase;
+    UInt32 sum = 0;
+    char name[80], row[120];
+    if (!profile->complete) return 0;
+    for (phase = 0; phase < palmTlsProfilePhaseCount; phase++)
+        sum += profile->ticks[phase];
+    if (sum != total) return 0;
+    for (phase = 0; phase < palmTlsProfilePhaseCount; phase++) {
+        StrPrintF(name, "%s_verify_phase_%s", protocol, names[phase]);
+        if (!EngineRow(database, name, sample, profile->ticks[phase])) return 0;
+        StrPrintF(row, "# profile_calls,%s,%u,%s,%lu\n", protocol, sample,
+                  names[phase], profile->calls[phase]);
+        if (!Emit(database, row)) return 0;
+    }
+    return 1;
+}
+
 static int Engines(DmOpenRef database)
 {
     UInt16 refNum, sample;
@@ -111,12 +134,16 @@ static int Engines(DmOpenRef database)
         goto cleanup;
     }
     for (sample = 0; sample < BENCH_SAMPLES && success; sample++) {
+        PalmTlsSelfTestProfileResult extended;
         PalmTlsSelfTestResult result;
         /* Switching between TLS engines evicts the previous engine. Keep
          * the load values separate; these are intentionally cold loads. */
         MemSet(&result, sizeof(result), 0);
-        result.structSize = sizeof(result);
-        error = PalmTlsLibRunSelfTest(refNum, &result);
+        MemSet(&extended, sizeof(extended), 0);
+        extended.base.structSize = (capabilities & PALM_TLS_CAP_VERIFY_PROFILE) ?
+            sizeof(extended) : sizeof(result);
+        error = PalmTlsLibRunSelfTest(refNum, &extended.base);
+        result = extended.base;
         if (error || result.status != palmTlsStatusOk ||
             result.armStatus != palmTlsArmSelfTestPassed) { success = 0; break; }
         success = EngineRow(database, "tls12_load", sample, result.tls12LoadTicks) &&
@@ -127,6 +154,22 @@ static int Engines(DmOpenRef database)
             EngineRow(database, "tls13_keygen", sample, result.tls13KeygenTicks) &&
             EngineRow(database, "tls13_shared", sample, result.tls13SharedTicks) &&
             EngineRow(database, "tls13_verify", sample, result.tls13VerifyTicks);
+        if (success && (capabilities & PALM_TLS_CAP_VERIFY_PROFILE)) {
+            success = VerifyProfile(database, "tls12", sample,
+                &extended.tls12Verify, result.tls12VerifyTicks) &&
+                VerifyProfile(database, "tls13", sample,
+                &extended.tls13Verify, result.tls13VerifyTicks);
+        }
+    }
+    if (success && (capabilities & PALM_TLS_CAP_VERIFY_PROFILE)) {
+        /* Also exercise the original caller ABI on the upgraded library. */
+        PalmTlsSelfTestResult legacy;
+        MemSet(&legacy, sizeof(legacy), 0);
+        legacy.structSize = sizeof(legacy);
+        error = PalmTlsLibRunSelfTest(refNum, &legacy);
+        success = !error && legacy.structSize == sizeof(legacy) &&
+            legacy.status == palmTlsStatusOk &&
+            legacy.armStatus == palmTlsArmSelfTestPassed;
     }
 cleanup:
     if (PalmTlsLibClose(refNum) != errNone) success = 0;

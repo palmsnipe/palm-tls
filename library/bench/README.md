@@ -198,3 +198,25 @@ Tester's request phase timings on a network-capable device for those costs.
 The emulator's 100 MIPS model measures an instruction-budgeted guest, not
 cycle-accurate ARM hardware or physical memory/cache timing. Confirm promising
 changes on a real device before changing release defaults.
+
+## Hex import comparison and verification profiles
+
+The dependency is pinned to wolfSSL 5.9.4 in `config/sources.lock`. To isolate
+the 16-bit hex parser change, build both sides from this same source and patch
+stack. `PALM_TLS_FAST_HEX=0 JOBS=8 scripts/bootstrap.sh` selects the generic
+parser; `JOBS=8 scripts/bootstrap.sh` restores the default fast parser. Rebuild
+the library with `make -C library benchmark-palm test` and run the emulator
+command above into a different output directory after each bootstrap. This
+switch changes the dependency fingerprint and rebuilds all six archives.
+The manifest captures version, commit, parser setting and dependency fingerprint.
+
+When the library advertises `PALM_TLS_CAP_VERIFY_PROFILE`, 16 additional
+`tls12_verify_phase_*` / `tls13_verify_phase_*` rows partition the existing
+positive verification totals. The eight phases are `other`, `signature`,
+`range`, `curve`, `hex`, `order`, `point` and `final`. They are exclusive,
+including nested curve loads inside range checks and hex imports inside curve
+loads. Per-sample `# profile_calls` comments record entry counts. The app and
+CSV checker require complete profiles whose phase times sum to each total.
+Sub-tick phase values may be zero; native primitive timings must remain positive.
+Compare profiled baseline and candidate together: instrumentation overhead and
+100 Hz quantization prevent treating these as precise hardware cycle counts.

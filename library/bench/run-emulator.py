@@ -60,6 +60,8 @@ def run(args):
                 'command': command}
     config = repo / 'library/build/palm/armlet-config'
     metadata['local_arm_build_config'] = config.read_text().strip() if config.exists() else None
+    dependency = Path(__file__).resolve().parents[2] / '.palm-tls/prefix/.wolfssl-build.json'
+    metadata['wolfssl'] = json.loads(dependency.read_text()) if dependency.exists() else None
     (output / 'metadata.json').write_text(json.dumps(metadata, indent=2) + '\n')
     messages = queue.Queue()
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,

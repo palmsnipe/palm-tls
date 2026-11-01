@@ -1,5 +1,81 @@
 # ARM performance review — November 1, 2026
 
+## 16-bit hex import, phase profiling, and wolfSSL 5.9.4
+
+The dependency was pinned to wolfSSL **5.9.2** (`ac01707`). It is now pinned to
+**5.9.4**, commit `3c5eead44904df64e6a5a1f4ebdce377d35a849a`, the latest
+stable release listed by [wolfSSL](https://www.wolfssl.com/products/wolfssl/)
+on November 1, 2026. Its [release notes](https://github.com/wolfSSL/wolfssl/releases/tag/v5.9.4-stable)
+include certificate-verification fixes. The Palm patches were ported and applied
+to the new tag; native AES dispatch now follows upstream's argument, tag-size
+and key-state checks. The 16-bit hex fast path is still absent upstream.
+
+`mp_read_radix(..., 16)` now packs four hex digits directly into each 16-bit
+limb instead of multiplying/adding the accumulating integer for every digit.
+It preserves sign, negative-zero normalization, mixed case, arbitrary leading
+zeros, trailing whitespace, invalid-input and capacity handling. Other radices
+and upstream's 32/64-bit paths retain their implementations. The same fast path
+is compiled for both the 68K library and the 68K control layer in the ARM PRC.
+
+The self-test exposes eight exclusive verification phases through an optional
+188-byte result on the existing trap, while retaining the original 52-byte
+caller ABI. The benchmark checks both sizes. Nested hex parsing is charged to
+`hex`, and excluded from its `curve` / `range` parents. Phase entry counts
+identify calls too short to occupy a tick. Each sample must have balanced
+scopes and phase times summing exactly to its positive verification total.
+Profiling is active only around that self-test call; normal TLS calls take
+inactive checks without clock reads. DER-signature and changed-message rejection
+checks remain outside the timer. Untimed wolfSSL AES-GCM known-answer,
+authentication-failure and invalid-tag-size checks validate the upgraded bridge.
+
+Five-sample medians, **100 MIPS cp-uarm**, same supplied Frankenpilot / Tungsten
+E3 session, same 100 Hz clock and **31,728-byte ARMv4T native image**:
+
+| Integrated wolfSSL operation | 5.9.4 generic hex | 5.9.4 fast hex | Less elapsed time |
+| --- | ---: | ---: | ---: |
+| TLS 1.2 ECDSA verification | 220 ms | 120 ms | 45.5% |
+| TLS 1.3 ECDSA verification | 220 ms | 120 ms | 45.5% |
+| TLS 1.2 public-key generation | 130 ms | 50 ms | 61.5% |
+| TLS 1.3 public-key generation | 130 ms | 40 ms | 69.2% |
+| TLS 1.2/1.3 shared-secret calculation | 160 ms | 120 ms | 25.0% |
+
+A second five-sample optimized run reproduces every integrated median in this
+table. Its hex phase medians swap between 0 and 10 ms across the two protocols,
+consistent with 10 ms quantization.
+
+Both comparison builds use the same 5.9.4 dependency patch stack and profiling.
+`PALM_TLS_FAST_HEX=0` disables only the fast parser for the baseline; default
+bootstrap restores it. The optimized runner additionally checks the legacy
+self-test ABI; the optimized library adds the AES regression checks after
+recorded ECC operations. These extra validations are outside reported timings.
+The earlier unprofiled 5.9.2 library also measured 220 ms verification; it is
+retained as an upgrade reference, not the parser-isolation baseline.
+
+Before optimization, seven hex imports per verification account for a median
+100–110 ms; afterward their combined measured time is 0–10 ms. Point arithmetic
+accounts for about 100–110 ms and is now the dominant phase. A zero phase value
+means below clock resolution, not free work. Individual phase medians need not
+sum to the median total. Native primitive results remain unchanged within timer
+quantization, as expected from the identical native image. All timings include
+profiling overhead and are instruction-budgeted emulator results, not physical
+PXA270 cache/pipeline measurements or complete TLS handshake timings.
+
+All PRC profiles/package checks, 16,125 differential cases against the real TFM
+generic parser with 16-bit limbs, profiler state tests and project checks pass.
+The unchanged extracted native image passes independent crypto oracles on both
+TI925T and PXA270 CPU emulation. Palm OS execution verifies the actual 16-bit
+integer ABI, positive/tampered ECDSA signatures and the AES wrapper tests.
+There is still **one ARM PRC per existing protocol profile**, with the same
+CPU allowlist, ARMv4T baseline and 68K fallback. No CPU-specific variants were
+introduced. These runs do not establish physical-device performance or exercise
+network handshakes / full certificate chains.
+
+Raw samples, version/build manifests and comparisons are in
+[bench/baselines/2026-11-01-hex-import](bench/baselines/2026-11-01-hex-import).
+Reproduction commands are in [bench/README.md](bench/README.md#hex-import-comparison-and-verification-profiles).
+The next measured ECC target is the public double-scalar point operation;
+separately profile native AES rounds if download throughput is the priority.
+
 ## ECDSA order arithmetic follow-up
 
 The compatibility/GHASH/field-inversion work below was committed as

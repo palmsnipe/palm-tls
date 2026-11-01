@@ -1,0 +1,124 @@
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -1838,7 +1838,13 @@
+     if (err == MP_OKAY) {
+         curve->load_mask |= mask;
+ 
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++        PalmTlsVerifyProfileEnter(palmTlsProfileHex);
++#endif
+         err = mp_read_radix(*dst, src, MP_RADIX_HEX);
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++        PalmTlsVerifyProfileLeave();
++#endif
+ 
+     #ifdef HAVE_WOLF_BIGINT
+         if (err == MP_OKAY)
+@@ -1961,6 +1967,20 @@
+ 
+     return ret;
+ }
++
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++/* Wrap calls, including nested range checks, without changing error exits. */
++static int palm_ecc_curve_load(const ecc_set_type* dp, ecc_curve_spec** curve,
++    int fields)
++{
++    int ret;
++    PalmTlsVerifyProfileEnter(palmTlsProfileCurve);
++    ret = wc_ecc_curve_load(dp, curve, fields);
++    PalmTlsVerifyProfileLeave();
++    return ret;
++}
++#define wc_ecc_curve_load palm_ecc_curve_load
++#endif
+ 
+ #ifdef ECC_CACHE_CURVE
+ int wc_ecc_curve_cache_init(void)
+@@ -9388,6 +9408,9 @@
+             *res = 0;
+ 
+     #ifndef NO_ASN
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileEnter(palmTlsProfileSignature);
++#endif
+             /* Decode ASN.1 ECDSA signature. */
+         #if defined(WOLFSSL_ASYNC_CRYPT) && defined(WC_ASYNC_ENABLE_ECC)
+             /* Note, DecodeECC_DSA_Sig() calls mp_init() on r and s.
+@@ -9399,6 +9422,9 @@
+             /* r and s are initialized. */
+             err = DecodeECC_DSA_Sig_Ex(sig, siglen, r, s, 0);
+         #endif
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileLeave();
++#endif
+             if (err < 0) {
+                 break;
+             }
+@@ -9859,6 +9885,9 @@
+    }
+ #endif
+ 
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileEnter(palmTlsProfileOrder);
++#endif
+    /* Compute the public verification scalars together on supported Palm ARM
+     * devices. MP_VAL means unsupported and leaves the generic path intact.
+     * Other native errors propagate instead of retrying with aliased outputs. */
+@@ -9909,6 +9938,9 @@
+     }
+ #endif
+ 
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileLeave();
++#endif
+    /* find mG and mQ */
+    if (err == MP_OKAY)
+        err = mp_copy(curve->Gx, mG->x);
+@@ -9924,6 +9956,9 @@
+    if (err == MP_OKAY)
+        err = mp_copy(key->pubkey.z, mQ->z);
+ 
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileEnter(palmTlsProfilePoint);
++#endif
+ #if defined(FREESCALE_LTC_ECC)
+    /* use PKHA to compute u1*mG + u2*mQ */
+    if (err == MP_OKAY)
+@@ -10021,6 +10056,12 @@
+ #endif /* ECC_SHAMIR */
+ #endif /* FREESCALE_LTC_ECC */
+ 
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileLeave();
++#endif
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileEnter(palmTlsProfileFinal);
++#endif
+    /* v = X_x1 mod n */
+    if (err == MP_OKAY) {
+ #ifdef PALM_WOLFSSL_ARMLET_ORDER
+@@ -10041,6 +10082,9 @@
+ #endif
+    }
+ 
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileLeave();
++#endif
+    /* cleanup */
+    wc_ecc_del_point_ex(mG, key->heap);
+    wc_ecc_del_point_ex(mQ, key->heap);
+@@ -10171,7 +10215,13 @@
+       return ECC_BAD_ARG_E;
+    }
+ 
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileEnter(palmTlsProfileRange);
++#endif
+    err = wc_ecc_check_r_s_range(key, r, s);
++#ifdef PALM_WOLFSSL_VERIFY_PROFILE
++   PalmTlsVerifyProfileLeave();
++#endif
+    if (err != MP_OKAY) {
+       return err;
+    }

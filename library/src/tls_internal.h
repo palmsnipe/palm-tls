@@ -83,6 +83,7 @@ typedef struct PalmTlsEngineResult {
     UInt32 keygenTicks;
     UInt32 sharedTicks;
     UInt32 verifyTicks;
+    PalmTlsVerifyProfile verifyProfile;
     UInt32 sessionId;
     UInt16 sessionReused;
     UInt16 armStatus;

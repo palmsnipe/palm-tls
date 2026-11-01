@@ -5,6 +5,12 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd -P)/common.sh"
 
 require_toolchain
+PALM_TLS_FAST_HEX="${PALM_TLS_FAST_HEX:-1}"
+case "$PALM_TLS_FAST_HEX" in
+  1) hex_defines='' ;;
+  0) hex_defines='-DPALM_WOLFSSL_DISABLE_FAST_HEX' ;;
+  *) echo 'PALM_TLS_FAST_HEX must be 0 or 1' >&2; exit 1 ;;
+esac
 mkdir -p "$SOURCES" "$BUILD" "$DEPS_PREFIX/lib" "$DEPS_PREFIX/include"
 
 wolfssl="$SOURCES/wolfssl"
@@ -20,6 +26,8 @@ patches=(
   wolfssl-palm-armlet-order.patch
   wolfssl-preserve-peer-key-error.patch
   wolfssl-no-ecc-sign-build.patch
+  wolfssl-palm-verify-profile.patch
+  wolfssl-palm-16bit-hex.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
@@ -28,9 +36,11 @@ done
 
 fingerprint="$({
   printf '%s\n' "$WOLFSSL_COMMIT"
+  printf 'fast-hex:%s\n' "$PALM_TLS_FAST_HEX"
   sha256_file "$TOOLCHAIN_PREFIX/bin/m68k-none-elf-gcc"
   sha256_file "$PALM_TLS_ROOT/scripts/bootstrap.sh"
   sha256_file "$PALM_TLS_ROOT/wolfssl/user_settings.h"
+  sha256_file "$PALM_TLS_ROOT/library/include/palm_tls.h"
   for patch_name in "${patches[@]}"; do
     sha256_file "$PALM_TLS_ROOT/patches/wolfssl/$patch_name"
   done
@@ -65,7 +75,7 @@ build_variant() {
     AR="$TOOLCHAIN_PREFIX/bin/m68k-none-elf-ar" \
     RANLIB="$TOOLCHAIN_PREFIX/bin/m68k-none-elf-ranlib" \
     CFLAGS='-std=gnu17 -Os -fno-strict-aliasing -fwrapv -m68000 -mno-align-int -fshort-enums -mshort -ffunction-sections -fdata-sections' \
-    CPPFLAGS="$defines -I$PALM_TLS_ROOT/wolfssl" \
+    CPPFLAGS="$defines $hex_defines -I$PALM_TLS_ROOT/wolfssl" \
       "$wolfssl/configure" \
         --host=m68k-none-elf --prefix="$DEPS_PREFIX" --enable-usersettings \
         --disable-shared --enable-static --disable-examples --disable-crypttests \
@@ -105,4 +115,7 @@ build_variant wolfssl-palm-tls11-armlet \
   --enable-oldtls libwolfssl-tls11-armlet.a copy
 
 printf '%s\n' "$fingerprint" >"$stamp"
+printf '{"version":"%s","commit":"%s","fast_hex":%s,"fingerprint":"%s"}\n' \
+  "$WOLFSSL_VERSION" "$WOLFSSL_COMMIT" "$PALM_TLS_FAST_HEX" "$fingerprint" \
+  >"$DEPS_PREFIX/.wolfssl-build.json"
 echo "Palm wolfSSL dependencies installed in $DEPS_PREFIX"

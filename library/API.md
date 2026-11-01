@@ -147,6 +147,22 @@ system ticks are normally 1/100 second. Applications should continue on the
 68K fallback when the result is
 `palmTlsStatusSelfTestFailed`.
 
+If `PALM_TLS_CAP_VERIFY_PROFILE` is present, callers may instead zero a
+`PalmTlsSelfTestProfileResult`, set `base.structSize` to
+`PALM_TLS_SELF_TEST_PROFILE_RESULT_SIZE` (188), and pass `&result.base` to the
+same trap. The original 52-byte result remains accepted. `tls12Verify` and
+`tls13Verify` contain exclusive tick totals and entry counts indexed by
+`PalmTlsVerifyPhase`: other/setup/cleanup, signature decoding, range checks,
+curve setup, hex import, order arithmetic, point arithmetic, and final reduction
+and comparison. Nested phases subtract their time from the parent phase.
+`complete == 1` means balanced scopes; all eight tick totals then sum to the
+corresponding `base.tls*VerifyTicks`. Zero ticks can mean less than one clock
+tick, so use call counts to distinguish a short phase from an unused phase.
+Only the positive self-test verification activates profiling; normal TLS calls
+take inactive checks without reading the clock. Negative verification vectors
+run afterward, outside the timing. Times include instrumentation overhead and
+retain the device clock's resolution.
+
 ## Resource and security constraints
 
 The full PRC carries separate reduced TLS 1.1, 1.2, and 1.3 engines; compact

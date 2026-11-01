@@ -13,6 +13,9 @@ EXPECTED_CASES = {
     *(f'gcm_{direction}_{size}' for direction in ('encrypt', 'decrypt')
       for size in (16, 512, 4096, 16384)),
 }
+VERIFY_PHASES = ('other', 'signature', 'range', 'curve', 'hex', 'order', 'point', 'final')
+PROFILE_CASES = {f'{protocol}_verify_phase_{phase}'
+                 for protocol in ('tls12', 'tls13') for phase in VERIFY_PHASES}
 
 
 def extract(archive):
@@ -53,7 +56,7 @@ def load(text):
             raise ValueError('unexpected CSV schema')
         if min(values.values()) < 0 or values['iterations'] == 0 or values['frequency'] == 0:
             raise ValueError(f'invalid timing for {name}')
-        if values['elapsed'] == 0 and not name.endswith('_load'):
+        if values['elapsed'] == 0 and not (name.endswith('_load') or name in PROFILE_CASES):
             raise ValueError(f'timing below clock resolution for {name}')
         grouped.setdefault(name, []).append(values)
     for name, rows in grouped.items():
@@ -63,6 +66,19 @@ def load(text):
             raise ValueError(f'inconsistent samples for {name}')
     if not EXPECTED_CASES.issubset(grouped):
         raise ValueError('missing benchmark cases')
+    for protocol in ('tls12', 'tls13'):
+        names = [f'{protocol}_verify_phase_{phase}' for phase in VERIFY_PHASES]
+        if any(name in grouped for name in names):
+            if not all(name in grouped for name in names) or f'{protocol}_verify' not in grouped:
+                raise ValueError('incomplete verification profile')
+            for total in grouped[f'{protocol}_verify']:
+                phases = [next(row for row in grouped[name] if row['sample'] == total['sample'])
+                          for name in names]
+                if any(row['frequency'] != total['frequency'] or row['iterations'] != 1
+                       or row['bytes_per_op'] != 0 for row in phases):
+                    raise ValueError('invalid verification phase workload')
+                if sum(row['elapsed'] for row in phases) != total['elapsed']:
+                    raise ValueError('verification phases do not sum to total')
     return grouped
 
 

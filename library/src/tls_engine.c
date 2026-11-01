@@ -1,6 +1,7 @@
 #include <PalmOS.h>
 #include <wolfssl/ssl.h>
 #include <wolfssl/wolfcrypt/asn_public.h>
+#include <wolfssl/wolfcrypt/aes.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/random.h>
 
@@ -8,6 +9,7 @@
 #include "tls_internal.h"
 #include "tls_palm.h"
 #include "tls_armlet.h"
+#include "tls_verify_profile.h"
 
 /* NetLib calls are expensive, but some physical Palm drivers do not reliably
  * complete 4 KiB socket operations.  Two KiB is still twice the original
@@ -95,6 +97,46 @@ static int DecodeSelfTestKey(void)
     return result;
 }
 
+/* Exercise the wolfSSL AES hooks and API checks after dependency upgrades.
+ * NIST's all-zero AES-128-GCM vector, outside all recorded ECC timings. */
+static int RunAesGcmSelfTest(void)
+{
+    static const UInt8 expected[16] = {
+        0x03, 0x88, 0xda, 0xce, 0x60, 0xb6, 0xa3, 0x92,
+        0xf3, 0x28, 0xc2, 0xb9, 0x71, 0xb2, 0xfe, 0x78
+    };
+    static const UInt8 expectedTag[16] = {
+        0xab, 0x6e, 0x47, 0xd4, 0x2c, 0xec, 0x13, 0xbd,
+        0xf5, 0x3a, 0x67, 0xb2, 0x12, 0x57, 0xbd, 0xdf
+    };
+    UInt8 zero[16], encrypted[16], decrypted[16], tag[16];
+    Aes aes;
+    int ret;
+    MemSet(zero, sizeof(zero), 0);
+    ret = wc_AesInit(&aes, 0, INVALID_DEVID);
+    if (ret != 0) return ret;
+    ret = wc_AesGcmSetKey(&aes, zero, sizeof(zero));
+    if (ret == 0)
+        ret = wc_AesGcmEncrypt(&aes, encrypted, zero, sizeof(zero),
+            zero, 12, tag, sizeof(tag), 0, 0);
+    if (ret == 0 && (MemCmp(encrypted, expected, sizeof(expected)) != 0 ||
+        MemCmp(tag, expectedTag, sizeof(tag)) != 0)) ret = AES_GCM_AUTH_E;
+    if (ret == 0)
+        ret = wc_AesGcmDecrypt(&aes, decrypted, encrypted, sizeof(encrypted),
+            zero, 12, tag, sizeof(tag), 0, 0);
+    if (ret == 0 && MemCmp(decrypted, zero, sizeof(zero)) != 0)
+        ret = AES_GCM_AUTH_E;
+    if (ret == 0) {
+        tag[0] ^= 1;
+        if (wc_AesGcmDecrypt(&aes, decrypted, encrypted, sizeof(encrypted),
+            zero, 12, tag, sizeof(tag), 0, 0) == 0) ret = AES_GCM_AUTH_E;
+    }
+    if (ret == 0 && wc_AesGcmEncrypt(&aes, encrypted, zero, sizeof(zero),
+        zero, 12, tag, 17, 0, 0) == 0) ret = AES_GCM_AUTH_E;
+    wc_AesFree(&aes);
+    return ret;
+}
+
 static int RunHandshakeMathSelfTest(PalmTlsEngineResult *resultP)
 {
     ecc_key privateKey;
@@ -141,10 +183,14 @@ static int RunHandshakeMathSelfTest(PalmTlsEngineResult *resultP)
         result = ECC_SHARED_ERROR;
     if (result == 0) {
         UInt32 startTicks = TimGetTicks();
+        UInt32 endTicks;
+        PalmTlsVerifyProfileStart(startTicks);
         result = wc_ecc_verify_hash(kP256SampleSignature,
             sizeof(kP256SampleSignature), kP256SampleHash,
             sizeof(kP256SampleHash), &signatureValid, &publicKey);
-        resultP->verifyTicks = TimGetTicks() - startTicks;
+        endTicks = TimGetTicks();
+        resultP->verifyTicks = endTicks - startTicks;
+        PalmTlsVerifyProfileStop(endTicks, &resultP->verifyProfile);
     }
     if (result == 0 && signatureValid != 1) result = SIG_VERIFY_E;
     if (result == 0) {
@@ -169,6 +215,7 @@ static int RunHandshakeMathSelfTest(PalmTlsEngineResult *resultP)
             if (result == 0 && signatureValid != 0) result = SIG_VERIFY_E;
         }
     }
+    if (result == 0) result = RunAesGcmSelfTest();
     if (rngInitialized) wc_FreeRng(&rng);
     if (publicInitialized) wc_ecc_free(&publicKey);
     if (privateInitialized) wc_ecc_free(&privateKey);
