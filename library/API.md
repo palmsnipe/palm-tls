@@ -22,8 +22,11 @@ The network-free `PalmTlsLibRunSelfTest` entry point also exposes ARM self-test
 capability flags. Before using native math, the library checks a carry-heavy
 256-bit product and imports
 a known P-256 public key through the real ASN.1 and on-curve paths in each
-installed TLS 1.2/TLS 1.3 engine. A failure disables the ARM hook and leaves the
-safe 68K implementation active. Its result includes per-protocol load,
+installed TLS 1.2/TLS 1.3 engine. Startup validation also checks off-curve,
+negative/out-of-range coordinates, non-affine Z, and API rejection behavior.
+The native hook preserves these checks and the existing caller checks for
+infinity, order, and private keys. A failure disables the ARM hook and leaves
+the safe 68K implementation active. Its result includes per-protocol load,
 key-generation, shared-secret, and signature-verification timings.
 
 Applications should not select a different code path for the ARM variant. Use

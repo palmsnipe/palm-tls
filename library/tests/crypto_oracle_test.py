@@ -272,6 +272,37 @@ def secret_scalar_traces(backend):
         machine.ctl_remove_cache(backend.CODE,backend.CODE+0x10000)
 
 
+def p256_validation(backend, rng):
+    # Derive B independently from the standard generator rather than sharing
+    # the production Montgomery constant. Include small-X valid points so a
+    # zero coordinate is not incorrectly treated as point-at-infinity.
+    b=(G[1]**2-G[0]**3+3*G[0]) % P
+    values=[G,(G[0],P-G[1]),(0,0),(1,1),(P-1,P-1)]
+    for x in (0,1,2,3,P-1,P-2):
+        rhs=(x**3-3*x+b)%P;y=pow(rhs,(P+1)//4,P)
+        if y*y%P==rhs: values.extend(((x,y),(x,P-y)))
+    for scalar in range(1,65):
+        value=multiply(scalar,G);values.append(value)
+        encoded=bytearray(point(value));encoded[scalar%64]^=1
+        values.append((int.from_bytes(encoded[:32],'big'),int.from_bytes(encoded[32:],'big')))
+    values += [(rng.randrange(P),rng.randrange(P)) for _ in range(128)]
+    values += [(P,G[1]),(G[0],P),(P+1,G[1]),(G[0],P+1),
+               (2**256-1,G[1]),(G[0],2**256-1),(P,P)]
+    for index,(x,y) in enumerate(values):
+        expected=258 if x>=P or y>=P else (SUCCESS if (y*y-x*x*x+3*x-b)%P==0 else 257)
+        data=request(8);data[RIGHT:RIGHT+64]=integer(x)+integer(y)
+        data[OUTPUT:]=b'\xa5'*(REQUEST_SIZE-OUTPUT)
+        original=bytes(data)
+        assert backend.invoke(data,index%4)==expected,('P256 validation',index,x,y)
+        assert data==original,'validation modified request/output'
+    for first,second,version in ((1,0,1),(0,1,1),(255,255,1),(0,0,0)):
+        data=request(8);data[1],data[2],data[0]=first,second,version
+        data[RIGHT:RIGHT+64]=point(G);original=bytes(data)
+        assert backend.invoke(data)==ERROR,'invalid validation header accepted'
+        assert data==original,'invalid validation request modified memory'
+    return len(values)
+
+
 def p256(backend, rng):
     # Mapping constructed Montgomery/Jacobian points exercises inversion of
     # arbitrary nonzero z in the *extracted* ARM code, not only host C.
@@ -425,13 +456,15 @@ def main():
     records = aes(backend, rng)
     fields = field_arithmetic(backend)
     inverses, multiplies, verifies = p256(backend, rng)
+    validations = p256_validation(backend, rng)
     orders = order_scalars(backend, rng)
     signatures = ecdsa_math(backend, rng)
     if isinstance(backend, Arm): secret_scalar_traces(backend)
     print(f'Crypto oracles passed ({args.cpu if args.arm_image else "host"}): '
           f'{records} AES-GCM records, {fields} raw-field chains, {inverses} inversions/maps, '
           f'{multiplies} scalar products, {verifies} double-scalar cases, '
-          f'{orders} order preparations, {signatures} ECDSA valid/tampered cases; alignment offsets 0..3')
+          f'{orders} order preparations, {validations} point validations, '
+          f'{signatures} ECDSA valid/tampered cases; alignment offsets 0..3')
 
 
 if __name__ == '__main__':

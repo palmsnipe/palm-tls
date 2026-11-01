@@ -1,5 +1,105 @@
 # ARM performance review — November 1, 2026
 
+## Native P-256 public-key validation
+
+Built-in P-256 public-key validation now crosses to the shared ARMlet for the
+curve equation. The bridge preserves the original check order and errors:
+unsigned X and Y must be below `p`, then Z must be positive affine one, then
+`y^2 = x^3 - 3x + b (mod p)` must hold. Negative, oversized, `p`/`p+1`,
+non-affine, and off-curve inputs remain rejected. Raw native coordinates are
+checked for canonical range **before** Montgomery conversion, so a forbidden
+encoding cannot become valid through reduction. The native command writes no
+request/output bytes.
+
+There are two narrowly scoped wolfSSL hooks. The built-in P-256
+`wc_ecc_point_is_on_curve` path can avoid generic curve loading and modular
+arithmetic. The internal equation-only hook requires exact positive `p`,
+`a=p-3`, and `b` parameters; it deliberately preserves that function's original
+Z-independent contract. It returns only an equation result. Existing callers
+still perform their infinity, coordinate, order/subgroup, curve-ID, and
+private-key checks. Other domains, disabled/unavailable ARM math, and unknown
+native statuses retain the original implementation. Custom indices do not
+bypass the public curve-loading path. No verification mode or TLS rule is
+weakened, and the public trap/structure ABI is unchanged.
+
+The baseline is the unchanged **`feaadb3`** build. Both sides use identical
+wolfSSL 5.9.4 configuration, detailed profiler, trust/leaf fixture, benchmark
+application code, emulator/session, ARMv4T `-Os` settings, and **100 MIPS**.
+The benchmark application's resources differ only in `armc:1`; the library
+also contains the new 68K validation bridges, vendor hooks, and startup tests.
+Two fresh session runs per build each contain five samples of six connection
+cases and the existing authentication/session regressions.
+
+Five-sample medians, first run / repeat:
+
+| Operation | Baseline | Native validation |
+| --- | ---: | ---: |
+| Warm full handshake, cached context | 410 / 410 ms | 360 / 350 ms |
+| Resumed handshake, cached context | 190 / 190 ms | 170 / 170 ms |
+| Full handshake, context reuse disabled | 570 / 570 ms | 510 / 510 ms |
+| Resumed handshake, context reuse disabled | 340 / 340 ms | 320 / 320 ms |
+| Cold full handshake, after purge | 570 / 570 ms | 510 / 510 ms |
+| Cold engine loading, separate from handshake | 130 / 130 ms | 150 / 150 ms |
+
+Warm full handshakes improve **12.2–14.6%** and cached resumed handshakes
+**10.5%** in these runs. Warm full final samples span 350–360 ms versus
+410–420 ms; cached resumed final samples span 160–170 ms versus 180–190 ms.
+The expanded startup tests add a measured 20 ms to cold engine loading.
+Cold load plus full handshake therefore moves from about **700 to 660 ms**,
+rather than the 60 ms handshake-only saving. Loading is still excluded from
+`handshakeTicks`, exactly as in the baseline.
+
+The detailed profile confirms that validation remains active: the peer-point
+phase has one entry per handshake but falls from **20 ms to zero measured
+ticks**. Total key agreement moves from about **100 to 80 ms**. Full-handshake
+certificate handling moves from roughly 40 to 20 ms and the two signature
+checks from 190 to 170 ms. This shows that validation also benefits the
+certificate paths. Scalar-multiplication, key generation, trust-store identity,
+resumption policy, and the selector fix are unchanged. A zero-tick phase means
+less than the 10 ms clock resolution, not zero work; per-phase medians need not
+sum to median totals. No standalone sub-tick validation latency is claimed.
+
+Each run independently confirms **20 full and 10 resumed TLS 1.3 connections**
+using P-256 and `TLS_AES_128_GCM_SHA256`, strict CA/hostname verification, and
+the same eight-root, 4,560-byte trust bundle. Owned/exact trust, changed
+hostname/mode and bad-CA rejection, purge, cancellation, slot isolation, and
+TLS 1.2 full/resumed regressions pass. These are loopback OpenSSL 3.5.9
+handshakes on the supplied Frankenpilot/E3 session, including instrumentation
+overhead; they do not establish physical Palm or Internet latency.
+
+The new native command is qualified before enabling acceleration with valid,
+off-curve, and out-of-range inputs plus unchanged-output checks. Each installed
+TLS 1.2/1.3 engine also executes 14 positive/rejection cases and null/invalid
+index checks through the real wolfSSL API at startup. A failure disables
+acceleration and rechecks through the software path. This qualification uses
+an index below `ECC_CUSTOM_IDX` for the invalid-index case: wolfSSL treats
+`-1` as the custom-domain sentinel. Full-key infinity/order/private checks
+remain in their existing callers rather than being replaced by the fast hook.
+
+Host and **TI925T/PXA270** oracles pass **270 point-validation cases**, including
+independently derived curve constants, small-X valid points, negative-Y
+partners, random points, perturbed coordinates, canonical boundaries, malformed
+headers, request alignment 0–3, and unchanged request/output buffers. The host
+bridge test compiles the production bridge together with the actual kernel
+and checks negative/wide integers, Z, error precedence, exact domain matching,
+disabled/missing engines, and unknown native statuses. All existing AES-GCM,
+field, scalar, inversion/map, order, ECDSA, field trace, and secret-scalar trace
+checks pass. Project/profile/package checks and actual Palm execution of both
+self-test result sizes also pass. The complete vendor patch stack reproduces
+the cached source, and the non-ARM archives retain the software validation.
+
+The native image grows **536 bytes**, from 34,224 to **34,760 bytes**, SHA-256
+`10a7c6649b46968ae19bf10259492e95edb8b48a535729977435516639d32ccd`.
+All existing ARM profiles and both benchmark apps share this one ARMv4T image.
+The CPU allowlist and fallback policy are unchanged; no processor-specific PRC
+is added. The full ARM library grows 4,056 bytes, including bridges and startup
+checks. Its final SHA-256 is
+`ec2d255056c5daa394464a65f472fa815cc43e3a18888b880981b4c9801953c5`.
+
+Raw repeated handshake samples, detailed phase counters, public server
+configuration/logs, manifests, and the offline ABI regression are saved under
+[bench/baselines/2026-11-01-p256-validation](bench/baselines/2026-11-01-p256-validation).
+
 ## ECDHE peer-point multiplication with mixed-coordinate additions
 
 The arbitrary-point private-scalar path now batch-normalizes its table of

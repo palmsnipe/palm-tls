@@ -87,6 +87,73 @@ static const UInt8 kP256SampleSignature[72] = {
     0x4d, 0xc4, 0xab, 0x2f, 0x84, 0x3a, 0xcd, 0xa8
 };
 
+/* Run outside handshake/primitive timings, including through the 68K path
+ * when native qualification fails. Preserve exact wolfSSL rejection codes. */
+static int ValidateSelfTestPoint(ecc_key *keyP)
+{
+    static const UInt8 prime[32] = {
+        0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x01,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
+    };
+    UInt16 check;
+    for (check = 0; check < 14; check++) {
+        int expected = 0;
+        int ret = fp_read_unsigned_bin(keyP->pubkey.x,
+            kP256SelfTestKey + sizeof(kP256SelfTestKey) - 64, 32);
+        if (ret == 0) ret = fp_read_unsigned_bin(keyP->pubkey.y,
+            kP256SelfTestKey + sizeof(kP256SelfTestKey) - 32, 32);
+        if (ret != 0) return ret;
+        fp_set(keyP->pubkey.z, 1);
+        switch (check) {
+        case 0: break; /* Valid generator. */
+        case 1:
+            keyP->pubkey.y->dp[0] ^= 1;
+            expected = IS_POINT_E; break;
+        case 2: case 3:
+            ret = fp_read_unsigned_bin(keyP->pubkey.x, prime, 32);
+            if (ret == 0 && check == 3)
+                ret = fp_add_d(keyP->pubkey.x, 1, keyP->pubkey.x);
+            expected = ECC_OUT_OF_RANGE_E; break;
+        case 4:
+            keyP->pubkey.x->sign = FP_NEG;
+            expected = ECC_OUT_OF_RANGE_E; break;
+        case 5:
+            keyP->pubkey.x->used = 17; keyP->pubkey.x->dp[16] = 1;
+            expected = ECC_OUT_OF_RANGE_E; break;
+        case 6:
+            ret = fp_read_unsigned_bin(keyP->pubkey.y, prime, 32);
+            expected = ECC_OUT_OF_RANGE_E; break;
+        case 7:
+            keyP->pubkey.y->sign = FP_NEG;
+            expected = ECC_OUT_OF_RANGE_E; break;
+        case 8:
+            keyP->pubkey.y->used = 17; keyP->pubkey.y->dp[16] = 1;
+            expected = ECC_OUT_OF_RANGE_E; break;
+        case 9: case 10:
+            fp_set(keyP->pubkey.z, check == 9 ? 0 : 2);
+            expected = ECC_BAD_ARG_E; break;
+        case 11:
+            keyP->pubkey.z->sign = FP_NEG;
+            expected = ECC_BAD_ARG_E; break;
+        case 12:
+            fp_set(keyP->pubkey.x, 0); fp_set(keyP->pubkey.y, 0);
+            expected = IS_POINT_E; break;
+        case 13:
+            keyP->pubkey.y->dp[0] ^= 1; fp_set(keyP->pubkey.z, 2);
+            expected = ECC_BAD_ARG_E; break;
+        }
+        if (ret != 0) return ret;
+        if (wc_ecc_point_is_on_curve(&keyP->pubkey, keyP->idx) != expected)
+            return IS_POINT_E;
+    }
+    if (wc_ecc_point_is_on_curve(0, keyP->idx) != BAD_FUNC_ARG ||
+        wc_ecc_point_is_on_curve(&keyP->pubkey, ECC_CUSTOM_IDX - 1) != ECC_BAD_ARG_E)
+        return IS_POINT_E;
+    return 0;
+}
+
 static int DecodeSelfTestKey(void)
 {
     ecc_key key;
@@ -95,6 +162,7 @@ static int DecodeSelfTestKey(void)
     if (result == 0) {
         result = wc_EccPublicKeyDecode(kP256SelfTestKey, &index, &key,
             sizeof(kP256SelfTestKey));
+        if (result == 0) result = ValidateSelfTestPoint(&key);
         wc_ecc_free(&key);
     }
     return result;

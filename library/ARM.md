@@ -3,7 +3,7 @@
 `PalmTLSArm.prc` is a hybrid Palm OS 5 build. Palm applications and system
 library dispatch remain 68K code, preserving the `PTLS` API used by Palm OS 4+
 consumers. Hot multiprecision multiplication/squaring, P-256 scalar
-multiplication, projective mapping and ECDSA verification order arithmetic,
+multiplication, public-key validation, projective mapping and ECDSA verification order arithmetic,
 SHA-256 compression, and AES-128-GCM
 record protection execute in a native ARMlet through the SDK's
 `PceNativeCall` trap.
@@ -14,14 +14,15 @@ record protection execute in a native ARMlet through the SDK's
    CPU models before executing native code. Unknown/older models retain 68K math.
 2. The selected TLS engine locks the `armc:1` resource and allocates one reusable
    request buffer.
-3. wolfSSL's TFM `fp_mul`/`fp_sqr`, P-256 scalar multiplication/order preparation, SHA-256
+3. wolfSSL's TFM `fp_mul`/`fp_sqr`, P-256 scalar multiplication/validation/order preparation, SHA-256
    compression, and AES-128-GCM hooks marshal operands through that buffer.
 4. The ARMlet performs carry-safe bignum multiplication, SHA-256's 64-round
    compression function, P-256 Montgomery/Jacobian scalar multiplication and
    Jacobian-to-affine mapping, or streaming AES-GCM encryption/decryption and
    authentication.
 5. Before normal use, bignum multiplication, mapped and unmapped P-256
-   generator multiplication (including native affine mapping), SHA-256 of
+   generator multiplication (including native affine mapping), P-256 point
+   validation with valid/off-curve/out-of-range inputs, SHA-256 of
    `abc`, a NIST AES-GCM vector and a P-256 order-arithmetic vector run as native known-answer tests without
    networking.
 6. If any test fails, the ARM hook is disabled and the unchanged 68K TFM/SHA
@@ -36,9 +37,18 @@ AES-GCM acceleration tracks the encrypt and decrypt key objects for both
 session slots. wolfSSL releases each mapping with its `Aes` object; if every
 mapping is occupied, PalmTLS safely falls back to the 68K implementation.
 
+P-256 public-key validation preserves X/Y sign and canonical range checks,
+affine Z, and the curve equation. Only the built-in P-256 public path bypasses
+curve loading; the internal equation-only hook requires exact P-256 parameters
+and leaves caller infinity/order/private-key checks intact. Unsupported domains
+or unavailable/disabled acceleration use the original code. The request is
+read-only and unknown native statuses trigger fallback. Startup qualification
+also runs positive and negative checks through the real wolfSSL API; failures
+disable acceleration. The public library ABI does not change.
+
 ## Build and ABI
 
-Clang compiles a roughly 32 KB freestanding ARMv4T code image, including the
+Clang compiles a roughly 34 KiB freestanding ARMv4T code image, including the
 generated fixed-base P-256 table. `ARM_CC` defaults to `clang` and may be
 overridden when necessary:
 
@@ -81,9 +91,8 @@ generator multiplication uses a generated fixed-base 8-way comb table,
 reducing public-key generation from 256 to 32 point doublings while keeping
 constant-time table selection. ECDHE key generation and shared-secret
 calculation therefore use native ARM P-256 math. Field squaring uses a
-fixed-column Comba schedule with
-36 limb multiplications rather than sending equal operands through the generic
-64-multiplication path. ECDSA verification dispatches its complete
+shared integrated Montgomery multiplier with equal operands, preserving
+in-place aliases. ECDSA verification dispatches its complete
 `u1*G + u2*Q` operation as one native call. Its public scalars use an interleaved
 width-5 signed-digit representation, sharing one 257-doubling schedule and
 averaging about 86 additions. The ECDHE single-scalar paths remain constant-time;

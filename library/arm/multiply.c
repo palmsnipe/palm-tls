@@ -1484,6 +1484,32 @@ static u32 FeIsCanonical(const Fe256 *valueP)
     return (u32)borrow;
 }
 
+/* Public-key validation must reject noncanonical coordinates BEFORE converting
+ * into Montgomery form: reducing x or y would accept forbidden encodings. */
+static u32 P256Validate(const volatile u8 *pointP, u32 reserved1, u32 reserved2)
+{
+    static const Fe256 bMontgomery = {{
+        0x29c4bddfU, 0xd89cdf62U, 0x78843090U, 0xacf005cdU, 0xf7212ed6U, 0xe5a220abU, 0x04874834U, 0xdc30061dU
+    }};
+    Fe256 x, y, squared, equation, temporary;
+    if (reserved1 || reserved2) return PALM_TLS_ARMLET_ERROR;
+    FeReadRawBigEndian(&x, pointP);
+    FeReadRawBigEndian(&y, pointP + 32);
+    if (!FeIsCanonical(&x) || !FeIsCanonical(&y))
+        return PALM_TLS_ARMLET_P256_OUT_OF_RANGE;
+    FeMultiply(&x, &x, &kR2);
+    FeMultiply(&y, &y, &kR2);
+    FeSquare(&squared, &y);
+    FeSquare(&temporary, &x);
+    FeMultiply(&equation, &temporary, &x);
+    FeDouble(&temporary, &x);
+    FeAdd(&temporary, &temporary, &x);
+    FeSubtract(&equation, &equation, &temporary);
+    FeAdd(&equation, &equation, &bMontgomery);
+    return FeEqual(&squared, &equation) ? PALM_TLS_ARMLET_P256_SUCCESS :
+        PALM_TLS_ARMLET_P256_INVALID_POINT;
+}
+
 /* Batched raw-field diagnostics use the production primitives, including
  * in-place aliases. The public iteration count amortizes PceNativeCall and
  * byte marshaling; every result feeds the next operation. */
@@ -1550,6 +1576,8 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
         return P256Map(rightP, outputP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_ORDER)
         return P256OrderScalars(leftP, outputP);
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_VALIDATE)
+        return P256Validate(rightP, requestP[1], requestP[2]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_FIELD)
         return P256Field(leftP, rightP, outputP, requestP[1], requestP[2]);
     if (requestP[3] != PALM_TLS_ARMLET_COMMAND_MULTIPLY)

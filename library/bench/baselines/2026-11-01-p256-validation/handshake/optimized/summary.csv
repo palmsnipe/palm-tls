@@ -1,0 +1,8 @@
+case,median_handshake_ms,min_ms,max_ms,median_load_ms
+cache_full_cold,510.0,510.0,510.0,150.0
+cache_full_warm,360.0,360.0,360.0,0.0
+cache_resumed,170.0,160.0,170.0,0.0
+nocache_full_cold,510.0,510.0,510.0,150.0
+nocache_full_warm,510.0,510.0,510.0,0.0
+nocache_resumed,320.0,320.0,320.0,0.0
+# server independently confirmed 20 full and 10 resumed TLS 1.3 connections

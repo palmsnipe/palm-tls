@@ -10,6 +10,12 @@
 #define PALM_TLS_ARMLET_COMMAND_P256_MAP 5
 #define PALM_TLS_ARMLET_COMMAND_P256_ORDER 6
 #define PALM_TLS_ARMLET_COMMAND_P256_FIELD 7
+#define PALM_TLS_ARMLET_COMMAND_P256_VALIDATE 8
+/* VALIDATE: right = canonical unsigned big-endian x || y (64 bytes).
+ * Header bytes 1/2 must be zero. No output bytes are written. The bridge
+ * separately enforces signed-integer bounds and affine z == 1. */
+#define PALM_TLS_ARMLET_P256_INVALID_POINT 0x101UL
+#define PALM_TLS_ARMLET_P256_OUT_OF_RANGE 0x102UL
 /* Checked diagnostics: request[1] selects multiply/square/reduce; request[2]
  * is a public iteration count in [1,255]. Inputs/output are raw big-endian
  * limbs, without Montgomery conversion. Multiply chains a <- a*b/R mod p;

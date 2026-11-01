@@ -120,6 +120,20 @@ static Boolean RunP256KnownAnswer(void)
         PALM_TLS_ARMLET_P256_SUCCESS) return false;
     for (index = 0; index < sizeof(generator); index++)
         if (requestP->output[index] != generator[index]) return false;
+    requestP->leftUsed = requestP->rightUsed = 0;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_P256_VALIDATE;
+    MemMove(requestP->right, generator, sizeof(generator));
+    MemSet(requestP->output, sizeof(requestP->output), 0xa5);
+    if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_P256_SUCCESS)
+        return false;
+    requestP->right[63] ^= 1;
+    if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_P256_INVALID_POINT)
+        return false;
+    MemSet(requestP->right, 32, 0xff);
+    if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_P256_OUT_OF_RANGE)
+        return false;
+    for (index = 0; index < sizeof(requestP->output); index++)
+        if (requestP->output[index] != 0xa5) return false;
     return true;
 }
 
@@ -459,18 +473,34 @@ int PalmTlsArmletMultiply(fp_int *leftP, fp_int *rightP, fp_int *outputP)
     return FP_OKAY;
 }
 
+/* Exact domain checks also gate the generic equation-only wolfSSL hook. */
+static const UInt16 kP256PrimeDigits[16] = {
+    0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0x0000, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0001, 0x0000, 0xffff, 0xffff
+};
+static Boolean MatchesP256Digits(const fp_int *valueP, const UInt16 *digitsP)
+{
+    UInt16 index;
+    if (!valueP || valueP->sign != FP_ZPOS || valueP->used != 16) return false;
+    for (index = 0; index < 16; index++)
+        if (valueP->dp[index] != digitsP[index]) return false;
+    return true;
+}
 static Boolean IsP256Modulus(const fp_int *modulusP)
 {
-    static const UInt16 digits[16] = {
-        0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0x0000, 0x0000,
-        0x0000, 0x0000, 0x0000, 0x0000, 0x0001, 0x0000, 0xffff, 0xffff
-    };
-    UInt16 index;
-    if (modulusP == 0 || modulusP->sign != FP_ZPOS ||
-        modulusP->used != 16) return false;
-    for (index = 0; index < 16; index++)
-        if (modulusP->dp[index] != digits[index]) return false;
-    return true;
+    return MatchesP256Digits(modulusP, kP256PrimeDigits);
+}
+static Boolean P256CoordinateInRange(const fp_int *valueP)
+{
+    Int16 index;
+    if (!valueP || valueP->sign != FP_ZPOS || valueP->used < 0 ||
+        valueP->used > 16) return false;
+    if (valueP->used < 16) return true;
+    for (index = 15; index >= 0; index--) {
+        if (valueP->dp[index] < kP256PrimeDigits[index]) return true;
+        if (valueP->dp[index] > kP256PrimeDigits[index]) return false;
+    }
+    return false;
 }
 
 static Boolean WriteBigEndian256(UInt8 *bytesP, const fp_int *valueP)
@@ -485,6 +515,62 @@ static Boolean WriteBigEndian256(UInt8 *bytesP, const fp_int *valueP)
         bytesP[30 - index * 2] = (UInt8)(digit >> 8);
     }
     return true;
+}
+
+/* Return 1 only when the native implementation handled this call. An unknown
+ * native status always falls back, never silently accepts a public key. */
+static int NativeP256Equation(const ecc_point *pointP, int *resultP)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    UInt32 status;
+    if (!WriteBigEndian256(requestP->right, pointP->x) ||
+        !WriteBigEndian256(requestP->right + 32, pointP->y)) return 0;
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->leftUsed = requestP->rightUsed = 0;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_P256_VALIDATE;
+    status = PceNativeCall(gArmletEntryP, requestP);
+    if (status == PALM_TLS_ARMLET_P256_SUCCESS) *resultP = MP_OKAY;
+    else if (status == PALM_TLS_ARMLET_P256_INVALID_POINT) *resultP = IS_POINT_E;
+    else return 0;
+    return 1;
+}
+
+int PalmTlsArmletP256Validate(const ecc_point *pointP, int *resultP)
+{
+    if (!gArmletEnabled || !gArmletEntryP || !gRequestP || !resultP ||
+        !pointP || !pointP->x || !pointP->y || !pointP->z) return 0;
+    /* Match wc_ecc_is_point's order and errors, including negative and wide
+     * integers; no normalization/reduction is allowed before these checks. */
+    if (!P256CoordinateInRange(pointP->x) ||
+        !P256CoordinateInRange(pointP->y)) {
+        *resultP = ECC_OUT_OF_RANGE_E;
+        return 1;
+    }
+    if (fp_cmp_d((fp_int *)pointP->z, 1) != FP_EQ ||
+        pointP->z->sign != FP_ZPOS) {
+        *resultP = ECC_BAD_ARG_E;
+        return 1;
+    }
+    return NativeP256Equation(pointP, resultP);
+}
+
+int PalmTlsArmletP256IsPoint(const ecc_point *pointP, const mp_int *aP,
+    const mp_int *bP, const mp_int *primeP, int *resultP)
+{
+    static const UInt16 aDigits[16] = {
+        0xfffc, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001, 0x0000, 0xffff, 0xffff
+    };
+    static const UInt16 bDigits[16] = {
+        0x604b, 0x27d2, 0x3c3e, 0x3bce, 0xb0f6, 0xcc53, 0x06b0, 0x651d, 0x86bc, 0x7698, 0xbd55, 0xb3eb, 0x93e7, 0xaa3a, 0x35d8, 0x5ac6
+    };
+    if (!gArmletEnabled || !gArmletEntryP || !gRequestP || !resultP ||
+        !pointP || !IsP256Modulus(primeP) ||
+        !MatchesP256Digits(aP, aDigits) || !MatchesP256Digits(bP, bDigits) ||
+        !P256CoordinateInRange(pointP->x) ||
+        !P256CoordinateInRange(pointP->y)) return 0;
+    /* _ecc_is_point checks only the equation, not Z. Its callers retain their
+     * original infinity/range/order/private-key checks and error precedence. */
+    return NativeP256Equation(pointP, resultP);
 }
 
 int PalmTlsArmletP256Multiply(const mp_int *scalarP, const ecc_point *pointP,

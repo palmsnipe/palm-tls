@@ -1,0 +1,39 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -235,6 +235,9 @@
+ extern int PalmTlsArmletP256Multiply(const mp_int* scalarP,
+     const ecc_point* pointP, ecc_point* resultP, mp_int* modulusP, int map);
+ extern int PalmTlsArmletP256Map(ecc_point* pointP, mp_int* modulusP);
++extern int PalmTlsArmletP256Validate(const ecc_point* pointP, int* resultP);
++extern int PalmTlsArmletP256IsPoint(const ecc_point* pointP, const mp_int* aP,
++    const mp_int* bP, const mp_int* primeP, int* resultP);
+ extern int PalmTlsArmletP256Multiply2Add(const ecc_point* leftPointP,
+     const mp_int* leftScalarP, const ecc_point* rightPointP,
+     const mp_int* rightScalarP, ecc_point* resultP, mp_int* modulusP);
+@@ -5484,6 +5487,13 @@
+        return ECC_BAD_ARG_E;
+     }
+ 
++#ifdef PALM_WOLFSSL_ARMLET_MATH
++    /* Only the built-in P-256 domain can bypass generic curve loading. */
++    if (curve_idx == wc_ecc_get_curve_idx(ECC_SECP256R1) &&
++        curve_idx != ECC_CUSTOM_IDX && PalmTlsArmletP256Validate(p, &err))
++        return err;
++#endif
++
+     ALLOC_CURVE_SPECS(3, err);
+     if (err == MP_OKAY) {
+         err = wc_ecc_curve_load(wc_ecc_get_curve_params(curve_idx), &curve,
+@@ -11014,6 +11024,11 @@
+ /* is ecc point on curve described by dp ? */
+ static int _ecc_is_point(ecc_point* ecp, mp_int* a, mp_int* b, mp_int* prime)
+ {
++#ifdef PALM_WOLFSSL_ARMLET_MATH
++    int nativeResult;
++    if (PalmTlsArmletP256IsPoint(ecp, a, b, prime, &nativeResult))
++        return nativeResult;
++#endif
+ #if !defined(WOLFSSL_SP_MATH)
+    int err;
+ #ifdef WOLFSSL_SMALL_STACK

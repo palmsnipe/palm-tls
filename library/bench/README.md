@@ -126,6 +126,22 @@ per-operation resolution than individual handshakes. Preserve the raw tick
 samples; a 10 ms handshake difference should not be presented as a precise
 sub-tick physical-device speedup.
 
+### Native public-key validation comparison
+
+[`baselines/2026-11-01-p256-validation`](baselines/2026-11-01-p256-validation)
+compares the unchanged `feaadb3` baseline with native validation. Use the same
+handshake commands and `--reuse-fixture` workflow above. Both sides have the
+same profiler and application code; the final library adds native hooks and
+stronger startup qualification. There is no diagnostic option that disables
+validation. Baseline and candidate both perform all verification checks.
+
+The 288-byte detail retains nonzero validation entry counts even when its
+phase is shorter than one tick. Compare full/resumed handshake times separately
+from engine load: the stronger startup self-test increases cold loading by
+about 20 ms in this run. Raw measurements, repeated runs, server confirmations,
+and an offline self-test ABI regression are archived. Development fixture keys
+remain only in ignored build directories.
+
 ## Repeatable emulator runs
 
 Use a supplied, already initialized OS 5 session. The runner copies it into a
