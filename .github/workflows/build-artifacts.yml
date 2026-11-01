@@ -34,7 +34,7 @@ jobs:
       - name: Install application build dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends imagemagick librsvg2-bin zip
+          apt-get install -y --no-install-recommends imagemagick librsvg2-bin zip python3
           rm -rf /var/lib/apt/lists/*
 
       - name: Verify toolchain

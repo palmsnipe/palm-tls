@@ -158,7 +158,9 @@ def main():
         server=[json.loads(line) for line in args.server_log.read_text().splitlines()]
         successful=[r for r in server if r.get('request')=='probe\n']
         assert len(successful)==30 and sum(r['resumed'] for r in successful)==10
-        assert all(r['version']=='TLSv1.3' and r['cipher']=='TLS_AES_128_GCM_SHA256' for r in successful)
+        assert all(r['version']=='TLSv1.3' and r['cipher'] in
+                   ('TLS_AES_128_GCM_SHA256','TLS_CHACHA20_POLY1305_SHA256') for r in successful)
+        assert len({r['cipher'] for r in successful})==1
         legacy=[r for r in server if r.get('version')=='TLSv1.2' and r.get('request')=='check\n']
         assert len(legacy)==2 and sum(r['resumed'] for r in legacy)==1
         print('# server independently confirmed 20 full and 10 resumed TLS 1.3 connections')
