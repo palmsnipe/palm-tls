@@ -112,6 +112,19 @@ final comparison. The order offload is measured through those integrated
 rows rather than an isolated native microbenchmark. Modified-message and
 modified-signature checks run afterward, outside the recorded positive timing.
 
+## Squaring through multiplication
+
+The `FeMultiply(a, a)` squaring comparison is saved under
+[`baselines/2026-11-01-p256-square`](baselines/2026-11-01-p256-square).
+The clean `865b973` baseline uses the Comba squarer; the candidate changes
+`FeSquare` to use the integrated multiplier and removes the unused Comba
+helper. Both retain the selector fix and exactly the same 46 benchmark cases.
+No benchmark-support patch or configuration switch is needed for this baseline.
+The `p256_field_square` row measures 128 dependent in-place operations per
+native call, while integrated ECDH/ECDSA rows check whether that kernel change
+improves the real library operations. Both optimized runs use the same native
+image in the benchmark and every existing ARM library profile.
+
 ## Field-arithmetic and reduction comparison
 
 The suite adds `p256_field_multiply`, `p256_field_square` and

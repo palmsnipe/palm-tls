@@ -1,5 +1,60 @@
 # ARM performance review — November 1, 2026
 
+## Field squaring through the integrated multiplier
+
+`FeSquare(result, value)` now calls `FeMultiply(result, value, value)`.
+The integrated multiplier consumes all input limbs before writing its output,
+so the existing in-place calls remain valid even when both inputs and the
+output alias. The former Comba squarer and its unused column-accumulation
+helper are removed. The wide reducer stays available for diagnostics.
+`FeSelect`, including both volatile operand reads, is unchanged from `865b973`.
+
+A fresh clean baseline was built from `865b973`; its native image matches that
+commit's **33,976-byte** image and SHA-256. Both sides use identical wolfSSL
+5.9.4 archives, benchmark workloads, selector fix, ARMv4T `-Os` flags, emulator
+binary, supplied Frankenpilot / Tungsten E3 session, and **100 MIPS** setting.
+The benchmark PRCs differ only in `armc:1`. This comparison changes no workload,
+diagnostic command, public API, CPU allowlist, or fallback path.
+
+Five-sample medians:
+
+| Operation | Comba baseline | Integrated product | Repeat | Less elapsed time |
+| --- | ---: | ---: | ---: | ---: |
+| Raw Montgomery square | 18.92 us | 12.82 us | 12.82 us | 32.3% |
+| Native fixed-base affine multiply | 30 ms | 26.25 ms | 26.25 ms | 12.5% |
+| Native general-point affine multiply | 87.5 ms | 75 ms | 75 ms | 14.3% |
+| Native affine map | 5 ms | 3.44 ms | 3.44 ms | 31.3% |
+| Native generator double-scalar operation | 72.5 ms | 60 ms | 60 ms | 17.2% |
+| TLS 1.2/1.3 shared-secret calculation | 100 ms | 80 ms | 80 ms | 20.0% |
+| TLS 1.2/1.3 complete ECDSA verification | 100 ms | 90 ms | 90 ms | 10.0% |
+
+Both optimized runs reproduce these medians. Raw multiply and wide-reduction
+medians remain 12.82 us and 9.16 us. Field measurements use the existing
+128-operation chains and count each operation; native call/marshaling overhead
+is amortized, not excluded. Integrated timings have 10 ms resolution: optimized
+shared-secret and verification samples span 80–90 ms. These are emulator
+instruction-budget measurements, not physical-device or network-handshake
+performance. Other native workloads remain within timer quantization.
+
+The simpler implementation is retained: the image shrinks **72 bytes**, from
+33,976 to **33,904 bytes**. All existing ARM profiles and the benchmark contain
+the same single ARMv4T image, SHA-256
+`4c8e5b1840f1a1807324ebd307fd89872902df00d65586d0e9ba4a2792a2d743`.
+No CPU-specific variant or additional ARM PRC is introduced.
+
+Project/profile/package checks and independent crypto oracles pass, including
+1,881 raw-field chains, 85 double-scalar cases, 69 inversions/maps, 64 scalar
+products, 432 order preparations, 24 valid/tampered ECDSA cases and 168 AES-GCM
+records. The extracted image passes on **TI925T and PXA270** CPU emulation,
+including active instruction/data-address trace checks over 20 operand pairs
+per field operation. Cloudpilot separately validates actual Palm OS native
+calls, both self-test result sizes, ECDSA rejection cases and wolfSSL AES-GCM.
+The trace checks preserve the selector fix's tested behavior; they do not
+prove physical constant-time execution on every Palm processor.
+
+Raw samples, manifests and both comparisons are saved under
+[bench/baselines/2026-11-01-p256-square](bench/baselines/2026-11-01-p256-square).
+
 ## P-256 fixed-prime Montgomery reduction and field benchmarks
 
 Both the integrated field multiply and the wide reducer used by squaring now

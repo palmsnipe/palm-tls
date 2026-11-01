@@ -574,23 +574,6 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
     }
 }
 
-/* Add a 65-bit-or-smaller partial product to a three-limb Comba column.
- * A P-256 square has at most four doubled products in one column, so the
- * third limb cannot overflow. */
-static void FeAddSquareProduct(u32 *lowP, u32 *middleP, u32 *highP,
-                               u32 low, u32 high, u32 extra)
-{
-    u64 value;
-    u32 carry;
-    value = (u64)*lowP + low;
-    *lowP = (u32)value;
-    carry = (u32)(value >> 32);
-    value = (u64)*middleP + high + carry;
-    *middleP = (u32)value;
-    carry = (u32)(value >> 32);
-    *highP += extra + carry;
-}
-
 /* Montgomery-reduce a 512-bit value. P[0] is -1, so the reduction digit is
  * the low accumulator limb without an additional multiplication. */
 static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
@@ -626,41 +609,12 @@ static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
     }
 }
 
+/* The integrated product accepts equal inputs and in-place output: it
+ * consumes all input limbs before writing resultP. Keep one field product
+ * implementation for both multiplication and squaring. */
 static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
 {
-    u32 accumulator[17] = {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    };
-    u32 columnLow = 0;
-    u32 columnMiddle = 0;
-    u32 columnHigh = 0;
-    u32 column;
-    for (column = 0; column < 15U; column++) {
-        u32 first = column > 7U ? column - 7U : 0U;
-        u32 last = column < 7U ? column : 7U;
-        u32 left;
-        for (left = first; left <= last && left <= column - left; left++) {
-            u32 right = column - left;
-            u64 product = (u64)valueP->v[left] * valueP->v[right];
-            u32 low = (u32)product;
-            u32 high = (u32)(product >> 32);
-            u32 extra = 0;
-            if (left != right) {
-                extra = high >> 31;
-                high = (high << 1) | (low >> 31);
-                low <<= 1;
-            }
-            FeAddSquareProduct(&columnLow, &columnMiddle, &columnHigh,
-                               low, high, extra);
-        }
-        accumulator[column] = columnLow;
-        columnLow = columnMiddle;
-        columnMiddle = columnHigh;
-        columnHigh = 0;
-    }
-    accumulator[15] = columnLow;
-    accumulator[16] = columnMiddle;
-    FeReduceWide(resultP, accumulator);
+    FeMultiply(resultP, valueP, valueP);
 }
 
 static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
