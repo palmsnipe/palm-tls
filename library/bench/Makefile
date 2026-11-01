@@ -82,3 +82,21 @@ $(BUILD)/PalmTLSHandshakeBench.prc: $(BUILD)/handshake-code0001.bin $(BUILD)/arm
 handshake: $(BUILD)/PalmTLSHandshakeBench.prc
 	node $(TOOLCHAIN_ROOT)/tools/validate-prc.mjs $< 'PalmTLS HS Bench' appl Thsb
 	node validate-armlet.mjs $< $(ROOT)/build/palm/armc0001.bin
+
+# Common-ABI comparison against published library binaries.
+$(BUILD)/release.o: release.c $(BUILD)/handshake_vectors.inc $(ROOT)/include/palm_tls.h
+	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD)/release.elf: $(BUILD)/release.o $(BUILD)/startup.o $(LINKER)
+	$(CC) $(LDFLAGS) -Wl,--emit-relocs $(BUILD)/release.o $(BUILD)/startup.o -o $@.stage1
+	node $(TOOLCHAIN_ROOT)/tools/generate-m68k-relocs.mjs $@.stage1 $(BUILD)/release-relocs.s $(PREFIX)/bin/m68k-none-elf-readelf
+	$(CC) $(ABI) -c $(BUILD)/release-relocs.s -o $(BUILD)/release-relocs.o
+	$(CC) $(LDFLAGS) $(BUILD)/release.o $(BUILD)/startup.o $(BUILD)/release-relocs.o -o $@
+	rm $@.stage1
+$(BUILD)/release-code0001.bin: $(BUILD)/release.elf
+	$(PREFIX)/bin/m68k-none-elf-objcopy -O binary $< $@ -j .vec -j .text
+$(BUILD)/PalmTLSReleaseBench.prc: $(BUILD)/release-code0001.bin $(BUILD)/armc0001.bin release.rcp
+	cd $(BUILD) && $(PREFIX)/bin/pilrc -ro -o release.ro $(ROOT)/bench/release.rcp
+	$(PREFIX)/bin/build-prc --no-check -o $@ -n 'PalmTLS HS Bench' -c Thsb -t appl $(BUILD)/release.ro
+release-bench: $(BUILD)/PalmTLSReleaseBench.prc
+	node $(TOOLCHAIN_ROOT)/tools/validate-prc.mjs $< 'PalmTLS HS Bench' appl Thsb
+	node validate-armlet.mjs $< $(ROOT)/build/palm/armc0001.bin

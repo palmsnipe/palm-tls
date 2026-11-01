@@ -444,6 +444,51 @@ def ecdsa_math(backend, rng):
     return 24
 
 
+def chacha(backend, rng):
+    vectors = []
+    for size in (0,1,15,16,17,63,64,65,511,1024,16384):
+        for aad in (0,13,32):
+            make = lambda n: bytes(rng.getrandbits(8) for _ in range(n)).hex()
+            vectors.append(dict(key=make(32),nonce=make(12),aad=make(aad),plaintext=make(size)))
+    expected = json.loads(subprocess.check_output(['node',str(Path(__file__).with_name('chacha_oracle.mjs'))],
+        input=json.dumps(vectors).encode()))
+    memory = bytearray(0xe000)
+    if isinstance(backend, Host):
+        storage = (ctypes.c_ubyte * len(memory)).from_buffer(memory)
+        ctypes.c_void_p.in_dll(backend.library,'PalmTlsArmletHostMemory').value = ctypes.addressof(storage)
+        base = 0
+    else:
+        base = backend.DATA + 0x2000
+    for i,v in enumerate(expected):
+        size = len(bytes.fromhex(v['plaintext'])); skew = i%4
+        inp,out,aad = skew,0x5000+skew,0xa000+skew
+        for decrypt,tamper in ((0,False),(1,False),(1,True)):
+            data = request(9)
+            put = lambda off,value: data.__setitem__(slice(LEFT+off,LEFT+off+4),value.to_bytes(4,'big'))
+            data[LEFT] = decrypt
+            state = b'expand 32-byte k'+bytes.fromhex(v['key'])+bytes(4)+bytes.fromhex(v['nonce'])
+            for j in range(16): put(4+j*4,int.from_bytes(state[j*4:j*4+4],'little'))
+            for off,value in ((68,base+inp),(72,base+out),(76,size),(80,base+aad),(84,len(bytes.fromhex(v['aad'])))):
+                put(off,value)
+            data[LEFT+88:LEFT+104] = bytes.fromhex(v['tag'])
+            if tamper: data[LEFT+88] ^= 1
+            memory[:] = bytes([0xa5])*len(memory)
+            source = bytes.fromhex(v['ciphertext' if decrypt else 'plaintext'])
+            memory[inp:inp+size] = source
+            a = bytes.fromhex(v['aad']); memory[aad:aad+len(a)] = a
+            if isinstance(backend,Arm): backend.machine.mem_write(base,bytes(memory))
+            result = backend.invoke(data,skew)
+            if isinstance(backend,Arm): memory[:] = backend.machine.mem_read(base,len(memory))
+            assert result == (257 if tamper else SUCCESS), ('ChaCha status',i,decrypt,tamper)
+            assert data[LEFT+4:LEFT+68] == bytes(64), 'ChaCha copied key not erased'
+            if tamper:
+                assert memory[out:out+size] == bytes([0xa5])*size, 'unauthenticated plaintext released'
+            else:
+                assert memory[out:out+size].hex() == v['plaintext' if decrypt else 'ciphertext'], ('ChaCha output',i)
+                assert data[LEFT+88:LEFT+104].hex() == v['tag'], ('ChaCha tag',i)
+    return len(expected)*3
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
@@ -453,6 +498,7 @@ def main():
     args = parser.parse_args()
     backend = Host(args.host_library) if args.host_library else Arm(args.arm_image, args.cpu)
     rng = random.Random(0x50414c4d)
+    chacha_records = chacha(backend, rng)
     records = aes(backend, rng)
     fields = field_arithmetic(backend)
     inverses, multiplies, verifies = p256(backend, rng)
@@ -461,7 +507,7 @@ def main():
     signatures = ecdsa_math(backend, rng)
     if isinstance(backend, Arm): secret_scalar_traces(backend)
     print(f'Crypto oracles passed ({args.cpu if args.arm_image else "host"}): '
-          f'{records} AES-GCM records, {fields} raw-field chains, {inverses} inversions/maps, '
+          f'{chacha_records} ChaCha records, {records} AES-GCM records, {fields} raw-field chains, {inverses} inversions/maps, '
           f'{multiplies} scalar products, {verifies} double-scalar cases, '
           f'{orders} order preparations, {validations} point validations, '
           f'{signatures} ECDSA valid/tampered cases; alignment offsets 0..3')

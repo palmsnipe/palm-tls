@@ -1,0 +1,34 @@
+{
+  "benchmark_version": 1,
+  "benchmark_type": "tls_release",
+  "mips": 100,
+  "device": "auto",
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "emulator_sha256": "3349f1b450c596c55bf8a7652f1a596e613c6c2876faf6d46f5f5dcef5e5f7cb",
+  "prc_sha256": "9315b79b92ebdd7636bcec9021eb142d2587823da4934dc8058486f5ace53469",
+  "library_sha256": "706b809efbc8bf8c43869c6fddfe088ec28f23717f9513af6c1e92c9eb7eb60b",
+  "arm_image_sha256": "ec73cc10ba50ba45a3af804d226c837e38b34868d22d6ee80564b068e1287175",
+  "arm_image_bytes": 38160,
+  "command": [
+    "/Users/cyril/projects/cloudpilot-emu/src/uarm/cp-uarm",
+    "--net-native",
+    "--mips",
+    "100",
+    "--no-sound",
+    "--device",
+    "auto",
+    "/Users/cyril/projects/palm-tls/library/build/bench/release-014-run2/session.img"
+  ],
+  "local_arm_build_config": "clang --target=armv4t-none-eabi -mcpu=arm7tdmi -march=armv4t -marm -Os",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "edb34cf7251f75047812494c2510072ae0dd68c9b0e4adb56e0474c094b5acdf"
+  },
+  "library_release": "0.1.4 candidate",
+  "benchmark_source_revision": "964e4abfc65338decfe87f02e876bb1dbe5cf339",
+  "benchmark_source_dirty": true,
+  "library_source_revision": "964e4abfc65338decfe87f02e876bb1dbe5cf339 + 0.1.4 version strings",
+  "library_provenance": "Local release candidate; Apple Clang ARMv4T build"
+}

@@ -31,6 +31,8 @@ def native_image(path):
 
 
 def run(args):
+    release = getattr(args, "release", False)
+    if release: args.handshake = True
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     session = output / 'session.img'
@@ -58,7 +60,7 @@ def run(args):
     if args.network: command.insert(1, '--net-native')
     repo = Path(__file__).resolve().parents[2]
     metadata = {'benchmark_version': 1,
-                'benchmark_type': 'tls13_handshake' if args.handshake else 'native',
+                'benchmark_type': 'tls_release' if release else 'tls13_handshake' if args.handshake else 'native',
                 'mips': args.mips, 'device': args.device,
                 'session_sha256': sha256(args.session),
                 'emulator_sha256': sha256(args.emulator),
@@ -165,6 +167,8 @@ def run(args):
             send(f'db-export "{archive}"', 'export written to', timeout=args.timeout)
             if args.handshake:
                 from handshake_results import extract as hs_extract, load as hs_load
+                if release:
+                    from release_results import extract as hs_extract, load as hs_load
                 text = hs_extract(archive, allow_failed=state is False)
             else:
                 text = extract(archive)
@@ -206,6 +210,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True, help='new directory for this run')
     parser.add_argument('--prc', type=Path, default=root / 'build/bench/PalmTLSBench.prc')
     parser.add_argument('--library', type=Path, help='optional ARM library to install for engine timings')
+    parser.add_argument('--release', action='store_true', help='run common-ABI release comparison')
     parser.add_argument('--handshake', action='store_true', help='run and validate the TLS 1.3 handshake app')
     parser.add_argument('--handshake-fixture', type=Path, help='live local TLS fixture directory; verify its trust bundle')
     parser.add_argument('--network', action='store_true', help='enable native NetLib redirection')

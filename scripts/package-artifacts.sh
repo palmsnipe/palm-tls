@@ -30,7 +30,7 @@ mkdir -p "$dist/library" "$dist/tls-tester"
 
 cp "${required[@]:0:6}" "$dist/library/"
 cp "$repo/library/include/palm_tls.h" "$dist/library/"
-cp "$repo/library/API.md" "$repo/library/README.md" "$dist/library/"
+cp "$repo/library/API.md" "$repo/library/README.md" "$repo/library/ARM.md" "$repo/library/PERFORMANCE.md" "$dist/library/"
 cp "$repo/library/arm/p256-inverse.LICENSE" "$dist/library/"
 cp "${required[6]}" "$dist/tls-tester/"
 cp "$repo/apps/tls-tester/README.md" "$dist/tls-tester/"

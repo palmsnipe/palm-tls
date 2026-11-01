@@ -74,7 +74,7 @@ ARMlet is turned off later, wolfSSL's own 68K code handles the records.
 
 ## Build and ABI
 
-Clang compiles a roughly 34 KiB freestanding ARMv4T code image, including the
+Clang compiles a roughly 38 KiB freestanding ARMv4T code image, including the
 generated fixed-base P-256 table. `ARM_CC` defaults to `clang` and may be
 overridden when necessary:
 

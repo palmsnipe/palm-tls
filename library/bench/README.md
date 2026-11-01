@@ -441,3 +441,14 @@ CSV checker require complete profiles whose phase times sum to each total.
 Sub-tick phase values may be zero; native primitive timings must remain positive.
 Compare profiled baseline and candidate together: instrumentation overhead and
 100 Hz quantization prevent treating these as precise hardware cycle counts.
+
+## Comparing published versions
+
+`release.c` uses only the 0.1.3 session ABI and disables profiling. It measures
+complete API open/handshake time, including setup omitted by the older internal
+handshake timer. Build with `make -C library/bench release-bench` after generating
+the usual server fixture include. Use `bind-release-image.py APP LIB OUTPUT`
+to prepare the identical benchmark code for an older published library, then
+`run-emulator.py --release` with explicit `--prc`, `--library`, `--network`, and
+`--handshake-fixture`. The [0.1.3/0.1.4 baseline](baselines/2026-11-01-release-013-014/README.md)
+documents all conditions and serial reproduction steps.
