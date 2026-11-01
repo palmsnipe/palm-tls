@@ -119,17 +119,21 @@ scripts/package-artifacts.sh
 ```
 
 The same packaging command is used by the manually triggered GitHub Actions
-workflow. That trusted workflow runs inside a private SDK-enabled toolchain
-image and uploads the resulting `dist/` directory as a 30-day build artifact.
+release-candidate workflow. That trusted workflow runs inside a private SDK-enabled
+toolchain image, validates the release commit and both ARM CPU models, and
+uploads a candidate bundle with 90-day retention.
 It is intentionally not triggered for pull requests. The repository secret
 `PALM_TOOLCHAIN_REGISTRY_TOKEN` must contain a dedicated classic GitHub token
 with only the `read:packages` scope; do not reuse a general-purpose token.
 
-Pushing a version tag such as `v0.1.2` runs the same trusted build and creates
-a draft GitHub Release. Its permanent download assets include the individual
-PRCs and a complete binary ZIP. The Release notes link to the tagged PalmTLS
-source, the exact pinned wolfSSL source, the Palm-specific patches, and the
-build scripts. Review the draft before publishing it.
+Releases follow **prepare → candidate build → emulator verification → promotion**.
+`python3 scripts/release.py` prepares versions, verifies/downloads candidates,
+collects benchmark and regression evidence, and publishes the exact verified
+binaries. Promotion creates the version tag after validation; pushing a tag
+does not start another build. The release includes checked-in notes, generated
+performance comparisons, source references, benchmark evidence and standalone
+checksums. See [the release checklist](docs/RELEASING.md) for the complete process
+and recovery commands.
 
 Install one PalmTLS PRC followed by `TlsTester.prc`. Actual HTTP and HTTPS
 requests require a Palm OS device or emulator with working NetLib connectivity.

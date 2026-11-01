@@ -142,6 +142,22 @@ def load_startup(text, rows, profiles):
     return result
 
 
+def validate_server(path):
+    server=[json.loads(line) for line in path.read_text().splitlines()]
+    successful=[r for r in server if r.get('request')=='probe\n']
+    if len(successful)!=30 or sum(r['resumed'] for r in successful)!=10:
+        raise ValueError('server did not confirm 20 full and 10 resumed TLS 1.3 connections')
+    if any(r.get('version')!='TLSv1.3' or r.get('cipher') not in
+           ('TLS_AES_128_GCM_SHA256','TLS_CHACHA20_POLY1305_SHA256') for r in successful):
+        raise ValueError('unexpected server protocol/cipher')
+    if len({r['cipher'] for r in successful})!=1:
+        raise ValueError('handshake samples negotiated different ciphers')
+    legacy=[r for r in server if r.get('version')=='TLSv1.2' and r.get('request')=='check\n']
+    if len(legacy)!=2 or sum(r['resumed'] for r in legacy)!=1:
+        raise ValueError('server did not confirm TLS 1.2 full/resumed regressions')
+    return successful[0]['cipher']
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('input',type=Path)
@@ -155,14 +171,7 @@ def main():
         loads=[r['load_ticks']*1000/r['frequency'] for r in samples]
         print(f'{case},{statistics.median(ms):.1f},{min(ms):.1f},{max(ms):.1f},{statistics.median(loads):.1f}')
     if args.server_log:
-        server=[json.loads(line) for line in args.server_log.read_text().splitlines()]
-        successful=[r for r in server if r.get('request')=='probe\n']
-        assert len(successful)==30 and sum(r['resumed'] for r in successful)==10
-        assert all(r['version']=='TLSv1.3' and r['cipher'] in
-                   ('TLS_AES_128_GCM_SHA256','TLS_CHACHA20_POLY1305_SHA256') for r in successful)
-        assert len({r['cipher'] for r in successful})==1
-        legacy=[r for r in server if r.get('version')=='TLSv1.2' and r.get('request')=='check\n']
-        assert len(legacy)==2 and sum(r['resumed'] for r in legacy)==1
+        validate_server(args.server_log)
         print('# server independently confirmed 20 full and 10 resumed TLS 1.3 connections')
 
 if __name__=='__main__': main()

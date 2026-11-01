@@ -1,6 +1,8 @@
 /.palm-tls/
 /dist/
 /release-assets/
+/release-candidate/
+/release-evidence/
 /components/http/build/
 /library/build/
 /examples/network/build/

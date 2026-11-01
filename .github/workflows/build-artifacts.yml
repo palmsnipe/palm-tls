@@ -1,10 +1,7 @@
-name: Build PalmTLS artifacts
+name: Build PalmTLS release candidate
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read
@@ -18,6 +15,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     container:
       image: ghcr.io/palmsnipe/palm-toolchain-sdk@sha256:2c441bfa432785cf90e34fb5f4efe241c07a9e3666ee475119d856f96db3299f
       credentials:
@@ -27,6 +25,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Trust checked-out source
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -34,8 +35,11 @@ jobs:
       - name: Install application build dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends imagemagick librsvg2-bin zip python3
+          apt-get install -y --no-install-recommends imagemagick librsvg2-bin zip python3 python3-venv
           rm -rf /var/lib/apt/lists/*
+
+      - name: Validate release commit before building
+        run: python3 scripts/release.py preflight
 
       - name: Verify toolchain
         run: make -C "$PALM_TOOLCHAIN_ROOT" check
@@ -46,70 +50,34 @@ jobs:
       - name: Build release TLS Tester
         run: make -C apps/tls-tester release
 
+      - name: Validate the native image on both ARM CPU models
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv library/build/arm-test-venv
+          library/build/arm-test-venv/bin/pip install -r library/tests/requirements-arm.txt
+          mkdir -p library/build/release-validation
+          for cpu in ti925t pxa270; do
+            library/build/arm-test-venv/bin/python library/tests/crypto_oracle_test.py \
+              --arm-image library/build/palm/armc0001.bin --cpu "$cpu" \
+              | tee "library/build/release-validation/$cpu.log"
+          done
+
       - name: Package outputs
         shell: bash
         run: |
           scripts/package-artifacts.sh
           (cd dist && sha256sum -c SHA256SUMS)
-          version="${GITHUB_REF_NAME#v}"
-          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
-            version="$(sed -n 's/^LIB_VERSION := //p' library/app.mk)"
-          fi
+          version="$(sed -n 's/^LIB_VERSION := //p' library/app.mk)"
           scripts/package-release.sh "$version"
+          python3 scripts/release.py bundle \
+            --ti925t-log library/build/release-validation/ti925t.log \
+            --pxa270-log library/build/release-validation/pxa270.log
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: palm-tls-${{ github.sha }}
-          path: |
-            dist/
-            release-assets/
+          name: palm-tls-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-candidate/
           if-no-files-found: error
-          retention-days: 30
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download verified build outputs
-        uses: actions/download-artifact@v7
-        with:
-          name: palm-tls-${{ github.sha }}
-
-      - name: Create draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          wolfssl_commit="$(sed -n 's/^WOLFSSL_COMMIT="\([^"]*\)"/\1/p' dist/SOURCE.txt)"
-          if [[ -z "$wolfssl_commit" ]]; then
-            echo "Unable to determine the pinned wolfSSL commit." >&2
-            exit 1
-          fi
-          notes="$(mktemp)"
-          {
-            echo "PalmTLS ${version}"
-            echo
-            echo "Install exactly one PalmTLS library variant, followed by TLS Tester if desired."
-            echo "The ZIP contains all binaries, the public header, documentation, licenses, and checksums."
-            echo
-            echo "## Corresponding source"
-            echo
-            echo "- [PalmTLS ${version} source](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME})"
-            echo "- [Exact wolfSSL source](https://github.com/wolfSSL/wolfssl/tree/${wolfssl_commit})"
-            echo "- [Palm-specific wolfSSL patches](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}/patches/wolfssl)"
-            echo "- [Build scripts](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}/scripts)"
-            echo
-            echo "This is a draft release. Review the assets and notes before publishing it."
-          } >"$notes"
-
-          gh release create "$GITHUB_REF_NAME" release-assets/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --draft \
-            --title "PalmTLS ${version}" \
-            --notes-file "$notes"
+          retention-days: 90

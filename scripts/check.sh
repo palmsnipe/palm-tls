@@ -12,6 +12,7 @@ fi
 
 export PALM_TOOLCHAIN_PREFIX="$TOOLCHAIN_PREFIX"
 export PALM_TLS_DEPS_PREFIX="$DEPS_PREFIX"
+python3 -m unittest discover -s "$PALM_TLS_ROOT/scripts/tests" -p 'test_*.py'
 "${MAKE:-make}" -C "$PALM_TLS_ROOT/components/http" test
 "${MAKE:-make}" -C "$PALM_TLS_ROOT/library" test
 "${MAKE:-make}" -C "$PALM_TLS_ROOT/library/bench" test
