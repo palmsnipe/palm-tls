@@ -1,0 +1,81 @@
+diff --git a/src/internal.c b/src/internal.c
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -3999,6 +3999,10 @@
+     return 0;
+ }
+ 
++#if defined(BUILD_TLS_CHACHA20_POLY1305_SHA256) && defined(PALM_WOLFSSL_ARMLET_MATH)
++extern int PalmTlsArmletChaChaPolyEnabled(void);
++#endif
++
+ #ifdef WOLFSSL_TLS13
+ /* Append the TLS 1.3 cipher suites. Returns the updated suite index. */
+ static word16 InitSuites_Tls13(Suites* suites, word16 idx, int tls1_3,
+@@ -4009,6 +4013,13 @@
+     (void)haveAES128;
+     (void)haveNull;
+ 
++#if defined(BUILD_TLS_CHACHA20_POLY1305_SHA256) && defined(PALM_WOLFSSL_ARMLET_MATH)
++    if (tls1_3 && PalmTlsArmletChaChaPolyEnabled()) {
++        suites->suites[idx++] = TLS13_BYTE;
++        suites->suites[idx++] = TLS_CHACHA20_POLY1305_SHA256;
++    }
++#endif
++
+ #ifdef BUILD_TLS_AES_256_GCM_SHA384
+     if (tls1_3) {
+         suites->suites[idx++] = TLS13_BYTE;
+@@ -4023,7 +4034,7 @@
+     }
+ #endif
+ 
+-#ifdef BUILD_TLS_CHACHA20_POLY1305_SHA256
++#if defined(BUILD_TLS_CHACHA20_POLY1305_SHA256) && !defined(PALM_WOLFSSL_ARMLET_MATH)
+     if (tls1_3) {
+         suites->suites[idx++] = TLS13_BYTE;
+         suites->suites[idx++] = TLS_CHACHA20_POLY1305_SHA256;
+diff --git a/src/tls13.c b/src/tls13.c
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -2761,6 +2761,12 @@
+     xorbuf(nonce + seq_offset, iv + seq_offset, SEQ_SZ);
+ }
+ 
++#if defined(HAVE_CHACHA) && defined(HAVE_POLY1305) && defined(PALM_WOLFSSL_ARMLET_MATH)
++extern int PalmTlsArmletChaChaPoly(const word32* stateP, byte* outputP,
++    const byte* inputP, word32 length, const byte* aadP, word32 aadLength,
++    byte* tagP, int decrypt, int* resultP);
++#endif
++
+ #if defined(HAVE_CHACHA) && defined(HAVE_POLY1305)
+ /* Encrypt with ChaCha20 and create authentication tag with Poly1305.
+  *
+@@ -2779,6 +2785,12 @@
+                                     const byte* input, word16 sz, byte* nonce,
+                                     const byte* aad, word16 aadSz, byte* tag)
+ {
++#ifdef PALM_WOLFSSL_ARMLET_MATH
++    int ret = wc_Chacha_SetIV(ssl->encrypt.chacha, nonce, 0);
++    if (ret != 0) return ret;
++    if (PalmTlsArmletChaChaPoly(ssl->encrypt.chacha->X, output, input, sz,
++            aad, aadSz, tag, 0, &ret)) return ret;
++#endif
+     /* Persistent-key stitched helper: derives the per-record Poly1305 key from
+      * the keyed ChaCha, then encrypts and authenticates in one pass (the IFMA
+      * stitch for large records, else two-pass).  TLS 1.3 is always RFC 8439. */
+@@ -3161,6 +3173,14 @@
+ {
+     int ret;
+ 
++#ifdef PALM_WOLFSSL_ARMLET_MATH
++    ret = wc_Chacha_SetIV(ssl->decrypt.chacha, nonce, 0);
++    if (ret != 0) return ret;
++    if (PalmTlsArmletChaChaPoly(ssl->decrypt.chacha->X, output, input, sz,
++            aad, aadSz, (byte*)tagIn, 1, &ret)) {
++        return ret == WC_NO_ERR_TRACE(MAC_CMP_FAILED_E) ? VERIFY_MAC_ERROR : ret;
++    }
++#endif
+     /* Persistent-key stitched helper: verifies the Poly1305 tag over
+      * aad+ciphertext and decrypts in one pass (the IFMA decrypt stitch for
+      * large records, else two-pass); it zeroes output on tag mismatch. */

@@ -1,7 +1,7 @@
 /* Palm OS 5 ARMlet for 16-bit bignum multiplication, SHA-256 compression,
- * and complete P-256 scalar multiplication. Palm memory is big-endian while
- * native ARM is little-endian, so request fields are always accessed
- * byte-by-byte. */
+ * AES-128-GCM, ChaCha20-Poly1305, and complete P-256 scalar multiplication.
+ * Palm memory is big-endian while native ARM is little-endian, so request
+ * fields are always accessed byte-by-byte. */
 
 #include "armlet_abi.h"
 
@@ -429,6 +429,301 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
     AesEncrypt128(roundKeyP,initial,stream);
     for (index=0; index<16; index++) outputP[index]=(u8)(x[index]^stream[index]);
     return PALM_TLS_ARMLET_SUCCESS;
+}
+
+/* ChaCha20 and Poly1305 are little-endian, like the ARM, so aligned record
+ * data is read and written a word at a time. On the host test, addresses
+ * are offsets into a buffer the test provides. */
+typedef u32 __attribute__((may_alias)) AliasU32;
+
+/* Volatile stores keep secret-buffer clearing in optimized ARM builds. */
+static void ClearChaChaSecret(volatile void *pointerP, u32 length)
+{
+    volatile u8 *bytesP = (volatile u8 *)pointerP;
+    while (length != 0) {
+        *bytesP++ = 0;
+        length--;
+    }
+}
+
+#ifdef PALM_ARMLET_HOST_TEST
+u8 *PalmTlsArmletHostMemory;
+#define ARMLET_POINTER(address) (PalmTlsArmletHostMemory + (address))
+#define ARMLET_ALIGNED(pointer) \
+    ((((unsigned long)(pointer)) & 3UL) == 0UL)
+#else
+#define ARMLET_POINTER(address) ((u8 *)(address))
+#define ARMLET_ALIGNED(pointer) ((((u32)(pointer)) & 3U) == 0U)
+#endif
+
+static __inline__ u32 RotateLeft(u32 value, u32 count)
+{
+    return (value << count) | (value >> (32U - count));
+}
+
+static __inline__ u32 LoadLittle32(const u8 *bytesP)
+{
+    return (u32)bytesP[0] | ((u32)bytesP[1] << 8) | ((u32)bytesP[2] << 16) |
+        ((u32)bytesP[3] << 24);
+}
+
+static __inline__ void StoreLittle32(u8 *bytesP, u32 value)
+{
+    bytesP[0] = (u8)value; bytesP[1] = (u8)(value >> 8);
+    bytesP[2] = (u8)(value >> 16); bytesP[3] = (u8)(value >> 24);
+}
+
+#define CHACHA_QUARTER(a, b, c, d) \
+    a += b; d = RotateLeft(d ^ a, 16); \
+    c += d; b = RotateLeft(b ^ c, 12); \
+    a += b; d = RotateLeft(d ^ a, 8); \
+    c += d; b = RotateLeft(b ^ c, 7)
+
+static void ChaChaBlock(const u32 *inputP, u32 *outputP)
+{
+    u32 x0 = inputP[0], x1 = inputP[1], x2 = inputP[2], x3 = inputP[3];
+    u32 x4 = inputP[4], x5 = inputP[5], x6 = inputP[6], x7 = inputP[7];
+    u32 x8 = inputP[8], x9 = inputP[9], x10 = inputP[10], x11 = inputP[11];
+    u32 x12 = inputP[12], x13 = inputP[13], x14 = inputP[14], x15 = inputP[15];
+    u32 round;
+    for (round = 0; round < 10; round++) {
+        CHACHA_QUARTER(x0, x4, x8, x12);
+        CHACHA_QUARTER(x1, x5, x9, x13);
+        CHACHA_QUARTER(x2, x6, x10, x14);
+        CHACHA_QUARTER(x3, x7, x11, x15);
+        CHACHA_QUARTER(x0, x5, x10, x15);
+        CHACHA_QUARTER(x1, x6, x11, x12);
+        CHACHA_QUARTER(x2, x7, x8, x13);
+        CHACHA_QUARTER(x3, x4, x9, x14);
+    }
+    outputP[0] = x0 + inputP[0]; outputP[1] = x1 + inputP[1];
+    outputP[2] = x2 + inputP[2]; outputP[3] = x3 + inputP[3];
+    outputP[4] = x4 + inputP[4]; outputP[5] = x5 + inputP[5];
+    outputP[6] = x6 + inputP[6]; outputP[7] = x7 + inputP[7];
+    outputP[8] = x8 + inputP[8]; outputP[9] = x9 + inputP[9];
+    outputP[10] = x10 + inputP[10]; outputP[11] = x11 + inputP[11];
+    outputP[12] = x12 + inputP[12]; outputP[13] = x13 + inputP[13];
+    outputP[14] = x14 + inputP[14]; outputP[15] = x15 + inputP[15];
+}
+
+/* XORs length bytes with the key stream from block counter 1. */
+static void ChaChaCrypt(u32 *stateP, const u8 *inputP, u8 *outputP,
+                        u32 length)
+{
+    u32 stream[16];
+    u32 index;
+    stateP[12] = 1;
+    while (length >= 64U) {
+        ChaChaBlock(stateP, stream);
+        if (ARMLET_ALIGNED(inputP) && ARMLET_ALIGNED(outputP)) {
+            const AliasU32 *inWordsP = (const AliasU32 *)inputP;
+            AliasU32 *outWordsP = (AliasU32 *)outputP;
+            for (index = 0; index < 16; index++)
+                outWordsP[index] = inWordsP[index] ^ stream[index];
+        } else {
+            for (index = 0; index < 16; index++)
+                StoreLittle32(outputP + index * 4U,
+                    LoadLittle32(inputP + index * 4U) ^ stream[index]);
+        }
+        stateP[12]++;
+        inputP += 64;
+        outputP += 64;
+        length -= 64U;
+    }
+    if (length != 0) {
+        ChaChaBlock(stateP, stream);
+        for (index = 0; index < length; index++)
+            outputP[index] = (u8)(inputP[index] ^
+                (stream[index >> 2] >> (8U * (index & 3U))));
+    }
+    ClearChaChaSecret(stream, sizeof(stream));
+}
+
+/* Poly1305 in five 26-bit limbs, as in poly1305-donna-32. */
+typedef struct Poly1305 {
+    u32 r[5];
+    u32 h[5];
+    u32 pad[4];
+} Poly1305;
+
+#define POLY_MASK 0x3ffffffU
+
+static void PolyInit(Poly1305 *polyP, const u32 *keyP)
+{
+    polyP->r[0] = keyP[0] & 0x3ffffffU;
+    polyP->r[1] = ((keyP[0] >> 26) | (keyP[1] << 6)) & 0x3ffff03U;
+    polyP->r[2] = ((keyP[1] >> 20) | (keyP[2] << 12)) & 0x3ffc0ffU;
+    polyP->r[3] = ((keyP[2] >> 14) | (keyP[3] << 18)) & 0x3f03fffU;
+    polyP->r[4] = (keyP[3] >> 8) & 0x00fffffU;
+    polyP->h[0] = polyP->h[1] = polyP->h[2] = polyP->h[3] = polyP->h[4] = 0;
+    polyP->pad[0] = keyP[4];
+    polyP->pad[1] = keyP[5];
+    polyP->pad[2] = keyP[6];
+    polyP->pad[3] = keyP[7];
+}
+
+/* Adds whole 16-byte blocks; the last partial one is zero-padded, as the
+ * AEAD construction pads AAD and ciphertext. */
+static void PolyPadded(Poly1305 *polyP, const u8 *dataP, u32 length)
+{
+    u32 r0 = polyP->r[0], r1 = polyP->r[1], r2 = polyP->r[2];
+    u32 r3 = polyP->r[3], r4 = polyP->r[4];
+    u32 s1 = r1 * 5U, s2 = r2 * 5U, s3 = r3 * 5U, s4 = r4 * 5U;
+    u32 h0 = polyP->h[0], h1 = polyP->h[1], h2 = polyP->h[2];
+    u32 h3 = polyP->h[3], h4 = polyP->h[4];
+    u32 aligned = ARMLET_ALIGNED(dataP);
+    while (length != 0) {
+        u32 t0, t1, t2, t3, c;
+        u64 d0, d1, d2, d3, d4;
+        if (length >= 16U) {
+            if (aligned) {
+                const AliasU32 *wordsP = (const AliasU32 *)dataP;
+                t0 = wordsP[0]; t1 = wordsP[1]; t2 = wordsP[2]; t3 = wordsP[3];
+            } else {
+                t0 = LoadLittle32(dataP); t1 = LoadLittle32(dataP + 4);
+                t2 = LoadLittle32(dataP + 8); t3 = LoadLittle32(dataP + 12);
+            }
+            dataP += 16;
+            length -= 16U;
+        } else {
+            u8 block[16];
+            u32 index;
+            for (index = 0; index < 16; index++)
+                block[index] = index < length ? dataP[index] : 0;
+            t0 = LoadLittle32(block); t1 = LoadLittle32(block + 4);
+            t2 = LoadLittle32(block + 8); t3 = LoadLittle32(block + 12);
+            length = 0;
+        }
+        h0 += t0 & POLY_MASK;
+        h1 += ((t0 >> 26) | (t1 << 6)) & POLY_MASK;
+        h2 += ((t1 >> 20) | (t2 << 12)) & POLY_MASK;
+        h3 += ((t2 >> 14) | (t3 << 18)) & POLY_MASK;
+        h4 += (t3 >> 8) | (1U << 24);
+        d0 = (u64)h0 * r0 + (u64)h1 * s4 + (u64)h2 * s3 + (u64)h3 * s2 +
+            (u64)h4 * s1;
+        d1 = (u64)h0 * r1 + (u64)h1 * r0 + (u64)h2 * s4 + (u64)h3 * s3 +
+            (u64)h4 * s2;
+        d2 = (u64)h0 * r2 + (u64)h1 * r1 + (u64)h2 * r0 + (u64)h3 * s4 +
+            (u64)h4 * s3;
+        d3 = (u64)h0 * r3 + (u64)h1 * r2 + (u64)h2 * r1 + (u64)h3 * r0 +
+            (u64)h4 * s4;
+        d4 = (u64)h0 * r4 + (u64)h1 * r3 + (u64)h2 * r2 + (u64)h3 * r1 +
+            (u64)h4 * r0;
+        c = (u32)(d0 >> 26); h0 = (u32)d0 & POLY_MASK;
+        d1 += c; c = (u32)(d1 >> 26); h1 = (u32)d1 & POLY_MASK;
+        d2 += c; c = (u32)(d2 >> 26); h2 = (u32)d2 & POLY_MASK;
+        d3 += c; c = (u32)(d3 >> 26); h3 = (u32)d3 & POLY_MASK;
+        d4 += c; c = (u32)(d4 >> 26); h4 = (u32)d4 & POLY_MASK;
+        h0 += c * 5U; c = h0 >> 26; h0 &= POLY_MASK;
+        h1 += c;
+    }
+    polyP->h[0] = h0; polyP->h[1] = h1; polyP->h[2] = h2;
+    polyP->h[3] = h3; polyP->h[4] = h4;
+}
+
+static void PolyFinish(Poly1305 *polyP, u8 *tagP)
+{
+    u32 h0 = polyP->h[0], h1 = polyP->h[1], h2 = polyP->h[2];
+    u32 h3 = polyP->h[3], h4 = polyP->h[4];
+    u32 g0, g1, g2, g3, g4, c, mask;
+    u64 f;
+    c = h1 >> 26; h1 &= POLY_MASK;
+    h2 += c; c = h2 >> 26; h2 &= POLY_MASK;
+    h3 += c; c = h3 >> 26; h3 &= POLY_MASK;
+    h4 += c; c = h4 >> 26; h4 &= POLY_MASK;
+    h0 += c * 5U; c = h0 >> 26; h0 &= POLY_MASK;
+    h1 += c;
+    /* h - p, kept only if it did not go below zero */
+    g0 = h0 + 5U; c = g0 >> 26; g0 &= POLY_MASK;
+    g1 = h1 + c; c = g1 >> 26; g1 &= POLY_MASK;
+    g2 = h2 + c; c = g2 >> 26; g2 &= POLY_MASK;
+    g3 = h3 + c; c = g3 >> 26; g3 &= POLY_MASK;
+    g4 = h4 + c - (1U << 26);
+    mask = (g4 >> 31) - 1U;
+    g0 &= mask; g1 &= mask; g2 &= mask; g3 &= mask; g4 &= mask;
+    mask = ~mask;
+    h0 = (h0 & mask) | g0; h1 = (h1 & mask) | g1; h2 = (h2 & mask) | g2;
+    h3 = (h3 & mask) | g3; h4 = (h4 & mask) | g4;
+    h0 = h0 | (h1 << 26);
+    h1 = (h1 >> 6) | (h2 << 20);
+    h2 = (h2 >> 12) | (h3 << 14);
+    h3 = (h3 >> 18) | (h4 << 8);
+    f = (u64)h0 + polyP->pad[0]; h0 = (u32)f;
+    f = (u64)h1 + polyP->pad[1] + (f >> 32); h1 = (u32)f;
+    f = (u64)h2 + polyP->pad[2] + (f >> 32); h2 = (u32)f;
+    f = (u64)h3 + polyP->pad[3] + (f >> 32); h3 = (u32)f;
+    StoreLittle32(tagP, h0);
+    StoreLittle32(tagP + 4, h1);
+    StoreLittle32(tagP + 8, h2);
+    StoreLittle32(tagP + 12, h3);
+}
+
+/* The RFC 8439 AEAD tag over AAD and ciphertext. */
+static void ChaChaPolyTag(const u32 *polyKeyP, const u8 *aadP,
+                          u32 aadLength, const u8 *cipherP, u32 length,
+                          u8 *tagP)
+{
+    Poly1305 poly;
+    u8 lengths[16];
+    PolyInit(&poly, polyKeyP);
+    PolyPadded(&poly, aadP, aadLength);
+    PolyPadded(&poly, cipherP, length);
+    StoreLittle32(lengths, aadLength);
+    StoreLittle32(lengths + 4, 0);
+    StoreLittle32(lengths + 8, length);
+    StoreLittle32(lengths + 12, 0);
+    PolyPadded(&poly, lengths, 16);
+    PolyFinish(&poly, tagP);
+    ClearChaChaSecret(&poly, sizeof(poly));
+}
+
+/* Seals or opens one record. Opening checks the tag before decrypting, as
+ * wolfSSL does, so a forged record leaves the output untouched. */
+static u32 ChaChaPoly(volatile u8 *fieldsP)
+{
+    u32 state[16], polyKey[16];
+    u8 tag[16];
+    u32 decrypt = fieldsP[PALM_TLS_ARMLET_CHACHA_DECRYPT_OFFSET];
+    u32 length = Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_LENGTH_OFFSET);
+    u32 aadLength = Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_AAD_LENGTH_OFFSET);
+    const u8 *inputP = ARMLET_POINTER(
+        Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_INPUT_OFFSET));
+    u8 *outputP = ARMLET_POINTER(
+        Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_OUTPUT_OFFSET));
+    const u8 *aadP = ARMLET_POINTER(
+        Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_AAD_OFFSET));
+    volatile u8 *tagFieldP = fieldsP + PALM_TLS_ARMLET_CHACHA_TAG_OFFSET;
+    u32 index, difference = 0, status = PALM_TLS_ARMLET_SUCCESS;
+    if (length > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH ||
+        aadLength > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH) {
+        ClearChaChaSecret(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, 64);
+        return PALM_TLS_ARMLET_ERROR;
+    }
+    for (index = 0; index < 16; index++)
+        state[index] = Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET +
+            index * 4U);
+    ClearChaChaSecret(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, 64);
+    state[12] = 0;
+    ChaChaBlock(state, polyKey);
+    if (decrypt) {
+        ChaChaPolyTag(polyKey, aadP, aadLength, inputP, length, tag);
+        for (index = 0; index < 16; index++)
+            difference |= (u32)(tag[index] ^ tagFieldP[index]);
+        if (difference != 0) {
+            status = PALM_TLS_ARMLET_AUTH_FAILED;
+            goto cleanup;
+        }
+        ChaChaCrypt(state, inputP, outputP, length);
+    } else {
+        ChaChaCrypt(state, inputP, outputP, length);
+        ChaChaPolyTag(polyKey, aadP, aadLength, outputP, length, tag);
+        for (index = 0; index < 16; index++) tagFieldP[index] = tag[index];
+    }
+cleanup:
+    ClearChaChaSecret(state, sizeof(state));
+    ClearChaChaSecret(polyKey, sizeof(polyKey));
+    ClearChaChaSecret(tag, sizeof(tag));
+    return status;
 }
 
 static void FeCopy(Fe256 *destinationP, const Fe256 *sourceP)
@@ -1568,6 +1863,8 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
         return Sha256Transform(leftP, rightP, outputP, requestP[2]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_AES_GCM)
         return AesGcm(leftP, rightP, outputP);
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_CHACHA_POLY)
+        return ChaChaPoly(leftP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_MUL)
         return P256Multiply(leftP, rightP, outputP, requestP[1]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_MUL2ADD)
