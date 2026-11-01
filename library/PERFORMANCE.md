@@ -1,5 +1,71 @@
 # ARM performance review — November 1, 2026
 
+## ECDSA order arithmetic follow-up
+
+The compatibility/GHASH/field-inversion work below was committed as
+`4c8eb10`. A fresh, clean baseline from that commit was measured before
+changing verification arithmetic. The updated library still uses **one
+ARMv4T image and one ARM PRC per existing protocol profile**, with the same
+CPU allowlist, 68K fallback, byte-safe request ABI and `-Os` default.
+
+`s^-1 mod n`, `e*s^-1 mod n` and `r*s^-1 mod n` now execute together in one
+native call. A binary extended-GCD inverse uses public signature data only;
+three 8-limb Montgomery multiplications convert its result and produce the
+normal-domain scalars. The reducer uses the group order's own constants,
+not the field-prime constants. This path does not handle signing nonces or
+private-key operations; the secret-scalar paths remain unchanged.
+
+The final `x mod n` replaces generic division with a bounded 68K compare/copy
+or subtraction, avoiding an extra native crossing. A 256-bit input is below
+`2*n`, so at most one subtraction is necessary. The native bridge handles
+wolfSSL's aliased digest/scalar buffers, rejects unsupported inputs before
+writing output integers, and propagates native execution errors. The pinned
+wolfSSL patch keeps DER parsing, hash truncation, signature range checks,
+public-key handling and final comparison in their existing paths. Fault-check
+builds (`WOLFSSL_CHECK_VER_FAULTS`) retain the old order-arithmetic path.
+
+### Integrated benchmark
+
+Same Apple Clang 21.0.0, ARMv4T/ARM7TDMI `-Os`, supplied Frankenpilot/E3
+session, native `cp-uarm` binary, 100 MIPS setting and five samples per case:
+
+| Case | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| TLS 1.2 ECDSA verification | 300 ms | 220 ms | 26.7% less time |
+| TLS 1.3 ECDSA verification | 300 ms | 220 ms | 26.7% less time |
+| Native P-256 double-scalar operation | 92.5 ms | 92.5 ms | Unchanged |
+| AES-GCM, 16 KiB encrypt/decrypt | 60 ms | 60 ms | Unchanged |
+| Native image | 29,568 bytes | 31,728 bytes | +2,160 bytes / +7.3% |
+
+A second independent run of the same optimized PRCs again measured 220 ms
+for both verification phases in all five samples. Its raw results are saved
+alongside the first run.
+
+The verification rows time the complete positive wolfSSL verification call,
+not just the native order command. They retain 10 ms Palm tick resolution.
+Raw samples, manifests and comparisons are saved under
+[bench/baselines/2026-11-01-ecdsa-order](bench/baselines/2026-11-01-ecdsa-order).
+This does not establish an end-to-end network handshake speedup or physical
+PXA270 timings; parsing/setup and other TLS work remain outside this change.
+
+### Correctness and compatibility
+
+The added native command passes 432 independent boundary/random inverse and
+product cases, including every power-of-two denominator, `s=n-1`, maximum
+digests, reduction at/above `n`, and all four alignment offsets. Eight invalid
+signature-scalar pairs are rejected without touching output. Twenty-four
+valid/tampered ECDSA math cases check scalar preparation followed by the
+existing native double-scalar operation. Python big-integer and affine
+arithmetic provide independent expected results.
+
+These run on host C and the exact extracted ARM image under TI925T and PXA270
+CPU models, alongside the existing AES-GCM/P-256 tests and negative ISA probe.
+The startup KAT checks the new command with `e=2^256-1,r=n-1,s=2`; failure
+disables native hooks. The real library self-test also rejects a changed hash
+and changed DER signature after its timed positive vector. Fresh-source patch
+application, all library profiles, native image attributes and project checks
+pass. No processor-specific download or public library ABI change is required.
+
 ## Implemented: compatibility, GHASH and inversion
 
 The current build keeps **one ARM implementation in one ARM PRC per existing
@@ -71,8 +137,8 @@ a full Palm OS test on an older TI device. Physical Palm measurements remain
 necessary for real cache/pipeline/memory behavior. The release default stays
 `-Os`; no processor-specific backend, new public ABI or extra CPU PRC was added.
 
-The next useful experiments are AES-round profiling, ECDSA's remaining 68K order
-arithmetic, and measured architecture-crossing/copy costs. These should retain
+The next useful experiments after that stage were AES-round profiling, ECDSA's
+68K order arithmetic (now implemented above), and measured architecture-crossing/copy costs. These should retain
 the ARMv4T baseline and be evaluated individually with the same suite.
 
 ## Historical review before these changes

@@ -8,6 +8,10 @@
 #define PALM_TLS_ARMLET_COMMAND_AES_GCM 3
 #define PALM_TLS_ARMLET_COMMAND_P256_MUL2ADD 4
 #define PALM_TLS_ARMLET_COMMAND_P256_MAP 5
+#define PALM_TLS_ARMLET_COMMAND_P256_ORDER 6
+/* ORDER input: left = e || r || s (three unsigned big-endian 32-byte values).
+ * Output = u1 || u2 || s^-1 mod n in the same format. r,s must be in [1,n).
+ * This variable-time command is for public ECDSA verification values only. */
 #define PALM_TLS_ARMLET_SHA256_MAX_BLOCKS 8
 #define PALM_TLS_ARMLET_AES_GCM_START 0
 #define PALM_TLS_ARMLET_AES_GCM_UPDATE 1

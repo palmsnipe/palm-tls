@@ -147,6 +147,28 @@ static int RunHandshakeMathSelfTest(PalmTlsEngineResult *resultP)
         resultP->verifyTicks = TimGetTicks() - startTicks;
     }
     if (result == 0 && signatureValid != 1) result = SIG_VERIFY_E;
+    if (result == 0) {
+        UInt8 changedHash[sizeof(kP256SampleHash)];
+        UInt8 changedSignature[sizeof(kP256SampleSignature)];
+        /* These checks are outside verifyTicks. A native accelerator must
+         * reject modified messages and signatures through the real wolfSSL
+         * parser/bridge path, not merely accept the positive test vector. */
+        MemMove(changedHash, kP256SampleHash, sizeof(changedHash));
+        changedHash[0] ^= 1;
+        signatureValid = 1;
+        result = wc_ecc_verify_hash(kP256SampleSignature,
+            sizeof(kP256SampleSignature), changedHash, sizeof(changedHash),
+            &signatureValid, &publicKey);
+        if (result == 0 && signatureValid != 0) result = SIG_VERIFY_E;
+        if (result == 0) {
+            MemMove(changedSignature, kP256SampleSignature, sizeof(changedSignature));
+            changedSignature[sizeof(changedSignature) - 1] ^= 1;
+            signatureValid = 1;
+            result = wc_ecc_verify_hash(changedSignature, sizeof(changedSignature),
+                kP256SampleHash, sizeof(kP256SampleHash), &signatureValid, &publicKey);
+            if (result == 0 && signatureValid != 0) result = SIG_VERIFY_E;
+        }
+    }
     if (rngInitialized) wc_FreeRng(&rng);
     if (publicInitialized) wc_ecc_free(&publicKey);
     if (privateInitialized) wc_ecc_free(&privateKey);

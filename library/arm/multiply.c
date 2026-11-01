@@ -1196,6 +1196,194 @@ static u32 P256Multiply2Add(const volatile u8 *scalarsP,
     return P256WritePoint(&result, outputP, 1U);
 }
 
+/* P-256 order arithmetic is deliberately separate from field arithmetic:
+ * n != p, so neither the field reduction constant nor FeInverse applies.
+ * These inputs are public signature/hash values. The binary inverse is
+ * variable-time and must not be used for private scalars or signing nonces. */
+typedef struct Order256 { u32 v[8]; } Order256;
+static const Order256 kOrder = {{
+    0xfc632551U, 0xf3b9cac2U, 0xa7179e84U, 0xbce6faadU,
+    0xffffffffU, 0xffffffffU, 0x00000000U, 0xffffffffU
+}};
+static const Order256 kOrderR2 = {{
+    0xbe79eea2U, 0x83244c95U, 0x49bd6fa6U, 0x4699799cU,
+    0x2b6bec59U, 0x2845b239U, 0xf3d95620U, 0x66e12d94U
+}};
+
+static int OrderCompare(const Order256 *leftP, const Order256 *rightP)
+{
+    int index;
+    for (index = 7; index >= 0; index--) {
+        if (leftP->v[index] > rightP->v[index]) return 1;
+        if (leftP->v[index] < rightP->v[index]) return -1;
+    }
+    return 0;
+}
+
+static u32 OrderIsValue(const Order256 *valueP, u32 expected)
+{
+    u32 bits = valueP->v[0] ^ expected;
+    u32 index;
+    for (index = 1; index < 8; index++) bits |= valueP->v[index];
+    return bits == 0;
+}
+
+static u32 OrderSubtract(Order256 *resultP, const Order256 *leftP,
+                         const Order256 *rightP)
+{
+    u64 borrow = 0;
+    u32 index;
+    for (index = 0; index < 8; index++) {
+        u64 right = (u64)rightP->v[index] + borrow;
+        u32 left = leftP->v[index];
+        resultP->v[index] = left - (u32)right;
+        borrow = (u64)left < right;
+    }
+    return (u32)borrow;
+}
+
+static void OrderSubtractMod(Order256 *resultP, const Order256 *leftP,
+                             const Order256 *rightP)
+{
+    u32 borrow = OrderSubtract(resultP, leftP, rightP);
+    u64 carry = 0;
+    u32 index;
+    for (index = 0; index < 8; index++) {
+        u64 sum = (u64)resultP->v[index] +
+            (kOrder.v[index] & (0U - borrow)) + carry;
+        resultP->v[index] = (u32)sum;
+        carry = sum >> 32;
+    }
+}
+
+static void OrderShiftRight(Order256 *valueP, u32 top)
+{
+    int index;
+    for (index = 7; index >= 0; index--) {
+        u32 next = valueP->v[index] & 1U;
+        valueP->v[index] = (valueP->v[index] >> 1) | (top << 31);
+        top = next;
+    }
+}
+
+static void OrderHalfMod(Order256 *valueP)
+{
+    u64 carry = 0;
+    if ((valueP->v[0] & 1U) != 0) {
+        u32 index;
+        for (index = 0; index < 8; index++) {
+            u64 sum = (u64)valueP->v[index] + kOrder.v[index] + carry;
+            valueP->v[index] = (u32)sum;
+            carry = sum >> 32;
+        }
+    }
+    /* Preserve the 257th bit of value+n when halving an odd coefficient. */
+    OrderShiftRight(valueP, (u32)carry);
+}
+
+static void OrderInverse(Order256 *resultP, const Order256 *valueP)
+{
+    Order256 u = *valueP;
+    Order256 v = kOrder;
+    Order256 x = {{1, 0, 0, 0, 0, 0, 0, 0}};
+    Order256 y = {{0, 0, 0, 0, 0, 0, 0, 0}};
+    /* The caller enforces 0 < value < prime n. Invariants: u=x*value mod n,
+     * v=y*value mod n, 0<=x,y<n. The positive gcd operands strictly decrease. */
+    while (!OrderIsValue(&u, 1) && !OrderIsValue(&v, 1)) {
+        while ((u.v[0] & 1U) == 0) {
+            OrderShiftRight(&u, 0);
+            OrderHalfMod(&x);
+        }
+        while ((v.v[0] & 1U) == 0) {
+            OrderShiftRight(&v, 0);
+            OrderHalfMod(&y);
+        }
+        if (OrderCompare(&u, &v) >= 0) {
+            OrderSubtract(&u, &u, &v);
+            OrderSubtractMod(&x, &x, &y);
+        } else {
+            OrderSubtract(&v, &v, &u);
+            OrderSubtractMod(&y, &y, &x);
+        }
+    }
+    *resultP = OrderIsValue(&u, 1) ? x : y;
+}
+
+static void OrderMultiply(Order256 *resultP, const Order256 *leftP,
+                          const Order256 *rightP)
+{
+    u32 t[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    u32 outer;
+    for (outer = 0; outer < 8; outer++) {
+        u64 carry = 0, top;
+        u32 inner, multiplier;
+        for (inner = 0; inner < 8; inner++) {
+            u64 value = (u64)leftP->v[inner] * rightP->v[outer] + t[inner] + carry;
+            t[inner] = (u32)value;
+            carry = value >> 32;
+        }
+        top = (u64)t[8] + carry;
+        t[8] = (u32)top;
+        multiplier = t[0] * 0xee00bc4fU; /* -n^-1 modulo 2^32 */
+        carry = 0;
+        for (inner = 0; inner < 8; inner++) {
+            u64 value = (u64)multiplier * kOrder.v[inner] + t[inner] + carry;
+            if (inner != 0) t[inner - 1] = (u32)value;
+            carry = value >> 32;
+        }
+        {
+            u64 value = (u64)t[8] + carry;
+            t[7] = (u32)value;
+            t[8] = (u32)((top >> 32) + (value >> 32));
+        }
+    }
+    {
+        Order256 value, reduced;
+        u32 index, borrow, mask;
+        for (index = 0; index < 8; index++) value.v[index] = t[index];
+        borrow = OrderSubtract(&reduced, &value, &kOrder);
+        mask = 0U - ((t[8] != 0U) | (borrow ^ 1U));
+        for (index = 0; index < 8; index++)
+            resultP->v[index] = (value.v[index] & ~mask) | (reduced.v[index] & mask);
+    }
+}
+
+static void OrderRead(Order256 *valueP, const volatile u8 *bytesP)
+{
+    u32 index;
+    for (index = 0; index < 8; index++)
+        valueP->v[index] = ReadBigEndian32(bytesP + (7U - index) * 4U);
+}
+
+static void OrderWrite(volatile u8 *bytesP, const Order256 *valueP)
+{
+    u32 index;
+    for (index = 0; index < 8; index++)
+        WriteBigEndian32(bytesP + (7U - index) * 4U, valueP->v[index]);
+}
+
+static u32 P256OrderScalars(const volatile u8 *inputP, volatile u8 *outputP)
+{
+    Order256 e, r, s, inverse, montgomeryInverse, u1, u2;
+    OrderRead(&e, inputP);
+    OrderRead(&r, inputP + 32);
+    OrderRead(&s, inputP + 64);
+    if (OrderIsValue(&r, 0) || OrderIsValue(&s, 0) ||
+        OrderCompare(&r, &kOrder) >= 0 || OrderCompare(&s, &kOrder) >= 0)
+        return PALM_TLS_ARMLET_ERROR;
+    /* Any 256-bit digest is below 2*n, hence one subtraction suffices. */
+    if (OrderCompare(&e, &kOrder) >= 0) OrderSubtract(&e, &e, &kOrder);
+    OrderInverse(&inverse, &s);
+    OrderMultiply(&montgomeryInverse, &inverse, &kOrderR2);
+    /* One Montgomery operand produces normal-domain scalar products. */
+    OrderMultiply(&u1, &e, &montgomeryInverse);
+    OrderMultiply(&u2, &r, &montgomeryInverse);
+    OrderWrite(outputP, &u1);
+    OrderWrite(outputP + 32, &u2);
+    OrderWrite(outputP + 64, &inverse);
+    return PALM_TLS_ARMLET_SUCCESS;
+}
+
 ARMLET_ENTRY_ATTRIBUTES
 u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
                        void *call68KFuncP)
@@ -1225,6 +1413,8 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
         return P256Multiply2Add(leftP, rightP, outputP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_MAP)
         return P256Map(rightP, outputP);
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_ORDER)
+        return P256OrderScalars(leftP, outputP);
     if (requestP[3] != PALM_TLS_ARMLET_COMMAND_MULTIPLY)
         return PALM_TLS_ARMLET_ERROR;
     leftUsed = requestP[1];

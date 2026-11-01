@@ -189,6 +189,41 @@ static Boolean RunAesGcmKnownAnswer(void)
     return true;
 }
 
+static Boolean RunOrderKnownAnswer(void)
+{
+    static const UInt8 r[32] = {
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84,
+        0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x50
+    };
+    static const UInt8 expected[96] = {
+        0x00, 0x00, 0x00, 0x00, 0x7f, 0xff, 0xff, 0xff,
+        0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x21, 0x8c, 0x82, 0xa9, 0x2c, 0x74, 0x30, 0xbd,
+        0x86, 0x23, 0x1a, 0x9e, 0x81, 0xce, 0x6d, 0x57,
+        0x7f, 0xff, 0xff, 0xff, 0x80, 0x00, 0x00, 0x00,
+        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xde, 0x73, 0x7d, 0x56, 0xd3, 0x8b, 0xcf, 0x42,
+        0x79, 0xdc, 0xe5, 0x61, 0x7e, 0x31, 0x92, 0xa8,
+        0x7f, 0xff, 0xff, 0xff, 0x80, 0x00, 0x00, 0x00,
+        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xde, 0x73, 0x7d, 0x56, 0xd3, 0x8b, 0xcf, 0x42,
+        0x79, 0xdc, 0xe5, 0x61, 0x7e, 0x31, 0x92, 0xa9
+    };
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    /* Maximum 256-bit digest, r=n-1, s=2 exercises digest reduction,
+     * the 257-bit halving carry, and both modular products. */
+    MemSet(requestP, sizeof(*requestP), 0);
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_P256_ORDER;
+    MemSet(requestP->left, 32, 0xff);
+    MemMove(requestP->left + 32, r, sizeof(r));
+    requestP->left[95] = 2;
+    return PceNativeCall(gArmletEntryP, requestP) == PALM_TLS_ARMLET_SUCCESS &&
+        MemCmp(requestP->output, expected, sizeof(expected)) == 0;
+}
+
 static Boolean IsArmProcessor(void)
 {
     UInt32 processor = 0;
@@ -222,7 +257,7 @@ void PalmTlsArmletInitialize(void)
         if (gRequestP != 0) {
             gArmletEnabled = RunMultiplyKnownAnswer() &&
                 RunP256KnownAnswer() && RunSha256KnownAnswer() &&
-                RunAesGcmKnownAnswer();
+                RunAesGcmKnownAnswer() && RunOrderKnownAnswer();
             gArmletStatus = gArmletEnabled ? palmTlsArmSelfTestPassed
                                            : palmTlsArmSelfTestFailed;
             return;
@@ -514,6 +549,59 @@ int PalmTlsArmletP256Map(ecc_point *pointP, mp_int *modulusP)
     if (result != FP_OKAY) return MP_READ_E;
     fp_set(pointP->z, 1);
     return FP_OKAY;
+}
+
+static Boolean IsP256Order(const mp_int *orderP)
+{
+    static const UInt16 digits[16] = {
+        0x2551, 0xfc63, 0xcac2, 0xf3b9, 0x9e84, 0xa717, 0xfaad, 0xbce6,
+        0xffff, 0xffff, 0xffff, 0xffff, 0x0000, 0x0000, 0xffff, 0xffff
+    };
+    UInt16 index;
+    if (orderP == 0 || orderP->sign != FP_ZPOS || orderP->used != 16)
+        return false;
+    for (index = 0; index < 16; index++)
+        if (orderP->dp[index] != digits[index]) return false;
+    return true;
+}
+
+int PalmTlsArmletP256OrderScalars(const mp_int *digestP, const mp_int *rP,
+    const mp_int *sP, mp_int *inverseP, mp_int *u1P, mp_int *u2P,
+    const mp_int *orderP)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    int result;
+    if (!gArmletEnabled || gArmletEntryP == 0 || requestP == 0 ||
+        inverseP == 0 || u1P == 0 || u2P == 0 || !IsP256Order(orderP) ||
+        !WriteBigEndian256(requestP->left, digestP) ||
+        !WriteBigEndian256(requestP->left + 32, rP) ||
+        !WriteBigEndian256(requestP->left + 64, sP)) return MP_VAL;
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_P256_ORDER;
+    if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_SUCCESS)
+        return MP_READ_E;
+    /* wolfSSL aliases u1 with digest and u2 with inverse in its normal
+     * verifier. Marshal every input first, then write inverse before u2. */
+    result = fp_read_unsigned_bin(inverseP, requestP->output + 64, 32);
+    if (result == FP_OKAY) result = fp_read_unsigned_bin(u1P, requestP->output, 32);
+    if (result == FP_OKAY) result = fp_read_unsigned_bin(u2P, requestP->output + 32, 32);
+    return result == FP_OKAY ? MP_OKAY : MP_READ_E;
+}
+
+int PalmTlsArmletP256OrderReduce(const mp_int *valueP, mp_int *resultP,
+    const mp_int *orderP)
+{
+    if (!gArmletEnabled || valueP == 0 || resultP == 0 ||
+        !IsP256Order(orderP) || valueP->sign != FP_ZPOS ||
+        valueP->used < 0 || valueP->used > 16) return MP_VAL;
+    /* Every nonnegative 256-bit value is below 2*n. Keep this one comparison
+     * and possible subtraction on 68K; another native crossing would cost
+     * more than the bounded operation. Unsupported shapes retain mp_mod. */
+    if (fp_cmp((fp_int *)valueP, (fp_int *)orderP) == FP_LT) {
+        fp_copy(valueP, resultP);
+        return MP_OKAY;
+    }
+    return fp_sub((fp_int *)valueP, (fp_int *)orderP, resultP);
 }
 
 int PalmTlsArmletP256Multiply2Add(const ecc_point *leftPointP,

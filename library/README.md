@@ -12,8 +12,8 @@ profiles from the same source:
 
 The ARMlet uses a shared ARMv4T integer baseline for older TI925/ARM925T and
 newer ARM926/XScale cores. CPU models are checked before native execution;
-unknown or older cores retain the existing 68K implementation. GHASH and
-P-256 inversion optimizations are shared across supported ARM devices, without
+unknown or older cores retain the existing 68K implementation. GHASH,
+P-256 inversion and ECDSA verification order optimizations are shared across supported ARM devices, without
 additional processor-specific PRCs. See [ARM.md](ARM.md) for the exact policy.
 
 All profiles install internally as `Palm TLS` with creator `PTLS` and expose

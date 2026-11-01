@@ -1,0 +1,94 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -226,6 +226,14 @@
+ extern int PalmTlsArmletP256Multiply2Add(const ecc_point* leftPointP,
+     const mp_int* leftScalarP, const ecc_point* rightPointP,
+     const mp_int* rightScalarP, ecc_point* resultP, mp_int* modulusP);
++#ifndef WOLFSSL_CHECK_VER_FAULTS
++#define PALM_WOLFSSL_ARMLET_ORDER
++extern int PalmTlsArmletP256OrderScalars(const mp_int* digestP, const mp_int* rP,
++    const mp_int* sP, mp_int* inverseP, mp_int* u1P, mp_int* u2P,
++    const mp_int* orderP);
++extern int PalmTlsArmletP256OrderReduce(const mp_int* valueP, mp_int* resultP,
++    const mp_int* orderP);
++#endif
+ #endif
+
+ #ifdef WOLFSSL_HAVE_SP_ECC
+@@ -9092,6 +9100,9 @@
+ #endif
+    mp_int*    u1 = NULL;     /* Will be e. */
+    mp_int*    u2 = NULL;     /* Will be w. */
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++   int palmOrderReady = 0;
++#endif
+
+    if (MP_BITS_OVER_MAX(ECC_KEY_MAX_BITS_NONULLCHECK(key), MAX_ECC_BITS_USE)) {
+        return WC_KEY_SIZE_E;
+@@ -9226,12 +9237,34 @@
+        err = wc_ecc_new_point_ex(&mQ, key->heap);
+    }
+
++   /* Compute the public verification scalars together on supported Palm ARM
++    * devices. MP_VAL means unsupported and leaves the generic path intact.
++    * Other native errors propagate instead of retrying with aliased outputs. */
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++   if (err == MP_OKAY) {
++       int orderResult = PalmTlsArmletP256OrderScalars(e, r, s, w, u1, u2,
++           curve->order);
++       if (orderResult == MP_OKAY)
++           palmOrderReady = 1;
++       else if (orderResult != MP_VAL)
++           err = orderResult;
++   }
++#endif
++
+    /*  w  = s^-1 mod n */
+-   if (err == MP_OKAY)
++   if (err == MP_OKAY
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++       && !palmOrderReady
++#endif
++   )
+        err = mp_invmod(s, curve->order, w);
+
+    /* u1 = ew */
+-   if (err == MP_OKAY)
++   if (err == MP_OKAY
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++       && !palmOrderReady
++#endif
++   )
+        err = mp_mulmod(e, w, curve->order, u1);
+
+ #ifdef WOLFSSL_CHECK_VER_FAULTS
+@@ -9241,7 +9274,11 @@
+ #endif
+
+    /* u2 = rw */
+-   if (err == MP_OKAY)
++   if (err == MP_OKAY
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++       && !palmOrderReady
++#endif
++   )
+        err = mp_mulmod(r, w, curve->order, u2);
+
+ #ifdef WOLFSSL_CHECK_VER_FAULTS
+@@ -9354,8 +9391,13 @@
+ #endif /* FREESCALE_LTC_ECC */
+
+    /* v = X_x1 mod n */
+-   if (err == MP_OKAY)
+-       err = mp_mod(mG->x, curve->order, v);
++   if (err == MP_OKAY) {
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++       err = PalmTlsArmletP256OrderReduce(mG->x, v, curve->order);
++       if (err == MP_VAL)
++#endif
++           err = mp_mod(mG->x, curve->order, v);
++   }
+
+    /* does v == r */
+    if (err == MP_OKAY) {

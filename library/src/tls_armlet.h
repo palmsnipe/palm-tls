@@ -14,6 +14,11 @@ int PalmTlsArmletMultiply(fp_int *leftP, fp_int *rightP, fp_int *outputP);
 int PalmTlsArmletP256Multiply(const mp_int *scalarP, const ecc_point *pointP,
                              ecc_point *resultP, mp_int *modulusP, int map);
 int PalmTlsArmletP256Map(ecc_point *pointP, mp_int *modulusP);
+int PalmTlsArmletP256OrderScalars(const mp_int *digestP, const mp_int *rP,
+    const mp_int *sP, mp_int *inverseP, mp_int *u1P, mp_int *u2P,
+    const mp_int *orderP);
+int PalmTlsArmletP256OrderReduce(const mp_int *valueP, mp_int *resultP,
+    const mp_int *orderP);
 int PalmTlsArmletP256Multiply2Add(const ecc_point *leftPointP,
                                  const mp_int *leftScalarP,
                                  const ecc_point *rightPointP,

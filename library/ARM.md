@@ -3,7 +3,8 @@
 `PalmTLSArm.prc` is a hybrid Palm OS 5 build. Palm applications and system
 library dispatch remain 68K code, preserving the `PTLS` API used by Palm OS 4+
 consumers. Hot multiprecision multiplication/squaring, P-256 scalar
-multiplication and projective mapping, SHA-256 compression, and AES-128-GCM
+multiplication, projective mapping and ECDSA verification order arithmetic,
+SHA-256 compression, and AES-128-GCM
 record protection execute in a native ARMlet through the SDK's
 `PceNativeCall` trap.
 
@@ -13,7 +14,7 @@ record protection execute in a native ARMlet through the SDK's
    CPU models before executing native code. Unknown/older models retain 68K math.
 2. The selected TLS engine locks the `armc:1` resource and allocates one reusable
    request buffer.
-3. wolfSSL's TFM `fp_mul`/`fp_sqr`, P-256 scalar multiplication, SHA-256
+3. wolfSSL's TFM `fp_mul`/`fp_sqr`, P-256 scalar multiplication/order preparation, SHA-256
    compression, and AES-128-GCM hooks marshal operands through that buffer.
 4. The ARMlet performs carry-safe bignum multiplication, SHA-256's 64-round
    compression function, P-256 Montgomery/Jacobian scalar multiplication and
@@ -21,7 +22,7 @@ record protection execute in a native ARMlet through the SDK's
    authentication.
 5. Before normal use, bignum multiplication, mapped and unmapped P-256
    generator multiplication (including native affine mapping), SHA-256 of
-   `abc`, and a NIST AES-GCM vector run as native known-answer tests without
+   `abc`, a NIST AES-GCM vector and a P-256 order-arithmetic vector run as native known-answer tests without
    networking.
 6. If any test fails, the ARM hook is disabled and the unchanged 68K TFM/SHA
    implementation is used as a fallback.
@@ -37,7 +38,7 @@ mapping is occupied, PalmTLS safely falls back to the 68K implementation.
 
 ## Build and ABI
 
-Clang compiles a roughly 30 KB freestanding ARMv4T code image, including the
+Clang compiles a roughly 32 KB freestanding ARMv4T code image, including the
 generated fixed-base P-256 table. `ARM_CC` defaults to `clang` and may be
 overridden when necessary:
 
@@ -98,6 +99,24 @@ in one native call, instead of performing every field multiplication across the
 P-256 points in wolfSSL's normal representation cannot be mistaken for raw
 ARMlet coordinates.
 
+ECDSA verification prepares `w=s^-1 mod n`, `u1=e*w mod n` and `u2=r*w mod n`
+in one additional native call. Order arithmetic has its own 8-by-32-bit
+Montgomery reducer because the group order `n` differs from the field prime
+`p`. A binary extended-GCD inverse operates only on public signature `s`;
+it is variable-time and is never used for private-key or signing operations.
+All inputs and outputs retain the byte-safe big-endian request ABI. The bridge
+marshals every input before writing results, preserving wolfSSL's aliased
+`u1=e` and `u2=w` buffers.
+
+The final affine `x mod n` stays on 68K as one comparison and at most one
+subtraction: every nonnegative 256-bit value is below `2*n`. This avoids
+generic division without paying for another architecture crossing. Unsupported
+orders/input shapes retain the existing implementation. Builds enabling
+`WOLFSSL_CHECK_VER_FAULTS` retain the previous order-arithmetic path. Native
+execution errors propagate rather than falling back with partially written
+aliased outputs. DER parsing, signature range checks and final comparison
+remain in wolfSSL.
+
 SHA-256 compression also runs natively, batching as many as eight consecutive
 64-byte blocks into one ARM call. Short transcript hashes still use a single
 block, while certificate and record-sized inputs avoid most architecture-crossing
@@ -119,7 +138,7 @@ schedule is independent of the field value and is shared by all ARM CPUs.
 TLS Tester exposes cold engine-load and handshake timings from the shared
 library alongside NetLib, DNS, TCP, and HTTP phases. P-256, SHA-256 and AES-GCM
 already have native paths; remaining candidates include AES round processing,
-the 68K parsing/order-arithmetic work around those paths, and measured bridge costs. A large
+the remaining 68K parsing/setup work around those paths, and measured bridge costs. A large
 `Load` value includes loading, relocation, initialization and native self-tests;
 it must be separated from warm requests. The repeatable host/Palm benchmark suite, calibration, CSV comparison
 and emulator workflow are documented in [bench/README.md](bench/README.md).
@@ -138,7 +157,8 @@ library layouts. On Palm OS 5, TLS Tester calls
 `PalmTlsLibRunSelfTest` during startup and displays a pass or
 failure result. This invokes the real ARMlet through `PceNativeCall` and runs
 deterministic P-256 ECDHE key-generation/shared-secret and ECDSA verification
-vectors in each installed TLS 1.2/TLS 1.3 engine. It does not open NetLib or
+vectors in each installed TLS 1.2/TLS 1.3 engine. Tampered digest and signature
+checks run after the timed positive verification. It does not open NetLib or
 require a network-capable Cloudpilot build.
 
 The offline result can be checked on any ARM Cloudpilot ROM. End-to-end TLS and

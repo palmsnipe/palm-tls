@@ -207,6 +207,53 @@ def p256(backend, rng):
     return len(values), len(scalars) * 4, 8
 
 
+def order_scalars(backend, rng):
+    edges = (1, 2, 3, N - 2, N - 1, 2**255, 2**128, 2**32 - 1)
+    vectors = [(e, edges[i], s) for e in (0, 1, N - 1, N, N + 1, 2**256 - 1)
+               for i, s in enumerate(edges)]
+    vectors += [(2**256 - 1, N - 1, 1 << bit) for bit in range(256)]
+    vectors += [(rng.getrandbits(256), rng.randrange(1, N), rng.randrange(1, N))
+                for _ in range(128)]
+    for index, (e, r, s) in enumerate(vectors):
+        data = request(6)
+        data[LEFT:LEFT + 96] = integer(e) + integer(r) + integer(s)
+        assert backend.invoke(data, index % 4) == SUCCESS, ('order scalars', index)
+        inverse = pow(s, -1, N)
+        expected = integer(e * inverse % N) + integer(r * inverse % N) + integer(inverse)
+        assert data[OUTPUT:OUTPUT + 96] == expected, ('order oracle', index)
+    for r, s in ((0, 1), (1, 0), (N, 1), (1, N), (N + 1, 1), (1, N + 1),
+                 (2**256 - 1, 1), (1, 2**256 - 1)):
+        data = request(6)
+        data[LEFT:LEFT + 96] = integer(1) + integer(r) + integer(s)
+        data[OUTPUT:OUTPUT + 96] = b'\xa5' * 96
+        assert backend.invoke(data) == ERROR, 'out-of-range signature scalar accepted'
+        assert data[OUTPUT:OUTPUT + 96] == b'\xa5' * 96, 'invalid scalar modified output'
+    return len(vectors)
+
+
+def ecdsa_math(backend, rng):
+    for index in range(8):
+        private, nonce = rng.randrange(1, N), rng.randrange(1, N)
+        digest = rng.getrandbits(256)
+        public = multiply(private, G)
+        r = multiply(nonce, G)[0] % N
+        s = ((digest + private * r) * pow(nonce, -1, N)) % N
+        assert r and s
+        for changed_digest, changed_r, valid in ((digest, r, True),
+                (digest ^ 1, r, False), (digest, r % (N - 1) + 1, False)):
+            data = request(6)
+            data[LEFT:LEFT + 96] = integer(changed_digest) + integer(changed_r) + integer(s)
+            assert backend.invoke(data, index % 4) == SUCCESS
+            scalars = bytes(data[OUTPUT:OUTPUT + 64])
+            data = request(4)
+            data[LEFT:LEFT + 64] = scalars
+            data[RIGHT:RIGHT + 128] = point(G) + point(public)
+            status = backend.invoke(data, index % 4)
+            accepted = status == SUCCESS and int.from_bytes(data[OUTPUT:OUTPUT + 32], 'big') % N == changed_r
+            assert accepted == valid, ('ECDSA math', index, valid)
+    return 24
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
@@ -218,9 +265,12 @@ def main():
     rng = random.Random(0x50414c4d)
     records = aes(backend, rng)
     inverses, multiplies, verifies = p256(backend, rng)
+    orders = order_scalars(backend, rng)
+    signatures = ecdsa_math(backend, rng)
     print(f'Crypto oracles passed ({args.cpu if args.arm_image else "host"}): '
           f'{records} AES-GCM records, {inverses} inversions/maps, '
-          f'{multiplies} scalar products, {verifies} double-scalar products; alignment offsets 0..3')
+          f'{multiplies} scalar products, {verifies} double-scalar products, '
+          f'{orders} order preparations, {signatures} ECDSA valid/tampered cases; alignment offsets 0..3')
 
 
 if __name__ == '__main__':

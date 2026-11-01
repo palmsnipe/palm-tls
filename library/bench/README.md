@@ -103,6 +103,15 @@ rejects newer CPU instruction attributes even if introduced by `ARM_CPU_FLAGS`.
 The earlier `baselines/2026-11-01/os` and `o2` files are historical ARMv5TE
 compiler experiments and do not establish compatibility with older devices.
 
+The next ECDSA order-arithmetic measurements are under
+[`baselines/2026-11-01-ecdsa-order`](baselines/2026-11-01-ecdsa-order). They use
+the same 17 primitive workloads and eight real library phases; the
+`tls12_verify` and `tls13_verify` rows measure the complete positive wolfSSL
+verification call, including DER parsing, scalar preparation, point math and
+final comparison. The order offload is measured through those integrated
+rows rather than an isolated native microbenchmark. Modified-message and
+modified-signature checks run afterward, outside the recorded positive timing.
+
 ## Native CPU compatibility tests
 
 `make -C library test` checks the CPU allowlist, positive/negative native
@@ -110,6 +119,11 @@ packaging cases, and deterministic crypto cases against Node/OpenSSL AES-GCM
 and Python big-integer P-256 oracles. It covers full outputs and tags, partial
 blocks, AAD lengths 0..516, streaming boundaries, zero/infinity cases, and
 request addresses with alignment offsets 0..3.
+
+Order tests additionally compare 432 boundary/random scalar preparations with
+Python's modular inverse/products, reject out-of-range `r,s`, and check 24
+valid/tampered ECDSA math cases. These include every power-of-two denominator,
+digests at/above `n`, maximum 256-bit inputs, and unaligned request addresses.
 
 Optional instruction emulation runs the same extracted native image on both
 TI925T and PXA270 CPU models. This also checks that an ARMv5 `CLZ` probe traps

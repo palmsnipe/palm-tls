@@ -1,0 +1,19 @@
+{
+  "benchmark_version": 1,
+  "mips": 100,
+  "device": "auto",
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "emulator_sha256": "3349f1b450c596c55bf8a7652f1a596e613c6c2876faf6d46f5f5dcef5e5f7cb",
+  "prc_sha256": "9ee32c7d85949558fbc79504140e54475dd47705c6b72a657bf86a41a70ca969",
+  "library_sha256": "9bda0222e485dc60dd6e6ee2137c90b087d69fd838aa3afc825eabd22b4d27ef",
+  "arm_image_sha256": "80e91bea47111a32f274a7718dd2f9c6d7a302bb4b99c6e7bceaeb9e9c091a3d",
+  "arm_image_bytes": 31728,
+  "git_revision": "4c8eb103c2e8be6ce539007553fe4774bbeb591e",
+  "git_dirty": true,
+  "local_arm_build_config": "clang --target=armv4t-none-eabi -mcpu=arm7tdmi -march=armv4t -marm -Os",
+  "measurement_date": "2026-11-01",
+  "stage": "repeat",
+  "arm_compiler_version": "Apple clang version 21.0.0 (clang-2100.4.1.1)",
+  "reported_device": "Dmitry's Frankenpilot / Tungsten E3",
+  "reported_rom_date": "2025-01-12"
+}
