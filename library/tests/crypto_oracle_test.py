@@ -193,18 +193,46 @@ def p256(backend, rng):
                     data[3] = 5
                     assert backend.invoke(data, index % 4) == SUCCESS
                 assert data[OUTPUT:OUTPUT + 64] == expected, ('P256 affine oracle', index)
-    for index in range(8):
-        a, b = rng.randrange(1, N), rng.randrange(1, N)
+    vectors = [(rng.randrange(1, N), rng.randrange(1, N), G, q)
+               for _ in range(8)]
+    # Exercise every stored odd multiple and every negative width-5 digit,
+    # with the generator in either operand position. All values are public.
+    table_scalars = list(range(1, 16, 2)) + list(range(17, 32, 2))
+    for scalar in table_scalars:
+        vectors += [(scalar, 0, G, q), (0, scalar, q, G)]
+    minus_g = (G[0], -G[1] % P)
+    minus_q = (q[0], -q[1] % P)
+    other = multiply(3, G)
+    vectors += [
+        (1, 1, G, G), (1, N - 1, G, G), (N - 1, 1, G, G),
+        (0, 0, G, G), (N, N, G, G), (1, 1, G, minus_g),
+        (1, 1, minus_g, G), (1, 2, G, minus_g), (2, 1, minus_g, G),
+        # Cancel at bit 5, then recover from infinity at the low nonzero digit.
+        (32, 33, minus_g, G), (33, 32, G, minus_g),
+        (1, 1, q, q), (1, 1, q, minus_q), (0, 0, q, other),
+        (0, 1, G, q), (1, 0, q, G), (1, 1, q, other),
+    ]
+    for left, right in ((G, q), (q, G), (G, G), (q, other)):
+        for a, b in ((2**256 - 1, 1), (1, 2**256 - 1), (N - 1, N - 1)):
+            vectors.append((a, b, left, right))
+    generic_rng = random.Random(0x4d49584544)
+    for left, right in ((q, G), (q, other)):
+        vectors += [(generic_rng.randrange(1, N), generic_rng.randrange(1, N),
+                     left, right) for _ in range(8)]
+    for index, (a, b, left, right) in enumerate(vectors):
+        expected = add(multiply(a, left), multiply(b, right))
         data = request(4)
         data[LEFT:LEFT + 64] = integer(a) + integer(b)
-        data[RIGHT:RIGHT + 128] = point(G) + point(q)
-        assert backend.invoke(data, index % 4) == SUCCESS
-        assert data[OUTPUT:OUTPUT + 64] == point(add(multiply(a, G), multiply(b, q)))
-    data = request(4)
-    data[LEFT:LEFT + 64] = integer(1) + integer(N - 1)
-    data[RIGHT:RIGHT + 128] = point(G) + point(G)
-    assert backend.invoke(data) == ERROR, 'cancelling double-scalar sum must return infinity/error'
-    return len(values), len(scalars) * 4, 8
+        data[RIGHT:RIGHT + 128] = point(left) + point(right)
+        data[OUTPUT:OUTPUT + 64] = b'\xa5' * 64
+        status = backend.invoke(data, index % 4)
+        if expected is None:
+            assert status == ERROR, ('infinite double-scalar sum accepted', index)
+            assert data[OUTPUT:OUTPUT + 64] == b'\xa5' * 64, 'error modified output'
+        else:
+            assert status == SUCCESS, ('double-scalar status', index)
+            assert data[OUTPUT:OUTPUT + 64] == point(expected), ('double-scalar oracle', index)
+    return len(values), len(scalars) * 4, len(vectors)
 
 
 def order_scalars(backend, rng):
@@ -269,7 +297,7 @@ def main():
     signatures = ecdsa_math(backend, rng)
     print(f'Crypto oracles passed ({args.cpu if args.arm_image else "host"}): '
           f'{records} AES-GCM records, {inverses} inversions/maps, '
-          f'{multiplies} scalar products, {verifies} double-scalar products, '
+          f'{multiplies} scalar products, {verifies} double-scalar cases, '
           f'{orders} order preparations, {signatures} ECDSA valid/tampered cases; alignment offsets 0..3')
 
 

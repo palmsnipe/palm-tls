@@ -875,6 +875,54 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
     PointCopy(resultP, &added);
 }
 
+/* Complete mixed addition for public verification data. The affine operand
+ * is finite. Handle equal/opposite points before the ordinary mixed formula;
+ * the private-scalar PointAddMixed routine remains unchanged. */
+static void PointAddMixedPublic(Point256 *resultP, const Point256 *pointP,
+                                const Fe256 *affineXP, const Fe256 *affineYP)
+{
+    Fe256 zSquared, u2, s2, h, hh, i, j, r, v, temporary;
+    Point256 added;
+    if (FeIsZero(&pointP->z)) {
+        FeCopy(&resultP->x, affineXP);
+        FeCopy(&resultP->y, affineYP);
+        FeCopy(&resultP->z, &kR);
+        return;
+    }
+    FeSquare(&zSquared, &pointP->z);
+    FeMultiply(&u2, affineXP, &zSquared);
+    FeMultiply(&temporary, &pointP->z, &zSquared);
+    FeMultiply(&s2, affineYP, &temporary);
+    FeSubtract(&h, &u2, &pointP->x);
+    FeSubtract(&r, &s2, &pointP->y);
+    if (FeIsZero(&h)) {
+        if (FeIsZero(&r))
+            PointDouble(resultP, pointP);
+        else
+            PointSetInfinity(resultP);
+        return;
+    }
+    FeSquare(&hh, &h);
+    FeTimes4(&i, &hh);
+    FeMultiply(&j, &h, &i);
+    FeDouble(&r, &r);
+    FeMultiply(&v, &pointP->x, &i);
+    FeSquare(&added.x, &r);
+    FeSubtract(&added.x, &added.x, &j);
+    FeDouble(&temporary, &v);
+    FeSubtract(&added.x, &added.x, &temporary);
+    FeSubtract(&temporary, &v, &added.x);
+    FeMultiply(&added.y, &r, &temporary);
+    FeMultiply(&temporary, &pointP->y, &j);
+    FeDouble(&temporary, &temporary);
+    FeSubtract(&added.y, &added.y, &temporary);
+    FeAdd(&temporary, &pointP->z, &h);
+    FeSquare(&added.z, &temporary);
+    FeSubtract(&added.z, &added.z, &zSquared);
+    FeSubtract(&added.z, &added.z, &hh);
+    PointCopy(resultP, &added);
+}
+
 static void FeSquareN(Fe256 *resultP, const Fe256 *valueP, u32 count)
 {
     /* All callers supply a public, nonzero constant count. FeSquare permits
@@ -1151,26 +1199,56 @@ static void BuildOddPointTable(Point256 *tableP,
         PointAddPublic(&tableP[index], &tableP[index - 1U], &twice);
 }
 
-static void AddWnafDigit(Point256 *resultP, const Point256 *tableP, int digit)
+typedef struct PublicPointTable {
+    Point256 jacobian[8];
+    const Affine256 *affineP;
+} PublicPointTable;
+
+static void BuildPublicPointTable(PublicPointTable *tableP,
+                                  const Fe256 *xP, const Fe256 *yP)
+{
+    tableP->affineP = 0;
+    if (FeEqual(xP, &kGeneratorOdd[0].x) &&
+        FeEqual(yP, &kGeneratorOdd[0].y))
+        tableP->affineP = kGeneratorOdd;
+    else
+        BuildOddPointTable(tableP->jacobian, xP, yP);
+}
+
+static void AddWnafDigit(Point256 *resultP, const PublicPointTable *tableP,
+                         int digit)
 {
     Point256 selected;
     Point256 added;
     u32 magnitude = digit < 0 ? (u32)(-digit) : (u32)digit;
-    PointCopy(&selected, &tableP[magnitude >> 1]);
-    if (digit < 0) FeSubtract(&selected.y, &kZero, &selected.y);
-    PointAddPublic(&added, resultP, &selected);
-    PointCopy(resultP, &added);
+    if (tableP->affineP != 0) {
+        const Affine256 *affineP = &tableP->affineP[magnitude >> 1];
+        Fe256 y;
+        if (digit < 0)
+            FeSubtract(&y, &kZero, &affineP->y);
+        else
+            FeCopy(&y, &affineP->y);
+        PointAddMixedPublic(resultP, resultP, &affineP->x, &y);
+    }
+    else {
+        PointCopy(&selected, &tableP->jacobian[magnitude >> 1]);
+        if (digit < 0) FeSubtract(&selected.y, &kZero, &selected.y);
+        PointAddPublic(&added, resultP, &selected);
+        PointCopy(resultP, &added);
+    }
 }
 
 /* ECDSA verification needs u1*G + u2*Q. Keeping both public scalar products,
- * their shared doubling schedule, the Jacobian additions, and the final map
- * inside one native call avoids hundreds of 68K/ARM crossings. */
+ * their shared doubling schedule, the additions, and the final map inside one
+ * native call avoids hundreds of 68K/ARM crossings. A generator operand uses
+ * precomputed affine odd multiples and cheaper mixed-coordinate additions. */
 static u32 P256Multiply2Add(const volatile u8 *scalarsP,
                             const volatile u8 *pointsP,
                             volatile u8 *outputP)
 {
     Fe256 leftX, leftY, rightX, rightY;
-    Point256 leftTable[8], rightTable[8], result;
+    PublicPointTable leftTable, rightTable;
+    Point256 result;
     s8 leftDigits[257], rightDigits[257];
     int bit;
     FeReadBigEndian(&leftX, pointsP);
@@ -1179,8 +1257,8 @@ static u32 P256Multiply2Add(const volatile u8 *scalarsP,
     FeReadBigEndian(&rightY, pointsP + 96);
     ScalarWnaf5(leftDigits, scalarsP);
     ScalarWnaf5(rightDigits, scalarsP + 32);
-    BuildOddPointTable(leftTable, &leftX, &leftY);
-    BuildOddPointTable(rightTable, &rightX, &rightY);
+    BuildPublicPointTable(&leftTable, &leftX, &leftY);
+    BuildPublicPointTable(&rightTable, &rightX, &rightY);
     PointSetInfinity(&result);
     for (bit = 256; bit >= 0; bit--) {
         Point256 doubled;
@@ -1188,9 +1266,9 @@ static u32 P256Multiply2Add(const volatile u8 *scalarsP,
         PointDouble(&doubled, &result);
         PointCopy(&result, &doubled);
         digit = leftDigits[bit];
-        if (digit != 0) AddWnafDigit(&result, leftTable, digit);
+        if (digit != 0) AddWnafDigit(&result, &leftTable, digit);
         digit = rightDigits[bit];
-        if (digit != 0) AddWnafDigit(&result, rightTable, digit);
+        if (digit != 0) AddWnafDigit(&result, &rightTable, digit);
     }
     if (FeIsZero(&result.z)) return PALM_TLS_ARMLET_ERROR;
     return P256WritePoint(&result, outputP, 1U);

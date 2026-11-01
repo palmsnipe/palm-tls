@@ -112,6 +112,25 @@ final comparison. The order offload is measured through those integrated
 rows rather than an isolated native microbenchmark. Modified-message and
 modified-signature checks run afterward, outside the recorded positive timing.
 
+## Generator-table comparison
+
+The double-scalar suite includes the original two-general-point
+`p256_mul2add` case plus `p256_mul2add_generator` (`u1*G + u2*(5G)`) and
+`p256_mul2add_generator_right` (`u1*(3G) + u2*G`). All use the same fixed 256-bit public
+scalars, with full affine outputs checked against independent Python arithmetic.
+The generator cases exercise both operand positions and their precomputed
+affine table; the original case checks the general Jacobian path. Historical
+runs have 17 primitive cases, while this suite has 19. Comparisons require the
+same case sets; the CSV validator accepts older runs but requires both new
+generator cases if either is present.
+
+Measurements of the generator-table/mixed-addition change are under
+[`baselines/2026-11-01-p256-mul2add`](baselines/2026-11-01-p256-mul2add).
+The baseline uses `a51a749` native arithmetic with the extended benchmark
+workloads; its extracted native image is identical to that commit's image.
+The candidate changes only the benchmark's `armc:1` resource. The public
+generator-table optimization does not change the private-scalar comb path.
+
 ## Native CPU compatibility tests
 
 `make -C library test` checks the CPU allowlist, positive/negative native
@@ -124,6 +143,13 @@ Order tests additionally compare 432 boundary/random scalar preparations with
 Python's modular inverse/products, reject out-of-range `r,s`, and check 24
 valid/tampered ECDSA math cases. These include every power-of-two denominator,
 digests at/above `n`, maximum 256-bit inputs, and unaligned request addresses.
+
+The independent double-scalar oracle now covers 85 cases: each positive and
+negative width-5 generator-table digit, generator operands on either side,
+two-generator and two-general-point combinations, equal/opposite points,
+zero scalars, bit-256 carries, infinity/error results, and recovery after an
+intermediate cancellation. These run against both host C and the extracted
+native image, including request addresses with alignment offsets 0–3.
 
 Optional instruction emulation runs the same extracted native image on both
 TI925T and PXA270 CPU models. This also checks that an ARMv5 `CLZ` probe traps

@@ -22,6 +22,16 @@ def csv_text():
 
 
 class ResultsTests(unittest.TestCase):
+    def test_generator_workloads(self):
+        text = csv_text()
+        for name in ('p256_mul2add_generator', 'p256_mul2add_generator_right'):
+            for sample in range(5):
+                text += f'{name},{sample},4,20,100,0\n'
+        load(text)
+        with self.assertRaises(ValueError):
+            load('\n'.join(line for line in text.splitlines()
+                           if 'p256_mul2add_generator_right,' not in line))
+
     def test_exclusive_verification_phases(self):
         text = csv_text()
         for sample in range(5):

@@ -27,6 +27,8 @@ const BenchCase BenchCases[] = {
     {"p256_fixed_raw", raw, 0},
     {"p256_map", mapping, 0},
     {"p256_mul2add", verify, 0},
+    {"p256_mul2add_generator", verify, 1},
+    {"p256_mul2add_generator_right", verify, 2},
     {"sha256_1_block", sha, 1},
     {"sha256_8_blocks", sha, 8},
     {"gcm_encrypt_16", encrypt, 16},
@@ -102,6 +104,8 @@ int BenchPrepare(BenchContext *context, const BenchCase *test)
         Hex(right + 64,
             "51590b7a515140d2d784c85608668fdfef8c82fd1f5be52421554a0dc3d033ed"
             "e0c17da8904a727d8ae1bf36bf8a79260d012f00d4d80888d1d0bb44fda16da4", 64);
+        if (test->size == 1) Hex(right, kGenerator, 64);
+        if (test->size == 2) Hex(right + 64, kGenerator, 64);
         break;
     default:
         r[3] = PALM_TLS_ARMLET_COMMAND_P256_MUL;
@@ -197,10 +201,19 @@ int BenchVerify(BenchContext *context, const BenchCase *test)
         r[3] = PALM_TLS_ARMLET_COMMAND_P256_MAP;
         if (context->invoke(context) != PALM_TLS_ARMLET_SUCCESS) return 0;
     }
-    Hex(expected, test->kind == general ? kShared : test->kind == verify ?
-        "c9c9f6be850a89870ff43f7afa68de319f1d30746aa8909ef30d6047bfdacd3f"
-        "8064364620652a48ef5dd2e02db92c82c6d68eee42d2f7bf9a5651e695d14ad5" :
-        kPublic, 64);
+    if (test->kind == verify) {
+        /* Independent Python affine arithmetic; cover generator dispatch on
+         * either side as well as the original two-general-point workload. */
+        Hex(expected, test->size == 1 ?
+            "f7ccb68c385919c05cfe74773bd8793313481eb7465876ec9080cdb64dcf1f95c"
+            "6e6d78b5a93fb9d62bd045c1a2bbe96a919a9e77434f22afad455f0166f8330" :
+            test->size == 2 ?
+            "7084940f2100dc6533136b3f6ba090244ba8b54b1b314939d51070a802455ec79"
+            "c930702fec083a5686bb1794b563ddc402f6d519a6b6a6e356836410b64be64" :
+            "c9c9f6be850a89870ff43f7afa68de319f1d30746aa8909ef30d6047bfdacd3f"
+            "8064364620652a48ef5dd2e02db92c82c6d68eee42d2f7bf9a5651e695d14ad5", 64);
+    }
+    else Hex(expected, test->kind == general ? kShared : kPublic, 64);
     return CMP(output, expected, 64) == 0;
 }
 

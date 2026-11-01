@@ -16,6 +16,7 @@ EXPECTED_CASES = {
 VERIFY_PHASES = ('other', 'signature', 'range', 'curve', 'hex', 'order', 'point', 'final')
 PROFILE_CASES = {f'{protocol}_verify_phase_{phase}'
                  for protocol in ('tls12', 'tls13') for phase in VERIFY_PHASES}
+GENERATOR_CASES = {'p256_mul2add_generator', 'p256_mul2add_generator_right'}
 
 
 def extract(archive):
@@ -66,6 +67,10 @@ def load(text):
             raise ValueError(f'inconsistent samples for {name}')
     if not EXPECTED_CASES.issubset(grouped):
         raise ValueError('missing benchmark cases')
+    # Historical runs have neither generator-specific case. New runs must
+    # contain both, so a truncated generator comparison cannot pass as complete.
+    if GENERATOR_CASES.intersection(grouped) and not GENERATOR_CASES.issubset(grouped):
+        raise ValueError('missing generator benchmark case')
     for protocol in ('tls12', 'tls13'):
         names = [f'{protocol}_verify_phase_{phase}' for phase in VERIFY_PHASES]
         if any(name in grouped for name in names):

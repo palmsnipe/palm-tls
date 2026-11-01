@@ -1,5 +1,70 @@
 # ARM performance review — November 1, 2026
 
+## Public P-256 double-scalar generator table and mixed additions
+
+The native verification operation `u1*G + u2*Q` now recognizes a generator
+operand in either position and uses a generated affine table of **G, 3G, ...
+15G** in Montgomery form. This avoids rebuilding that operand's odd-multiple
+table on each call. Signed width-5 digits use a complete public-data mixed
+addition routine, including equal/opposite and infinity cases. Other operands
+retain the existing runtime Jacobian table and complete Jacobian addition.
+The private-scalar comb path and constant-time selection remain unchanged.
+
+A fresh baseline uses `a51a749` arithmetic with two added generator-specific
+benchmark workloads. Its extracted native image has the same SHA-256 as the
+committed **31,728-byte** image. Baseline and candidate share wolfSSL 5.9.4,
+the fast hex parser, profiling, compiler/flags, emulator binary, ROM/session,
+and **100 MIPS** setting. The benchmark PRCs differ only in `armc:1`; all
+benchmark code and other resources are identical. The original `p256_mul2add`
+case uses 3G and 5G, so retaining it alone would miss generator dispatch.
+
+Five-sample medians from the supplied Frankenpilot / Tungsten E3 session:
+
+| Operation | Baseline | Optimized | Repeat | Less elapsed time |
+| --- | ---: | ---: | ---: | ---: |
+| Native `u1*G + u2*(5G)` | 92.5 ms | 87.5 ms | 87.5 ms | 5.4% |
+| Native `u1*(3G) + u2*G` | 92.5 ms | 85 ms | 85 ms | 8.1% |
+| Native `u1*(3G) + u2*(5G)` | 92.5 ms | 92.5 ms | 92.5 ms | 0% |
+| TLS 1.2 complete ECDSA verification | 120 ms | 110 ms | 110 ms | 8.3% |
+| TLS 1.3 complete ECDSA verification | 120 ms | 110 ms | 110 ms | 8.3% |
+| TLS 1.2/1.3 exclusive point phase | 100 ms | 90 ms | 90 ms | 10% |
+
+Native generator cases use four operations per timed sample (2.5 ms effective
+resolution). Full verification and its exclusive phases retain 10 ms clock
+resolution: candidate verification samples are 110–120 ms, versus baseline
+120 ms. Unrelated single-operation phase medians can move by one tick as phase
+boundaries shift; these are not evidence of key-generation changes. Other
+native workloads remain within timer quantization. These are instruction-
+budgeted emulator results, not physical PXA270 cycle/cache measurements or
+full network-handshake timings.
+
+The native image grows to **33,340 bytes** (+1,612 / 5.1%), including the
+512-byte affine table. It still fits one native resource. Full, modern and
+TLS-1.3-only ARM PRCs, and the benchmark, contain exactly the same ARMv4T image
+(SHA-256 `b12042281baa6eecf3472e0c5218a5222de2f7cf85620b01ed3b9cd5122e5cfd`).
+There are no CPU-specific binaries or dispatch variants; the CPU allowlist,
+byte-access request ABI and 68K fallback remain unchanged.
+
+Project/profile/package checks pass. Independent Python affine arithmetic
+checks **85 double-scalar cases**, covering every stored odd multiple, signed
+digits, either generator operand, two generators, general points, zero scalars,
+bit-256 carries, equal/opposite points, and recovery after intermediate
+cancellation. Errors must preserve output. The tests run against host C and
+the extracted image on both **TI925T and PXA270** CPU emulation, alongside
+168 AES-GCM records, 69 inversions/maps, 64 scalar products, 432 order preparations
+and 24 valid/tampered ECDSA cases with request alignment offsets 0–3. Cloudpilot
+runs additionally pass real Palm OS native calls, both self-test result sizes,
+and the integrated ECDSA/AES checks. Older physical Palm models are not booted
+by these CPU tests; their instruction compatibility is checked separately.
+
+Raw samples, manifests and both comparisons are in
+[bench/baselines/2026-11-01-p256-mul2add](bench/baselines/2026-11-01-p256-mul2add).
+The suite now has **19 native cases plus 24 integrated engine/verification
+rows**. [bench/README.md](bench/README.md#generator-table-comparison) describes
+the workload additions and baseline. Non-generator table normalization remains
+a separate experiment: it would add an inversion whose cost must be measured
+against the saved additions.
+
 ## 16-bit hex import, phase profiling, and wolfSSL 5.9.4
 
 The dependency was pinned to wolfSSL **5.9.2** (`ac01707`). It is now pinned to
