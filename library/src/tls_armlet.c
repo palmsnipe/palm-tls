@@ -207,7 +207,9 @@ static UInt32 CallChaChaPoly(const UInt32 *stateP, UInt8 *outputP,
 {
     PalmTlsArmletMultiplyRequest *requestP = gRequestP;
     UInt8 *fieldsP = requestP->left;
+    volatile UInt8 *stateBytesP = fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET;
     UInt32 status;
+    UInt16 index;
     requestP->version = PALM_TLS_ARMLET_VERSION;
     requestP->command = PALM_TLS_ARMLET_COMMAND_CHACHA_POLY;
     fieldsP[PALM_TLS_ARMLET_CHACHA_DECRYPT_OFFSET] = decrypt ? 1 : 0;
@@ -222,6 +224,8 @@ static UInt32 CallChaChaPoly(const UInt32 *stateP, UInt8 *outputP,
     status = PceNativeCall(gArmletEntryP, requestP);
     if (status == PALM_TLS_ARMLET_SUCCESS && !decrypt)
         MemMove(tagP, fieldsP + PALM_TLS_ARMLET_CHACHA_TAG_OFFSET, 16);
+    /* Also clear on native errors; volatile stores cannot be optimized away. */
+    for (index = 0; index < 64; index++) stateBytesP[index] = 0;
     return status;
 }
 

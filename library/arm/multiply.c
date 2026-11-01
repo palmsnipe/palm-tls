@@ -414,6 +414,16 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
  * are offsets into a buffer the test provides. */
 typedef u32 __attribute__((may_alias)) AliasU32;
 
+/* Volatile stores keep secret-buffer clearing in optimized ARM builds. */
+static void ClearChaChaSecret(volatile void *pointerP, u32 length)
+{
+    volatile u8 *bytesP = (volatile u8 *)pointerP;
+    while (length != 0) {
+        *bytesP++ = 0;
+        length--;
+    }
+}
+
 #ifdef PALM_ARMLET_HOST_TEST
 u8 *PalmTlsArmletHostMemory;
 #define ARMLET_POINTER(address) (PalmTlsArmletHostMemory + (address))
@@ -498,11 +508,13 @@ static void ChaChaCrypt(u32 *stateP, const u8 *inputP, u8 *outputP,
         outputP += 64;
         length -= 64U;
     }
-    if (length == 0) return;
-    ChaChaBlock(stateP, stream);
-    for (index = 0; index < length; index++)
-        outputP[index] = (u8)(inputP[index] ^
-            (stream[index >> 2] >> (8U * (index & 3U))));
+    if (length != 0) {
+        ChaChaBlock(stateP, stream);
+        for (index = 0; index < length; index++)
+            outputP[index] = (u8)(inputP[index] ^
+                (stream[index >> 2] >> (8U * (index & 3U))));
+    }
+    ClearChaChaSecret(stream, sizeof(stream));
 }
 
 /* Poly1305 in five 26-bit limbs, as in poly1305-donna-32. */
@@ -640,6 +652,7 @@ static void ChaChaPolyTag(const u32 *polyKeyP, const u8 *aadP,
     StoreLittle32(lengths + 12, 0);
     PolyPadded(&poly, lengths, 16);
     PolyFinish(&poly, tagP);
+    ClearChaChaSecret(&poly, sizeof(poly));
 }
 
 /* Seals or opens one record. Opening checks the tag before decrypting, as
@@ -658,28 +671,37 @@ static u32 ChaChaPoly(volatile u8 *fieldsP)
     const u8 *aadP = ARMLET_POINTER(
         Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_AAD_OFFSET));
     volatile u8 *tagFieldP = fieldsP + PALM_TLS_ARMLET_CHACHA_TAG_OFFSET;
-    u32 index, difference = 0;
+    u32 index, difference = 0, status = PALM_TLS_ARMLET_SUCCESS;
     if (length > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH ||
-        aadLength > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH)
+        aadLength > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH) {
+        ClearChaChaSecret(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, 64);
         return PALM_TLS_ARMLET_ERROR;
+    }
     for (index = 0; index < 16; index++)
         state[index] = Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET +
             index * 4U);
+    ClearChaChaSecret(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, 64);
     state[12] = 0;
     ChaChaBlock(state, polyKey);
     if (decrypt) {
         ChaChaPolyTag(polyKey, aadP, aadLength, inputP, length, tag);
         for (index = 0; index < 16; index++)
             difference |= (u32)(tag[index] ^ tagFieldP[index]);
-        if (difference != 0) return PALM_TLS_ARMLET_AUTH_FAILED;
+        if (difference != 0) {
+            status = PALM_TLS_ARMLET_AUTH_FAILED;
+            goto cleanup;
+        }
         ChaChaCrypt(state, inputP, outputP, length);
     } else {
         ChaChaCrypt(state, inputP, outputP, length);
         ChaChaPolyTag(polyKey, aadP, aadLength, outputP, length, tag);
         for (index = 0; index < 16; index++) tagFieldP[index] = tag[index];
     }
-    for (index = 0; index < 16; index++) polyKey[index] = 0;
-    return PALM_TLS_ARMLET_SUCCESS;
+cleanup:
+    ClearChaChaSecret(state, sizeof(state));
+    ClearChaChaSecret(polyKey, sizeof(polyKey));
+    ClearChaChaSecret(tag, sizeof(tag));
+    return status;
 }
 
 static void FeCopy(Fe256 *destinationP, const Fe256 *sourceP)

@@ -13,7 +13,8 @@
 /* ChaCha20-Poly1305 seals or opens a whole record in one call. The left
  * operand holds these fields; the record and AAD stay in the caller's
  * buffers, passed as big-endian addresses. state is wolfSSL's ChaCha X[16],
- * as big-endian words; its block counter is ignored. */
+ * as big-endian words; its block counter is ignored. The request's state
+ * copy is erased before this command returns, including on errors. */
 #define PALM_TLS_ARMLET_CHACHA_DECRYPT_OFFSET 0
 #define PALM_TLS_ARMLET_CHACHA_STATE_OFFSET 4
 #define PALM_TLS_ARMLET_CHACHA_INPUT_OFFSET 68

@@ -405,6 +405,9 @@ static unsigned int RunChaChaPoly(const unsigned char *keyP,
     Put32(fields + PALM_TLS_ARMLET_CHACHA_AAD_LENGTH_OFFSET, aadLength);
     if (decrypt) memcpy(tag, tagP, 16);
     status = PalmTlsArmletEntry(0, request, 0);
+    /* Success, authentication failures and invalid lengths all erase the
+     * request's separate copy of the traffic key and nonce. */
+    for (index = 0; index < 64; index++) assert(state[index] == 0);
     if (!decrypt) memcpy(tagP, tag, 16);
     return status;
 }
