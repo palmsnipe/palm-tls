@@ -353,6 +353,151 @@ static void CheckAesGcmStreaming(int decrypt)
     assert(memcmp(output, tag, sizeof(tag)) == 0);
 }
 
+extern unsigned char *PalmTlsArmletHostMemory;
+static unsigned char gChaChaMemory[4096];
+
+static void Put32(unsigned char *bytesP, unsigned int value)
+{
+    bytesP[0] = (unsigned char)(value >> 24);
+    bytesP[1] = (unsigned char)(value >> 16);
+    bytesP[2] = (unsigned char)(value >> 8);
+    bytesP[3] = (unsigned char)value;
+}
+
+static unsigned int LittleWord(const unsigned char *bytesP)
+{
+    return (unsigned int)bytesP[0] | ((unsigned int)bytesP[1] << 8) |
+        ((unsigned int)bytesP[2] << 16) | ((unsigned int)bytesP[3] << 24);
+}
+
+/* Addresses are offsets into gChaChaMemory. The state is laid out as
+ * wolfSSL's ChaCha X[16], with a block counter the ARMlet must ignore. */
+static unsigned int RunChaChaPoly(const unsigned char *keyP,
+                                  const unsigned char *nonceP,
+                                  unsigned int input, unsigned int output,
+                                  unsigned int length, unsigned int aad,
+                                  unsigned int aadLength, unsigned char *tagP,
+                                  int decrypt)
+{
+    static const unsigned int sigma[4] = {
+        0x61707865, 0x3320646e, 0x79622d32, 0x6b206574
+    };
+    static unsigned char request[headerSize + digitBytes * 3];
+    unsigned char *fields = request + PALM_TLS_ARMLET_LEFT_OFFSET;
+    unsigned char *state = fields + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET;
+    unsigned char *tag = fields + PALM_TLS_ARMLET_CHACHA_TAG_OFFSET;
+    unsigned int index, status;
+    PalmTlsArmletHostMemory = gChaChaMemory;
+    memset(request, 0, sizeof(request));
+    request[0] = PALM_TLS_ARMLET_VERSION;
+    request[3] = PALM_TLS_ARMLET_COMMAND_CHACHA_POLY;
+    fields[PALM_TLS_ARMLET_CHACHA_DECRYPT_OFFSET] = (unsigned char)decrypt;
+    for (index = 0; index < 4; index++) Put32(state + index * 4, sigma[index]);
+    for (index = 0; index < 8; index++)
+        Put32(state + 16 + index * 4, LittleWord(keyP + index * 4));
+    Put32(state + 48, 0x12345678);
+    for (index = 0; index < 3; index++)
+        Put32(state + 52 + index * 4, LittleWord(nonceP + index * 4));
+    Put32(fields + PALM_TLS_ARMLET_CHACHA_INPUT_OFFSET, input);
+    Put32(fields + PALM_TLS_ARMLET_CHACHA_OUTPUT_OFFSET, output);
+    Put32(fields + PALM_TLS_ARMLET_CHACHA_LENGTH_OFFSET, length);
+    Put32(fields + PALM_TLS_ARMLET_CHACHA_AAD_OFFSET, aad);
+    Put32(fields + PALM_TLS_ARMLET_CHACHA_AAD_LENGTH_OFFSET, aadLength);
+    if (decrypt) memcpy(tag, tagP, 16);
+    status = PalmTlsArmletEntry(0, request, 0);
+    /* Success, authentication failures and invalid lengths all erase the
+     * request's separate copy of the traffic key and nonce. */
+    for (index = 0; index < 64; index++) assert(state[index] == 0);
+    if (!decrypt) memcpy(tagP, tag, 16);
+    return status;
+}
+
+/* RFC 8439 section 2.8.2 */
+static void CheckChaChaPolyRfc(void)
+{
+    static const char plain[] = "Ladies and Gentlemen of the class of '99: If "
+        "I could offer you only one tip for the future, sunscreen would be it.";
+    static const unsigned char nonce[12] = {
+        0x07,0x00,0x00,0x00,0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47
+    };
+    static const unsigned char aad[12] = {
+        0x50,0x51,0x52,0x53,0xc0,0xc1,0xc2,0xc3,0xc4,0xc5,0xc6,0xc7
+    };
+    static const unsigned char expectedTag[16] = {
+        0x1a,0xe1,0x0b,0x59,0x4f,0x09,0xe2,0x6a,
+        0x7e,0x90,0x2e,0xcb,0xd0,0x60,0x06,0x91
+    };
+    unsigned char key[32], cipher[114], tag[16];
+    unsigned int index;
+    assert(sizeof(plain) - 1 == sizeof(cipher));
+    ParseHex("d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6"
+             "3dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b36"
+             "92ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc"
+             "3ff4def08e4b7a9de576d26586cec64b6116", cipher, sizeof(cipher));
+    for (index = 0; index < 32; index++) key[index] = (unsigned char)(0x80 + index);
+    memcpy(gChaChaMemory + 64, plain, sizeof(cipher));
+    memcpy(gChaChaMemory + 16, aad, sizeof(aad));
+    assert(RunChaChaPoly(key, nonce, 64, 512, sizeof(cipher), 16, sizeof(aad),
+                         tag, 0) == PALM_TLS_ARMLET_SUCCESS);
+    assert(memcmp(gChaChaMemory + 512, cipher, sizeof(cipher)) == 0);
+    assert(memcmp(tag, expectedTag, sizeof(tag)) == 0);
+    assert(RunChaChaPoly(key, nonce, 512, 512, sizeof(cipher), 16, sizeof(aad),
+                         tag, 1) == PALM_TLS_ARMLET_SUCCESS);
+    assert(memcmp(gChaChaMemory + 512, plain, sizeof(cipher)) == 0);
+}
+
+/* A record over several blocks at odd addresses, opened in place, checked
+ * against OpenSSL. A bad tag, ciphertext or AAD byte fails and leaves the
+ * record as it was. */
+static void CheckChaChaPolyRecord(void)
+{
+    static const unsigned char aad[5] = { 0x17, 0x03, 0x03, 0x05, 0x24 };
+    static const unsigned char expectedTag[16] = {
+        0x55,0xf8,0x37,0x02,0x11,0x07,0xa6,0xb1,
+        0x52,0x48,0xc7,0xc2,0x4f,0xd8,0xf0,0xa2
+    };
+    static const unsigned char first[8] = {
+        0x37,0x1b,0xaa,0xd2,0x87,0x83,0x5b,0x66
+    };
+    static const unsigned char last[8] = {
+        0xe4,0x86,0x3d,0x8b,0x0c,0x4e,0x87,0x8e
+    };
+    unsigned char key[32], nonce[12], tag[16], cipher[1300];
+    unsigned char *record = gChaChaMemory + 1001;
+    unsigned int index;
+    for (index = 0; index < 32; index++) key[index] = (unsigned char)index;
+    for (index = 0; index < 12; index++) nonce[index] = (unsigned char)(100 + index);
+    for (index = 0; index < 1300; index++) record[index] = (unsigned char)(index * 7 + 3);
+    memcpy(gChaChaMemory + 3, aad, sizeof(aad));
+    assert(RunChaChaPoly(key, nonce, 1001, 1001, 1300, 3, sizeof(aad), tag, 0) ==
+           PALM_TLS_ARMLET_SUCCESS);
+    assert(memcmp(tag, expectedTag, sizeof(tag)) == 0);
+    assert(memcmp(record, first, sizeof(first)) == 0);
+    assert(memcmp(record + 1292, last, sizeof(last)) == 0);
+    memcpy(cipher, record, sizeof(cipher));
+
+    tag[15] ^= 1;
+    assert(RunChaChaPoly(key, nonce, 1001, 1001, 1300, 3, sizeof(aad), tag, 1) ==
+           PALM_TLS_ARMLET_AUTH_FAILED);
+    tag[15] ^= 1;
+    record[700] ^= 0x40;
+    assert(RunChaChaPoly(key, nonce, 1001, 1001, 1300, 3, sizeof(aad), tag, 1) ==
+           PALM_TLS_ARMLET_AUTH_FAILED);
+    record[700] ^= 0x40;
+    gChaChaMemory[3 + 4] ^= 1;
+    assert(RunChaChaPoly(key, nonce, 1001, 1001, 1300, 3, sizeof(aad), tag, 1) ==
+           PALM_TLS_ARMLET_AUTH_FAILED);
+    gChaChaMemory[3 + 4] ^= 1;
+    assert(memcmp(record, cipher, sizeof(cipher)) == 0);
+
+    assert(RunChaChaPoly(key, nonce, 1001, 1001, 1300, 3, sizeof(aad), tag, 1) ==
+           PALM_TLS_ARMLET_SUCCESS);
+    for (index = 0; index < 1300; index++)
+        assert(record[index] == (unsigned char)(index * 7 + 3));
+    assert(RunChaChaPoly(key, nonce, 0, 0, PALM_TLS_ARMLET_CHACHA_MAX_LENGTH + 1,
+                         0, 0, tag, 0) == PALM_TLS_ARMLET_ERROR);
+}
+
 int main(void)
 {
     Check64(0, 0xffff);
@@ -367,6 +512,8 @@ int main(void)
     CheckAesGcm(1);
     CheckAesGcmStreaming(0);
     CheckAesGcmStreaming(1);
+    CheckChaChaPolyRfc();
+    CheckChaChaPolyRecord();
     CheckP256(
         "0000000000000000000000000000000000000000000000000000000000000001",
         "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
@@ -387,6 +534,6 @@ int main(void)
         "405565c3bf59e951c7193b9937f92b47ae91b304e082e9c8fef0e87c9391b61d", 0);
     CheckP256Multiply2Add();
     CheckP256Map();
-    puts("ARMlet multiplication, P-256 multiply/map/mul2add, SHA-256, and AES-GCM tests passed");
+    puts("ARMlet multiplication, P-256 multiply/map/mul2add, SHA-256, AES-GCM, and ChaCha20-Poly1305 tests passed");
     return 0;
 }

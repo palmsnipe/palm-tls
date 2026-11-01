@@ -17,6 +17,7 @@ patches=(
   wolfssl-m68k-tls13-optimization.patch
   wolfssl-m68k-tls13-ignore-tickets.patch
   wolfssl-palm-armlet-math.patch
+  wolfssl-palm-armlet-chacha.patch
   wolfssl-preserve-peer-key-error.patch
   wolfssl-no-ecc-sign-build.patch
 )

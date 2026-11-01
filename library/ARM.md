@@ -4,8 +4,8 @@
 library dispatch remain 68K code, preserving the `PTLS` API used by Palm OS 4+
 consumers. Hot multiprecision multiplication/squaring, P-256 scalar
 multiplication and projective mapping, SHA-256 compression, and AES-128-GCM
-record protection execute in a native ARMlet through the SDK's
-`PceNativeCall` trap.
+and ChaCha20-Poly1305 record protection execute in a native ARMlet through the
+SDK's `PceNativeCall` trap.
 
 ## Runtime path
 
@@ -34,9 +34,36 @@ AES-GCM acceleration tracks the encrypt and decrypt key objects for both
 session slots. wolfSSL releases each mapping with its `Aes` object; if every
 mapping is occupied, PalmTLS safely falls back to the 68K implementation.
 
+## ChaCha20-Poly1305
+
+The ARM TLS 1.3 engine also supports the `TLS_CHACHA20_POLY1305_SHA256` cipher
+suite. It lists it first, so a server that follows the client's order will
+choose it. The 68K engines and the TLS 1.2 engine do not offer it.
+
+The ARMlet encrypts or decrypts a whole record in one call. The request holds
+the cipher state and the addresses of the record and its header. The ARMlet
+works on the record where it is, without copying it. When decrypting, it
+checks the tag first. A record with a wrong tag is left as it was.
+The copied cipher state is erased after use, including authentication and
+length errors. Temporary ARM key, keystream and authenticator buffers are
+also cleared using volatile stores.
+
+ChaCha20-Poly1305 is much faster than AES-128-GCM here. In the emulator, a
+16 KB record takes about 27 ARM instructions per byte, against about 1,700
+for AES-GCM. It also needs one native call instead of 34. It avoids AES-GCM's
+secret-dependent table lookups, but constant-time execution is not guaranteed
+on every supported processor: XScale multiplication can terminate early based
+on secret Poly1305 operands. The emulator's instruction count does not measure
+that hardware timing behavior; see the
+[Intel XScale manual, section 11.2.4](https://www.dpeddi.com/_media/en:phones_handhelds:pxa-user-manual.pdf#page=161).
+
+At startup, PalmTLS checks it against a known result from RFC 8439. The
+cipher is offered only if that check and the other ARMlet checks pass. If the
+ARMlet is turned off later, wolfSSL's own 68K code handles the records.
+
 ## Build and ABI
 
-Clang compiles a roughly 29 KB freestanding ARMv5TE code image, including the
+Clang compiles a roughly 32 KB freestanding ARMv5TE code image, including the
 generated fixed-base P-256 table. `ARM_CC` defaults to `clang` and may be
 overridden when necessary:
 
@@ -115,7 +142,10 @@ only on the first request.
 Jacobian-to-affine mapping, double-scalar-add vectors covering signed digits and
 a bit-256 carry,
 single-block and eight-block SHA-256 compression vectors, NIST AES-GCM encrypt
-and decrypt vectors, and a multi-update AES-GCM vector with AAD, the linked
+and decrypt vectors, a multi-update AES-GCM vector with AAD, RFC 8439's
+ChaCha20-Poly1305 example, a 1,300-byte ChaCha20-Poly1305 record at odd
+addresses checked against OpenSSL, the rejection of a changed tag, ciphertext
+or AAD byte, the linked
 position-independent ARM image, PRC resource identity/alignment, and both Palm
 library layouts. On Palm OS 5, TLS Tester calls
 `PalmTlsLibRunSelfTest` during startup and displays a pass or

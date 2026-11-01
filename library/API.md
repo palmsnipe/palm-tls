@@ -156,7 +156,8 @@ code-only segments execute from a temporary resource database while writable
 state remains in locked dynamic memory.
 
 TLS 1.2/1.3 are restricted to the implemented P-256, SHA-256, AES-128-GCM, and
-ECDHE ECDSA/RSA client profiles. TLS 1.1 adds its legacy RSA/AES-CBC/SHA-1
+ECDHE ECDSA/RSA client profiles. The ARM TLS 1.3 engine also offers
+ChaCha20-Poly1305, ahead of AES-128-GCM. TLS 1.1 adds its legacy RSA/AES-CBC/SHA-1
 profile. Palm's entropy facilities are not a modern CSPRNG. This library is for
 hobbyist interoperability, not high-value secrets.
 

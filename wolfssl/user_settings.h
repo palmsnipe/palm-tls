@@ -101,6 +101,12 @@ extern int WolfPalmRandomBlock(unsigned char *output, unsigned long size);
 #endif
 #define WOLFSSL_NO_ASM
 #define HAVE_AESGCM
+/* The ARM TLS 1.3 engine also offers ChaCha20-Poly1305, run by the ARMlet,
+ * when the ARMlet's own test passes. */
+#if defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) && defined(WOLFSSL_NO_TLS12)
+#define HAVE_CHACHA
+#define HAVE_POLY1305
+#endif
 #define GCM_SMALL
 #ifndef PALM_WOLFSSL_TLS11_ONLY
 #define NO_AES_CBC

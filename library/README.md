@@ -23,6 +23,7 @@ DNS, TCP connection setup, HTTP parsing, or a built-in root store.
 
 The modern profile is restricted to P-256, SHA-256, AES-128-GCM, the
 ECDHE/ECDSA or ECDHE/RSA TLS 1.2 suites, and the P-256/AES-GCM TLS 1.3 profile.
+On ARM, TLS 1.3 also offers ChaCha20-Poly1305, first; see [ARM.md](ARM.md).
 The isolated TLS 1.1 engine instead enables static RSA key exchange,
 AES-CBC, SHA-1, and the legacy MD5/SHA-1 PRF. TLS 1.1 is obsolete and should
 only be selected to interoperate with a known legacy service. The Palm entropy
@@ -130,8 +131,8 @@ install exactly one.
 
 The ARM variant accelerates common big-integer multiplication/squaring, the
 complete P-256 scalar multiplication used by TLS 1.2 and TLS 1.3 ECDHE/ECDSA,
-ECDSA double-scalar verification, SHA-256 compression, and streaming
-AES-128-GCM record protection. TLS protocol
+ECDSA double-scalar verification, SHA-256 compression, and AES-128-GCM and
+ChaCha20-Poly1305 record protection. TLS protocol
 control, parsing, networking, and memory management still execute in PACE as
 68K code, so this remains a hybrid rather than a fully native wolfSSL port. See
 [ARM.md](ARM.md) for ABI, fallback, and offline benchmark details.

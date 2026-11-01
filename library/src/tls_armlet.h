@@ -28,5 +28,10 @@ int PalmTlsArmletAesGcmCrypt(Aes *aesP, byte *outputP, const byte *inputP,
                             word32 length, const byte *ivP, word32 ivLength,
                             byte *tagP, word32 tagLength, const byte *aadP,
                             word32 aadLength, int decrypt, int *resultP);
+int PalmTlsArmletChaChaPolyEnabled(void);
+int PalmTlsArmletChaChaPoly(const word32 *stateP, byte *outputP,
+                            const byte *inputP, word32 length,
+                            const byte *aadP, word32 aadLength, byte *tagP,
+                            int decrypt, int *resultP);
 
 #endif

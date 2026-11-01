@@ -76,6 +76,10 @@
 #endif
 #define WOLFSSL_NO_ASM
 #define HAVE_AESGCM
+#if defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) && defined(WOLFSSL_NO_TLS12)
+#define HAVE_CHACHA
+#define HAVE_POLY1305
+#endif
 #define GCM_SMALL
 #ifndef PALM_WOLFSSL_TLS11_ONLY
 #define NO_AES_CBC

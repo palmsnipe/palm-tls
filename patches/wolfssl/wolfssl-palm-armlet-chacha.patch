@@ -1,0 +1,89 @@
+diff --git a/src/internal.c b/src/internal.c
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -3666,6 +3666,11 @@
+     return 0;
+ }
+ 
++#if defined(BUILD_TLS_CHACHA20_POLY1305_SHA256) && \
++    defined(PALM_WOLFSSL_ARMLET_MATH)
++extern int PalmTlsArmletChaChaPolyEnabled(void);
++#endif
++
+ void InitSuites(Suites* suites, ProtocolVersion pv, int keySz, word16 haveRSA,
+                 word16 havePSK, word16 haveDH, word16 haveECDSAsig,
+                 word16 haveECC, word16 haveStaticRSA, word16 haveStaticECC,
+@@ -3718,6 +3723,17 @@
+         return;      /* trust user settings, don't override */
+ 
+ #ifdef WOLFSSL_TLS13
++#if defined(BUILD_TLS_CHACHA20_POLY1305_SHA256) && \
++    defined(PALM_WOLFSSL_ARMLET_MATH)
++    /* The ARMlet runs ChaCha20-Poly1305 much faster than AES-GCM,
++     * so it goes first, and servers that honor the client's order
++     * pick it. Without the ARMlet it is not offered. */
++    if (tls1_3 && PalmTlsArmletChaChaPolyEnabled()) {
++        suites->suites[idx++] = TLS13_BYTE;
++        suites->suites[idx++] = TLS_CHACHA20_POLY1305_SHA256;
++    }
++#endif
++
+ #ifdef BUILD_TLS_AES_256_GCM_SHA384
+     if (tls1_3) {
+         suites->suites[idx++] = TLS13_BYTE;
+@@ -3732,7 +3748,8 @@
+     }
+ #endif
+ 
+-#ifdef BUILD_TLS_CHACHA20_POLY1305_SHA256
++#if defined(BUILD_TLS_CHACHA20_POLY1305_SHA256) && \
++    !defined(PALM_WOLFSSL_ARMLET_MATH)
+     if (tls1_3) {
+         suites->suites[idx++] = TLS13_BYTE;
+         suites->suites[idx++] = TLS_CHACHA20_POLY1305_SHA256;
+diff --git a/src/tls13.c b/src/tls13.c
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -2502,6 +2502,13 @@
+     xorbuf(nonce + seq_offset, iv + seq_offset, SEQ_SZ);
+ }
+ 
++#if defined(HAVE_CHACHA) && defined(HAVE_POLY1305) && \
++    defined(PALM_WOLFSSL_ARMLET_MATH)
++extern int PalmTlsArmletChaChaPoly(const word32* stateP, byte* outputP,
++    const byte* inputP, word32 length, const byte* aadP, word32 aadLength,
++    byte* tagP, int decrypt, int* resultP);
++#endif
++
+ #if defined(HAVE_CHACHA) && defined(HAVE_POLY1305)
+ /* Encrypt with ChaCha20 and create authentication tag with Poly1305.
+  *
+@@ -2530,6 +2537,11 @@
+     ret = wc_Chacha_SetIV(ssl->encrypt.chacha, nonce, 0);
+     if (ret != 0)
+         return ret;
++#ifdef PALM_WOLFSSL_ARMLET_MATH
++    if (PalmTlsArmletChaChaPoly(ssl->encrypt.chacha->X, output, input, sz,
++            aad, aadSz, tag, 0, &ret))
++        return ret;
++#endif
+     /* Create Poly1305 key using ChaCha20 keystream. */
+     ret = wc_Chacha_Process(ssl->encrypt.chacha, poly, poly, sizeof(poly));
+     if (ret != 0)
+@@ -2918,6 +2930,16 @@
+     ret = wc_Chacha_SetIV(ssl->decrypt.chacha, nonce, 0);
+     if (ret != 0)
+         return ret;
++#ifdef PALM_WOLFSSL_ARMLET_MATH
++    if (PalmTlsArmletChaChaPoly(ssl->decrypt.chacha->X, output, input, sz,
++            aad, aadSz, (byte*)tagIn, 1, &ret)) {
++        if (ret == WC_NO_ERR_TRACE(MAC_CMP_FAILED_E)) {
++            WOLFSSL_MSG("MAC did not match");
++            return VERIFY_MAC_ERROR;
++        }
++        return ret;
++    }
++#endif
+     /* Use ChaCha20 keystream to get Poly1305 key for tag. */
+     ret = wc_Chacha_Process(ssl->decrypt.chacha, poly, poly, sizeof(poly));
+     if (ret != 0)

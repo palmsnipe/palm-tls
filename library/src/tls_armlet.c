@@ -29,6 +29,8 @@ static PalmTlsArmletMultiplyRequest *gRequestP;
 static ecc_point *gRawP256PointP;
 static Boolean gArmletChecked;
 static Boolean gArmletEnabled;
+/* ChaCha20-Poly1305 is only offered when its own known answer passes. */
+static Boolean gChaChaPolyEnabled;
 static UInt16 gArmletStatus = palmTlsArmUnavailable;
 
 typedef struct PalmTlsArmletAesKey {
@@ -188,6 +190,91 @@ static Boolean RunAesGcmKnownAnswer(void)
     return true;
 }
 
+static void PutRequest32(UInt8 *bytesP, UInt32 value)
+{
+    bytesP[0] = (UInt8)(value >> 24);
+    bytesP[1] = (UInt8)(value >> 16);
+    bytesP[2] = (UInt8)(value >> 8);
+    bytesP[3] = (UInt8)value;
+}
+
+/* Fills the request for one record. state is wolfSSL's ChaCha X[16], whose
+ * 32-bit words are already big-endian in 68K memory. */
+static UInt32 CallChaChaPoly(const UInt32 *stateP, UInt8 *outputP,
+                             const UInt8 *inputP, UInt32 length,
+                             const UInt8 *aadP, UInt32 aadLength,
+                             UInt8 *tagP, Boolean decrypt)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    UInt8 *fieldsP = requestP->left;
+    volatile UInt8 *stateBytesP = fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET;
+    UInt32 status;
+    UInt16 index;
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_CHACHA_POLY;
+    fieldsP[PALM_TLS_ARMLET_CHACHA_DECRYPT_OFFSET] = decrypt ? 1 : 0;
+    MemMove(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, stateP, 64);
+    PutRequest32(fieldsP + PALM_TLS_ARMLET_CHACHA_INPUT_OFFSET, (UInt32)inputP);
+    PutRequest32(fieldsP + PALM_TLS_ARMLET_CHACHA_OUTPUT_OFFSET,
+        (UInt32)outputP);
+    PutRequest32(fieldsP + PALM_TLS_ARMLET_CHACHA_LENGTH_OFFSET, length);
+    PutRequest32(fieldsP + PALM_TLS_ARMLET_CHACHA_AAD_OFFSET, (UInt32)aadP);
+    PutRequest32(fieldsP + PALM_TLS_ARMLET_CHACHA_AAD_LENGTH_OFFSET, aadLength);
+    if (decrypt) MemMove(fieldsP + PALM_TLS_ARMLET_CHACHA_TAG_OFFSET, tagP, 16);
+    status = PceNativeCall(gArmletEntryP, requestP);
+    if (status == PALM_TLS_ARMLET_SUCCESS && !decrypt)
+        MemMove(tagP, fieldsP + PALM_TLS_ARMLET_CHACHA_TAG_OFFSET, 16);
+    /* Also clear on native errors; volatile stores cannot be optimized away. */
+    for (index = 0; index < 64; index++) stateBytesP[index] = 0;
+    return status;
+}
+
+/* Seals and opens the start of RFC 8439's section 2.8.2 example, then
+ * opens it with a wrong tag. */
+static Boolean RunChaChaPolyKnownAnswer(void)
+{
+    static const UInt8 plain[] = "Ladies and Gentlemen of the class of '99";
+    static const UInt8 aad[12] = {
+        0x50,0x51,0x52,0x53,0xc0,0xc1,0xc2,0xc3,0xc4,0xc5,0xc6,0xc7
+    };
+    static const UInt8 cipher[8] = {
+        0xd3,0x1a,0x8d,0x34,0x64,0x8e,0x60,0xdb
+    };
+    static const UInt8 tag[16] = {
+        0xf1,0x80,0xd4,0xe9,0x01,0x6c,0x65,0xa7,
+        0xdd,0xe1,0x5e,0x31,0x06,0x07,0x5e,0xbd
+    };
+    UInt32 state[16];
+    UInt8 data[sizeof(plain) - 1];
+    UInt8 sealed[16];
+    UInt16 index;
+    state[0] = 0x61707865UL;
+    state[1] = 0x3320646eUL;
+    state[2] = 0x79622d32UL;
+    state[3] = 0x6b206574UL;
+    /* The key is 80 81 .. 9f, read as little-endian words. */
+    for (index = 0; index < 8; index++)
+        state[4 + index] = 0x80808080UL + 0x04040404UL * index + 0x03020100UL;
+    state[12] = 0;
+    state[13] = 0x00000007UL;
+    state[14] = 0x43424140UL;
+    state[15] = 0x47464544UL;
+    MemMove(data, plain, sizeof(data));
+    if (CallChaChaPoly(state, data, data, sizeof(data), aad, sizeof(aad),
+            sealed, false) != PALM_TLS_ARMLET_SUCCESS) return false;
+    for (index = 0; index < sizeof(cipher); index++)
+        if (data[index] != cipher[index]) return false;
+    for (index = 0; index < sizeof(tag); index++)
+        if (sealed[index] != tag[index]) return false;
+    sealed[0] ^= 1;
+    if (CallChaChaPoly(state, data, data, sizeof(data), aad, sizeof(aad),
+            sealed, true) != PALM_TLS_ARMLET_AUTH_FAILED) return false;
+    sealed[0] ^= 1;
+    if (CallChaChaPoly(state, data, data, sizeof(data), aad, sizeof(aad),
+            sealed, true) != PALM_TLS_ARMLET_SUCCESS) return false;
+    return MemCmp(data, plain, sizeof(data)) == 0;
+}
+
 static Boolean IsArmProcessor(void)
 {
     UInt32 processor = 0;
@@ -202,6 +289,7 @@ void PalmTlsArmletInitialize(void)
     if (gArmletChecked) return;
     gArmletChecked = true;
     gArmletEnabled = false;
+    gChaChaPolyEnabled = false;
     gRawP256PointP = 0;
     gArmletStatus = palmTlsArmUnavailable;
     if (!IsArmProcessor()) return;
@@ -222,6 +310,7 @@ void PalmTlsArmletInitialize(void)
             gArmletEnabled = RunMultiplyKnownAnswer() &&
                 RunP256KnownAnswer() && RunSha256KnownAnswer() &&
                 RunAesGcmKnownAnswer();
+            gChaChaPolyEnabled = gArmletEnabled && RunChaChaPolyKnownAnswer();
             gArmletStatus = gArmletEnabled ? palmTlsArmSelfTestPassed
                                            : palmTlsArmSelfTestFailed;
             return;
@@ -249,6 +338,7 @@ void PalmTlsArmletShutdown(void)
     gArmletDatabaseP = 0;
     gArmletChecked = false;
     gArmletEnabled = false;
+    gChaChaPolyEnabled = false;
     gRawP256PointP = 0;
     gArmletStatus = palmTlsArmUnavailable;
     MemSet(gAesKeys, sizeof(gAesKeys), 0);
@@ -379,11 +469,39 @@ int PalmTlsArmletAesGcmCrypt(Aes *aesP, byte *outputP, const byte *inputP,
     return 1;
 }
 
+int PalmTlsArmletChaChaPolyEnabled(void)
+{
+    return gArmletEnabled && gChaChaPolyEnabled;
+}
+
+/* Returns 0 to leave the record to wolfSSL. Otherwise *resultP is 0, or
+ * MAC_CMP_FAILED_E for a record whose tag does not match. */
+int PalmTlsArmletChaChaPoly(const word32 *stateP, byte *outputP,
+                            const byte *inputP, word32 length,
+                            const byte *aadP, word32 aadLength, byte *tagP,
+                            int decrypt, int *resultP)
+{
+    UInt32 status;
+    if (!PalmTlsArmletChaChaPolyEnabled() || gRequestP == 0 ||
+        stateP == 0 || tagP == 0 || resultP == 0 ||
+        length > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH ||
+        aadLength > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH ||
+        (aadLength != 0 && aadP == 0) ||
+        (length != 0 && (inputP == 0 || outputP == 0))) return 0;
+    status = CallChaChaPoly(stateP, outputP, inputP, length, aadP, aadLength,
+        tagP, decrypt != 0);
+    *resultP = status == PALM_TLS_ARMLET_SUCCESS ? 0
+        : status == PALM_TLS_ARMLET_AUTH_FAILED && decrypt ? MAC_CMP_FAILED_E
+        : BAD_STATE_E;
+    return 1;
+}
+
 void PalmTlsArmletDisable(void)
 {
     if (gArmletStatus != palmTlsArmUnavailable)
         gArmletStatus = palmTlsArmSelfTestFailed;
     gArmletEnabled = false;
+    gChaChaPolyEnabled = false;
     gRawP256PointP = 0;
 }
 

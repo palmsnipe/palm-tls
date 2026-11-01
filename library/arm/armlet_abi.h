@@ -8,7 +8,22 @@
 #define PALM_TLS_ARMLET_COMMAND_AES_GCM 3
 #define PALM_TLS_ARMLET_COMMAND_P256_MUL2ADD 4
 #define PALM_TLS_ARMLET_COMMAND_P256_MAP 5
+#define PALM_TLS_ARMLET_COMMAND_CHACHA_POLY 6
 #define PALM_TLS_ARMLET_SHA256_MAX_BLOCKS 8
+/* ChaCha20-Poly1305 seals or opens a whole record in one call. The left
+ * operand holds these fields; the record and AAD stay in the caller's
+ * buffers, passed as big-endian addresses. state is wolfSSL's ChaCha X[16],
+ * as big-endian words; its block counter is ignored. The request's state
+ * copy is erased before this command returns, including on errors. */
+#define PALM_TLS_ARMLET_CHACHA_DECRYPT_OFFSET 0
+#define PALM_TLS_ARMLET_CHACHA_STATE_OFFSET 4
+#define PALM_TLS_ARMLET_CHACHA_INPUT_OFFSET 68
+#define PALM_TLS_ARMLET_CHACHA_OUTPUT_OFFSET 72
+#define PALM_TLS_ARMLET_CHACHA_LENGTH_OFFSET 76
+#define PALM_TLS_ARMLET_CHACHA_AAD_OFFSET 80
+#define PALM_TLS_ARMLET_CHACHA_AAD_LENGTH_OFFSET 84
+#define PALM_TLS_ARMLET_CHACHA_TAG_OFFSET 88
+#define PALM_TLS_ARMLET_CHACHA_MAX_LENGTH 0x10000UL
 #define PALM_TLS_ARMLET_AES_GCM_START 0
 #define PALM_TLS_ARMLET_AES_GCM_UPDATE 1
 #define PALM_TLS_ARMLET_AES_GCM_FINAL 2
@@ -24,5 +39,7 @@
 #define PALM_TLS_ARMLET_ERROR 0xffffffffUL
 #define PALM_TLS_ARMLET_SUCCESS 0x100UL
 #define PALM_TLS_ARMLET_P256_SUCCESS PALM_TLS_ARMLET_SUCCESS
+/* Opening a record whose tag does not match; the output is untouched. */
+#define PALM_TLS_ARMLET_AUTH_FAILED 0x101UL
 
 #endif
