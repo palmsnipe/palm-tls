@@ -5,6 +5,7 @@
 
 #include "palm_tls.h"
 #include "tls_armlet.h"
+#include "tls_arm_compat.h"
 #include "../arm/armlet_abi.h"
 
 #define PALM_TLS_ARMLET_TYPE 'armc'
@@ -192,7 +193,7 @@ static Boolean IsArmProcessor(void)
 {
     UInt32 processor = 0;
     return FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) == errNone &&
-        sysFtrNumProcessorIsARM(processor);
+        PalmTlsArmletSupportsProcessor(processor);
 }
 
 void PalmTlsArmletInitialize(void)

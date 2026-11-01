@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "../arm/armlet_abi.h"
+#include "../src/tls_arm_compat.h"
 
 unsigned int PalmTlsArmletEntry(const void *, void *, void *);
 extern unsigned int PalmTlsArmletFixedBaseCalls;
@@ -355,6 +356,16 @@ static void CheckAesGcmStreaming(int decrypt)
 
 int main(void)
 {
+    unsigned long model;
+    for (model = 0x00100000UL; model <= 0x00190000UL; model += 0x10000UL) {
+        int expected = model != 0x00150000UL && model != 0x00170000UL;
+        assert(PalmTlsArmletSupportsProcessor(model) == expected);
+        assert(PalmTlsArmletSupportsProcessor(model | 0xffffUL) == expected);
+    }
+    assert(!PalmTlsArmletSupportsProcessor(0));
+    assert(!PalmTlsArmletSupportsProcessor(0x00030000UL)); /* 68K */
+    assert(!PalmTlsArmletSupportsProcessor(0x001a0000UL)); /* unknown ARM */
+    assert(!PalmTlsArmletSupportsProcessor(0x01000000UL)); /* simulator x86 */
     Check64(0, 0xffff);
     Check64(1, 1);
     Check64(0xffff, 0xffff);

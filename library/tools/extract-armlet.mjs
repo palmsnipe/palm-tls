@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { checkArmAttributes } from './arm-attributes.mjs';
 
 const [input, output] = process.argv.slice(2);
 if (!input || !output) throw new Error('usage: extract-armlet.mjs INPUT.o OUTPUT.bin');
@@ -36,6 +37,7 @@ const sections = rawSections.map((value) => ({
   ...value,
   name: stringAt(namesData, value.nameOffset),
 }));
+checkArmAttributes(elf, sections.find(({ name }) => name === '.ARM.attributes'));
 
 /* The ARMlet entry must be byte zero. Helpers and immutable constants follow;
  * each receives a resource-relative address used while applying relocations. */

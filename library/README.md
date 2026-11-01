@@ -10,6 +10,12 @@ profiles from the same source:
   P-256 scalar multiplication, and SHA-256 compression execute as a native
   ARMlet through `PceNativeCall`.
 
+The ARMlet uses a shared ARMv4T integer baseline for older TI925/ARM925T and
+newer ARM926/XScale cores. CPU models are checked before native execution;
+unknown or older cores retain the existing 68K implementation. GHASH and
+P-256 inversion optimizations are shared across supported ARM devices, without
+additional processor-specific PRCs. See [ARM.md](ARM.md) for the exact policy.
+
 All profiles install internally as `Palm TLS` with creator `PTLS` and expose
 the same public API, so they cannot and need not coexist. Install the variant
 appropriate for the device, then load it from applications with `SysLibFind`

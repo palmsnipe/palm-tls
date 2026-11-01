@@ -9,7 +9,8 @@ record protection execute in a native ARMlet through the SDK's
 
 ## Runtime path
 
-1. PalmTLS detects an ARM processor from `sysFtrNumProcessorID`.
+1. PalmTLS checks `sysFtrNumProcessorID` against its supported ARMv4T-or-newer
+   CPU models before executing native code. Unknown/older models retain 68K math.
 2. The selected TLS engine locks the `armc:1` resource and allocates one reusable
    request buffer.
 3. wolfSSL's TFM `fp_mul`/`fp_sqr`, P-256 scalar multiplication, SHA-256
@@ -36,7 +37,7 @@ mapping is occupied, PalmTLS safely falls back to the 68K implementation.
 
 ## Build and ABI
 
-Clang compiles a roughly 29 KB freestanding ARMv5TE code image, including the
+Clang compiles a roughly 30 KB freestanding ARMv4T code image, including the
 generated fixed-base P-256 table. `ARM_CC` defaults to `clang` and may be
 overridden when necessary:
 
@@ -46,15 +47,25 @@ make -C library ARM_CC=/path/to/clang
 
 The same build rule uses Apple Clang from the Xcode Command Line Tools on
 macOS and upstream LLVM Clang on Linux. It always passes
-`--target=armv5te-none-eabi`, the ARM926EJ-S CPU selection, and the freestanding
+`--target=armv4t-none-eabi`, `-mcpu=arm7tdmi`, `-march=armv4t`, and the freestanding
 options explicitly, so it does not depend on the host's default architecture
 or system headers. The 68K portions continue to use the Palm toolchain's
 `m68k-none-elf-gcc`; GCC is not used to compile the ARMlet.
 
 The ARMlet linker resolves internal calls and PC-relative constants, rejects
-unsupported or external relocations, packages the result as `armc:1`, and
+unsupported or external relocations and build attributes requiring newer
+instructions, floating point or Wireless MMX, packages the result as `armc:1`, and
 verifies that the resource is word-aligned and present only in the ARM PRC.
 `PalmTLS68K.prc` contains no native resource.
+
+The same `PalmTLSArm.prc` accelerates the older TI ARM925/ARM925T and newer
+ARM926EJ-S/XScale devices. There are no processor-specific PRCs or native
+backends. CPU selection is an allowlist of the SDK's ARM720T, ARM7TDMI, ARM920T,
+ARM922T, ARM925, XScale, ARM925T and ARM926EJ-S models, ignoring revision bits.
+Unknown models, ARM710A and StrongARM fall back before the first native call.
+The shared integer implementation uses no ARMv5-only instructions, hardware
+floating point or coprocessor extensions. Compiler flags are checked against
+the packager's instruction-set attribute policy before the ARM image is written.
 
 The ARMlet reads cross-architecture data byte-by-byte because Palm memory uses
 the 68K big-endian representation while native ARM is little-endian. Compile-
@@ -92,20 +103,26 @@ SHA-256 compression also runs natively, batching as many as eight consecutive
 block, while certificate and record-sized inputs avoid most architecture-crossing
 overhead. AES-128-GCM keeps its counter, expanded AES-128 key, and a 4-bit GHASH
 table across bounded 512-byte native calls. Key expansion and table construction
-therefore happen once per record instead of once per chunk, and GHASH processes
-four bits per step instead of one. The state still fits in the existing 528-byte
+therefore happen once per record instead of once per chunk. Each native call
+decodes the persistent GHASH table into aligned local words; GHASH then shifts
+and XORs four 32-bit words per nibble, with a direct four-bit polynomial
+reduction instead of repeated byte shifts. The state still fits in the existing 528-byte
 request operand, supports TLS records of any size, and does not allocate a large
 exchange buffer. Protocol control, certificate parsing, memory management, and
 NetLib callbacks still run through PACE. Unsupported AES key or nonce shapes
 automatically retain wolfSSL's unchanged 68K implementation.
 
+P-256 field inversion uses a fixed addition chain with 255 squarings and
+12 multiplications, replacing 256 squarings and 128 multiplications. Its
+schedule is independent of the field value and is shared by all ARM CPUs.
+
 TLS Tester exposes cold engine-load and handshake timings from the shared
-library alongside NetLib, DNS, TCP, and HTTP phases. If `TLS` dominates after
-the P-256 work moved to ARM, the next candidates are SHA-256 transcript hashing
-and certificate parsing. If `HTTP` dominates for larger transfers, AES-GCM and
-SHA-256 record processing should move next. A large `Load` value is a loader
-and relocation problem rather than a cryptographic one and should be measured
-only on the first request.
+library alongside NetLib, DNS, TCP, and HTTP phases. P-256, SHA-256 and AES-GCM
+already have native paths; remaining candidates include AES round processing,
+the 68K parsing/order-arithmetic work around those paths, and measured bridge costs. A large
+`Load` value includes loading, relocation, initialization and native self-tests;
+it must be separated from warm requests. The repeatable host/Palm benchmark suite, calibration, CSV comparison
+and emulator workflow are documented in [bench/README.md](bench/README.md).
 
 ## Validation
 

@@ -23,6 +23,7 @@ not produce an additional PRC.
 - macOS with Xcode Command Line Tools and Homebrew, or Linux with Clang and
   standard Autotools packages
 - Node.js
+- Python 3.9 or newer for validation and benchmarks
 - ImageMagick for generating the TLS Tester icon
 - a bootstrapped `palm-toolchain` repository
 
@@ -58,7 +59,7 @@ On Ubuntu 24.04, install the equivalent host packages:
 ```sh
 sudo apt-get update
 sudo apt-get install -y \
-  autoconf automake clang imagemagick librsvg2-bin libtool nodejs
+  autoconf automake clang imagemagick librsvg2-bin libtool nodejs python3
 ```
 
 Fetch the pinned wolfSSL revision, apply the Palm patches, and build all
@@ -137,6 +138,12 @@ higher; 512x is recommended for practical public-site TLS handshakes. This
 uses CloudpilotEmu's CPU overclock model rather than accelerating the entire
 emulated clock.
 See `apps/tls-tester/README.md` for usage and trust-profile details.
+
+For repeatable ARM performance measurements, run `make -C library benchmark`
+on the host or `make -C library benchmark-palm` for a Palm OS 5 benchmark PRC.
+See [library/bench/README.md](library/bench/README.md) for the emulator runner,
+CSV comparisons and measurement limits, and
+[library/PERFORMANCE.md](library/PERFORMANCE.md) for the performance review.
 
 ## License
 

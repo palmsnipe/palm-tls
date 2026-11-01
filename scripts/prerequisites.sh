@@ -6,7 +6,7 @@ source "$(cd "$(dirname "$0")" && pwd -P)/common.sh"
 
 require_toolchain
 
-required=(autoconf automake node)
+required=(autoconf automake node python3)
 missing=()
 for command_name in "${required[@]}"; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -30,6 +30,11 @@ fi
 
 if ! command -v "${ARM_CC:-clang}" >/dev/null 2>&1; then
   echo "Clang is required for the ARMlet build." >&2
+  exit 1
+fi
+
+if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))'; then
+  echo "Python 3.9 or newer is required for validation and benchmarks." >&2
   exit 1
 fi
 

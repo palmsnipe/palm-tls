@@ -10,9 +10,10 @@ SDK := $(PREFIX)/palmdev/sdk/include
 WOLFSSL_SETTINGS := $(REPO)/wolfssl/user_settings.h
 CC := $(PREFIX)/bin/m68k-none-elf-gcc
 ARM_CC ?= clang
-ARM_CPU_FLAGS ?= -mcpu=arm926ej-s
+ARM_CPU_FLAGS ?= -mcpu=arm7tdmi
 ARM_OPT_FLAGS ?= -Os
 HOST_CC ?= cc
+ARM_TEST_PYTHON ?= python3
 OBJCOPY := $(PREFIX)/bin/m68k-none-elf-objcopy
 SIZE := $(PREFIX)/bin/m68k-none-elf-size
 PILRC := $(PREFIX)/bin/pilrc
@@ -37,6 +38,7 @@ ARMLET_OBJECT := $(PALM_BUILD)/armlet.o
 ARMLET_CODE := $(PALM_BUILD)/armc0001.bin
 P256_COMB := $(GENERATED)/p256_comb8.inc
 ARMLET_HOST_TEST := $(BUILD)/host/armlet_math_test
+ARMLET_ORACLE := $(BUILD)/host/armlet_oracle.so
 COMMON_OBJECTS := $(PALM_BUILD)/palm_library.o $(PALM_BUILD)/tls_loader.o \
 	$(PALM_BUILD)/tls_palm.o $(PALM_BUILD)/dispatch.o
 COMMON_OBJECTS_68K := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_68k.o
@@ -99,7 +101,7 @@ PRC_68K := $(PALM_BUILD)/$(LIB_ID)68K$(PROFILE_SUFFIX).prc
 PRC_ARM := $(PALM_BUILD)/$(LIB_ID)Arm$(PROFILE_SUFFIX).prc
 ARMLET_PAD := $(PALM_BUILD)/PadR0001-$(TLS_PROFILE).bin
 
-.PHONY: all test test-prc profiles profile-tls13 profile-modern profile-full clean
+.PHONY: all test test-arm test-prc profiles profile-tls13 profile-modern profile-full clean benchmark benchmark-palm FORCE
 
 all: test
 
@@ -128,7 +130,7 @@ $(PALM_BUILD)/tls_engine_11.o: src/tls_engine.c include/palm_tls.h src/tls_palm.
 		-DPALM_WOLFSSL_TLS11_ONLY -c $< -o $@
 $(PALM_BUILD)/tls_palm.o: src/tls_palm.c src/tls_palm.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
-$(PALM_BUILD)/tls_armlet.o: src/tls_armlet.c src/tls_armlet.h arm/armlet_abi.h include/palm_tls.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_armlet.o: src/tls_armlet.c src/tls_armlet.h src/tls_arm_compat.h arm/armlet_abi.h include/palm_tls.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(PALM_BUILD)/tls_armlet_68k.o: src/tls_armlet_68k.c include/palm_tls.h | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
@@ -182,19 +184,27 @@ $(eval $(call ENGINE_RESOURCES,$(ELF_11_ARM),$(PALM_ARM_BUILD),0015,0016,0017,00
 $(P256_COMB): tools/generate-p256-comb.mjs | $(GENERATED)
 	node $< $@
 
-$(ARMLET_OBJECT): arm/multiply.c arm/armlet_abi.h $(P256_COMB) | $(PALM_BUILD)
-	$(ARM_CC) --target=armv5te-none-eabi $(ARM_CPU_FLAGS) -marm $(ARM_OPT_FLAGS) \
+$(PALM_BUILD)/armlet-config: FORCE | $(PALM_BUILD)
+	@printf '%s\n' '$(ARM_CC) --target=armv4t-none-eabi $(ARM_CPU_FLAGS) -march=armv4t -marm $(ARM_OPT_FLAGS)' > $@.tmp
+	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
+
+$(ARMLET_OBJECT): arm/multiply.c arm/armlet_abi.h $(P256_COMB) $(PALM_BUILD)/armlet-config Makefile | $(PALM_BUILD)
+	$(ARM_CC) --target=armv4t-none-eabi $(ARM_CPU_FLAGS) -march=armv4t -marm $(ARM_OPT_FLAGS) \
 		-ffreestanding -fno-builtin -fno-stack-protector -fomit-frame-pointer \
 		-fpic -ffunction-sections -fdata-sections -I$(GENERATED) \
 		-Wall -Wextra -Werror -c $< -o $@
-$(ARMLET_CODE): $(ARMLET_OBJECT) tools/extract-armlet.mjs
+$(ARMLET_CODE): $(ARMLET_OBJECT) tools/extract-armlet.mjs tools/arm-attributes.mjs
 	node tools/extract-armlet.mjs $< $@
 $(ARMLET_PAD): $(PROFILE_RESOURCES_ARM) tools/generate-armlet-pad.mjs | $(PALM_BUILD)
 	node tools/generate-armlet-pad.mjs $@ $(PROFILE_RESOURCES_ARM)
-$(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h $(P256_COMB)
+$(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h src/tls_arm_compat.h $(P256_COMB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -std=c99 -O2 -Wall -Wextra -Werror \
 		-DPALM_ARMLET_HOST_TEST -I$(GENERATED) $(filter %.c,$^) -o $@
+$(ARMLET_ORACLE): arm/multiply.c arm/armlet_abi.h $(P256_COMB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) -std=c99 -O2 -shared -fPIC -Wall -Wextra -Werror \
+		-DPALM_ARMLET_HOST_TEST -I$(GENERATED) $< -o $@
 
 $(BASE_RO): $(RESOURCE_RCP) $(LIBRARY_CODE) | $(PALM_BUILD)
 	cd $(PALM_BUILD) && $(PILRC) -ro -o $(BASE_RO) -creator $(LIB_CREATOR) \
@@ -218,8 +228,22 @@ test-prc: $(PRC_68K) $(PRC_ARM)
 	node tools/validate_library.mjs $(PRC_ARM) arm $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION)
 	$(SIZE) $(PROFILE_ELFS_68K) $(PROFILE_ELFS_ARM)
 
-test: profiles $(ARMLET_HOST_TEST)
+test: profiles $(ARMLET_HOST_TEST) $(ARMLET_ORACLE)
 	$(ARMLET_HOST_TEST)
+	python3 tests/arm_build_test.py --cc '$(ARM_CC)'
+	python3 tests/crypto_oracle_test.py --host-library $(ARMLET_ORACLE)
+
+# Optional CPU instruction emulation requires tests/requirements-arm.txt.
+# The same extracted image must execute on the older TI925T and PXA270.
+test-arm: $(ARMLET_CODE)
+	$(ARM_TEST_PYTHON) tests/crypto_oracle_test.py --arm-image $(ARMLET_CODE) --cpu ti925t
+	$(ARM_TEST_PYTHON) tests/crypto_oracle_test.py --arm-image $(ARMLET_CODE) --cpu pxa270
+
+benchmark:
+	$(MAKE) -C bench check
+
+benchmark-palm:
+	$(MAKE) -C bench palm
 
 profiles:
 	$(MAKE) TLS_PROFILE=tls13 test-prc

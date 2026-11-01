@@ -62,10 +62,6 @@ static const Fe256 kR2 = {{
 }};
 static const Fe256 kOne = {{1U, 0, 0, 0, 0, 0, 0, 0}};
 static const Fe256 kZero = {{0, 0, 0, 0, 0, 0, 0, 0}};
-static const Fe256 kPMinus2 = {{
-    0xfffffffdU, 0xffffffffU, 0xffffffffU, 0x00000000U,
-    0x00000000U, 0x00000000U, 0x00000001U, 0xffffffffU
-}};
 /* P-256 comb table: sums of G, 2^32G, ... 2^224G in Montgomery form.
  * The generated table halves fixed-base doublings and additions while table
  * selection remains constant-time with respect to the private scalar. */
@@ -284,27 +280,48 @@ static void GhashBuildTable(volatile u8 *tableP, const u8 *hP)
     }
 }
 
-static void GhashBlock(u8 *xP, const volatile u8 *tableP,
+/* Decode once per native call, rather than performing sixteen volatile byte
+ * loads on every nibble. Shared request storage remains byte-addressed: Palm
+ * callers need not provide a word-aligned request or native-endian state. */
+static void GhashLoadTable(u32 table[16][4], const volatile u8 *bytesP)
+{
+    u32 digit, word;
+    for (digit = 0; digit < 16; digit++)
+        for (word = 0; word < 4; word++)
+            table[digit][word] = ReadBigEndian32(bytesP + digit * 16U + word * 4U);
+}
+
+static void GhashBlock(u8 *xP, const u32 table[16][4],
                        const u8 *blockP)
 {
-    u8 z[16], value[16];
+    u32 z0 = 0, z1 = 0, z2 = 0, z3 = 0;
+    u32 value[4];
     int nibble;
     u32 index;
-    for (index = 0; index < 16; index++) {
-        z[index] = 0;
-        value[index] = xP[index] ^ blockP[index];
-    }
+    for (index = 0; index < 4; index++)
+        value[index] = ReadBigEndian32(xP + index * 4U) ^
+                       ReadBigEndian32(blockP + index * 4U);
     for (nibble = 31; nibble >= 0; nibble--) {
-        u32 digit;
-        u32 shift;
-        for (shift = 0; shift < 4; shift++) GhashShiftRight(z);
-        digit = ((u32)nibble & 1U) != 0U
-            ? value[(u32)nibble >> 1] & 0x0fU
-            : value[(u32)nibble >> 1] >> 4;
-        for (index = 0; index < 16; index++)
-            z[index] ^= tableP[digit * 16U + index];
+        u32 low = z3 & 15U;
+        u32 digit = (value[(u32)nibble >> 3] >>
+                     (28U - ((u32)nibble & 7U) * 4U)) & 15U;
+        /* Four reflected GF(2^128) shifts reduced by x^128+x^7+x^2+x+1.
+         * The low nibble's reduction is linear, so shifts/XORs replace both
+         * the old 64 byte shifts and an additional secret-indexed table. */
+        z3 = (z3 >> 4) | (z2 << 28);
+        z2 = (z2 >> 4) | (z1 << 28);
+        z1 = (z1 >> 4) | (z0 << 28);
+        z0 = (z0 >> 4) ^ (low << 28) ^ (low << 27) ^
+             (low << 26) ^ (low << 21);
+        z0 ^= table[digit][0];
+        z1 ^= table[digit][1];
+        z2 ^= table[digit][2];
+        z3 ^= table[digit][3];
     }
-    for (index = 0; index < 16; index++) xP[index] = z[index];
+    WriteBigEndian32(xP, z0);
+    WriteBigEndian32(xP + 4, z1);
+    WriteBigEndian32(xP + 8, z2);
+    WriteBigEndian32(xP + 12, z3);
 }
 
 #define GCM_KEY_OFFSET 4
@@ -333,7 +350,7 @@ static u32 Load32(const volatile u8 *bytesP)
     return ((u32)bytesP[0]<<24)|((u32)bytesP[1]<<16)|((u32)bytesP[2]<<8)|bytesP[3];
 }
 
-static void GcmHashBytes(u8 *xP, const volatile u8 *tableP,
+static void GcmHashBytes(u8 *xP, const u32 table[16][4],
                          const volatile u8 *dataP, u32 length)
 {
     u8 block[16];
@@ -342,7 +359,7 @@ static void GcmHashBytes(u8 *xP, const volatile u8 *tableP,
         u32 count = length - offset;
         if (count > 16) count = 16;
         for (index = 0; index < 16; index++) block[index] = index < count ? dataP[offset+index] : 0;
-        GhashBlock(xP, tableP, block);
+        GhashBlock(xP, table, block);
     }
 }
 
@@ -352,6 +369,7 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
     volatile u8 *roundKeyP = stateP + GCM_ROUND_KEY_OFFSET;
     volatile u8 *ghashTableP = stateP + GCM_GHASH_TABLE_OFFSET;
     u8 counter[16], initial[16], h[16], x[16], block[16], stream[16];
+    u32 table[16][4];
     u32 operation = stateP[0], length = ((u32)stateP[1] << 8) | stateP[2];
     u32 decrypt = stateP[3], offset, index, aadLength, dataLength;
     if (operation == PALM_TLS_ARMLET_AES_GCM_START) {
@@ -362,7 +380,10 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
         for (index=0; index<16; index++) { block[index]=0; x[index]=0; }
         AesEncrypt128(roundKeyP, block, h);
         GhashBuildTable(ghashTableP, h);
-        GcmHashBytes(x, ghashTableP, inputP + 12, length);
+        if (length != 0) {
+            GhashLoadTable(table, ghashTableP);
+            GcmHashBytes(x, table, inputP + 12, length);
+        }
         for (index=0; index<16; index++) {
             stateP[GCM_COUNTER_OFFSET+index]=counter[index];
             stateP[GCM_INITIAL_OFFSET+index]=counter[index];
@@ -379,6 +400,7 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
     }
     aadLength=Load32(stateP+GCM_AAD_LENGTH_OFFSET);
     dataLength=Load32(stateP+GCM_DATA_LENGTH_OFFSET);
+    GhashLoadTable(table, ghashTableP);
     if (operation == PALM_TLS_ARMLET_AES_GCM_UPDATE) {
         if (length > PALM_TLS_ARMLET_AES_GCM_CHUNK) return PALM_TLS_ARMLET_ERROR;
         for (offset=0; offset<length; offset+=16) {
@@ -391,7 +413,7 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
                 outputP[offset+index]=(u8)(source^stream[index]);
                 block[index]=decrypt ? source : outputP[offset+index];
             }
-            GhashBlock(x,ghashTableP,block);
+            GhashBlock(x,table,block);
         }
         dataLength += length;
         for (index=0; index<16; index++) {
@@ -403,7 +425,7 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
     if (operation != PALM_TLS_ARMLET_AES_GCM_FINAL) return PALM_TLS_ARMLET_ERROR;
     for (index=0; index<16; index++) block[index]=0;
     Store32(block+4,aadLength*8U); Store32(block+12,dataLength*8U);
-    GhashBlock(x,ghashTableP,block);
+    GhashBlock(x,table,block);
     AesEncrypt128(roundKeyP,initial,stream);
     for (index=0; index<16; index++) outputP[index]=(u8)(x[index]^stream[index]);
     return PALM_TLS_ARMLET_SUCCESS;
@@ -853,24 +875,50 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
     PointCopy(resultP, &added);
 }
 
+static void FeSquareN(Fe256 *resultP, const Fe256 *valueP, u32 count)
+{
+    /* All callers supply a public, nonzero constant count. FeSquare permits
+     * aliasing, including the in-place steps below. */
+    FeSquare(resultP, valueP);
+    while (--count != 0) FeSquare(resultP, resultP);
+}
+
 static void FeInverse(Fe256 *resultP, const Fe256 *valueP)
 {
-    Fe256 result;
-    int bit;
-    FeCopy(&result, &kR);
-    /* The exponent is the public, fixed value p - 2. Branching on its bits is
-     * safe and avoids the multiply-and-select previously done for every zero
-     * bit. The field value and scalar remain independent of control flow. */
-    for (bit = 255; bit >= 0; bit--) {
-        Fe256 squared;
-        u32 exponentBit = (kPMinus2.v[(u32)bit >> 5] >> (bit & 31)) & 1U;
-        FeSquare(&squared, &result);
-        if (exponentBit != 0U)
-            FeMultiply(&result, &squared, valueP);
-        else
-            FeCopy(&result, &squared);
-    }
-    FeCopy(resultP, &result);
+    Fe256 power7, temporary, saved;
+    /* Fixed p-2 chain: 255 squarings and 12 multiplications. The schedule
+     * follows Go's p256Inverse (Copyright 2015 The Go Authors, BSD-3-Clause;
+     * see p256-inverse.LICENSE and THIRD_PARTY.md). All counts and control
+     * flow are independent of the field value. Zero maps to zero as before.
+     *
+     * Retain a^(2^15-1), then a^((2^32-1)*2^15). Their product
+     * gives a^(2^47-1). The final exponent is
+     * ((((2^32-1)*2^32+1)*2^143+(2^47-1))*2^47+(2^47-1))*4+1
+     * = 2^256-2^224+2^192+2^96-3 = p-2. */
+    FeSquare(&power7, valueP);
+    FeMultiply(&power7, &power7, valueP);                 /* a^3 */
+    FeSquare(&power7, &power7);
+    FeMultiply(&power7, &power7, valueP);                 /* a^7 */
+    FeSquareN(&temporary, &power7, 3);
+    FeMultiply(&temporary, &temporary, &power7);          /* a^(2^6-1) */
+    FeSquareN(&saved, &temporary, 6);
+    FeMultiply(&temporary, &temporary, &saved);           /* a^(2^12-1) */
+    FeSquareN(&temporary, &temporary, 3);
+    FeMultiply(&power7, &power7, &temporary);             /* a^(2^15-1) */
+    FeSquare(&temporary, &power7);
+    FeMultiply(&temporary, &temporary, valueP);           /* a^(2^16-1) */
+    FeSquareN(&saved, &temporary, 16);
+    FeMultiply(&temporary, &temporary, &saved);           /* a^(2^32-1) */
+    FeSquareN(&temporary, &temporary, 15);
+    FeMultiply(&saved, &temporary, &power7);              /* a^(2^47-1) */
+    FeSquareN(&temporary, &temporary, 17);
+    FeMultiply(&temporary, &temporary, valueP);
+    FeSquareN(&temporary, &temporary, 143);
+    FeMultiply(&temporary, &temporary, &saved);
+    FeSquareN(&temporary, &temporary, 47);
+    FeMultiply(&temporary, &temporary, &saved);
+    FeSquareN(&temporary, &temporary, 2);
+    FeMultiply(resultP, &temporary, valueP);
 }
 
 static void FeReadBigEndian(Fe256 *resultP, const volatile u8 *bytesP)
@@ -911,6 +959,18 @@ static void FeWriteBigEndian(volatile u8 *bytesP, const Fe256 *valueP)
         bytesP[offset + 3] = (u8)value;
     }
 }
+
+#ifdef PALM_ARMLET_HOST_TEST
+/* Independent big-integer oracle tests exercise inversion directly. This
+ * symbol and its conversion overhead are absent from the shipped ARMlet. */
+void PalmTlsArmletTestInverse(const u8 *inputP, u8 *outputP)
+{
+    Fe256 value, inverse;
+    FeReadBigEndian(&value, inputP);
+    FeInverse(&inverse, &value);
+    FeWriteBigEndian(outputP, &inverse);
+}
+#endif
 
 /* Write a Montgomery-domain field element without converting it back to the
  * normal domain. wolfSSL expects these coordinates when map is false. */

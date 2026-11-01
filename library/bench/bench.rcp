@@ -1,0 +1,14 @@
+DATA "code" ID 1 "code0001.bin"
+DATA "armc" ID 1 "armc0001.bin"
+// The eight-entry resource table plus this four-byte resource places armc
+// at file offset 164. Recheck alignment if the resource list changes.
+HEX "PadR" ID 1 0x00 0x00 0x00 0x00
+VERSION 1 "1.0"
+// 32 KiB stack, matching TLS Tester for the shared-library engine self-test.
+HEX "pref" ID 0 0x00 0x1e 0x00 0x00 0x80 0x00 0x00 0x00 0x10 0x00
+FORM ID 1000 AT (0 0 160 160)
+BEGIN
+    TITLE "PalmTLS ARM Bench"
+END
+APPLICATIONICONNAME ID 1000 "PalmTLS Bench"
+STRING ID 1000 "PalmTLS ARM benchmarks"
