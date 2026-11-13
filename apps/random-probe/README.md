@@ -22,3 +22,6 @@ seeds and reseeds across boots. Two differing output blocks only show that the
 API returned different bytes on those calls. Use the provider's design
 documentation or an assessment of its noise source. The diagnostic PRC does
 not participate in identity generation or TLS.
+
+See the [Tungsten E2 firmware trace](tungsten-e2.md) for the stock Garnet 5.4.7
+provider's clock-based initialization and the emulator comparison.
