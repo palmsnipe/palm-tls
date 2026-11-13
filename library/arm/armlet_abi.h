@@ -30,6 +30,13 @@
  * Output = u1 || u2 || s^-1 mod n in the same format. r,s must be in [1,n).
  * This variable-time command is for public ECDSA verification values only. */
 #define PALM_TLS_ARMLET_COMMAND_CHACHA_POLY 9
+/* Ed25519 ref10 field elements: ten signed, big-endian 32-bit limbs.
+ * Header byte 1 selects the operation. Byte 2 is reserved and must be zero. */
+#define PALM_TLS_ARMLET_COMMAND_ED25519_FIELD 10
+#define PALM_TLS_ARMLET_ED25519_MUL 0
+#define PALM_TLS_ARMLET_ED25519_SQUARE 1
+#define PALM_TLS_ARMLET_ED25519_SQUARE_DOUBLE 2
+#define PALM_TLS_ARMLET_ED25519_FIELD_BYTES 40
 #define PALM_TLS_ARMLET_SHA256_MAX_BLOCKS 8
 /* ChaCha20-Poly1305 seals or opens a whole record in one call. The left
  * operand holds these fields; the record and AAD stay in the caller's

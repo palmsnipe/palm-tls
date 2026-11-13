@@ -32,6 +32,7 @@ static Boolean gArmletChecked;
 static Boolean gArmletEnabled;
 /* ChaCha20-Poly1305 is only offered when its own known answer passes. */
 static Boolean gChaChaPolyEnabled;
+static Boolean gEd25519FieldEnabled;
 static UInt16 gArmletStatus = palmTlsArmUnavailable;
 
 typedef struct PalmTlsArmletAesKey {
@@ -325,6 +326,18 @@ static Boolean RunChaChaPolyKnownAnswer(void)
     return MemCmp(data, plain, sizeof(data)) == 0;
 }
 
+static Boolean RunEd25519FieldKnownAnswer(void)
+{
+    /* (-3 + 2^26) * (7 - 2^26), expressed as centered ref10 limbs. */
+    static const Int32 left[10] = { -3, 1 };
+    static const Int32 right[10] = { 7, -1 };
+    static const Int32 expected[10] = { -21, 10, -2 };
+    Int32 actual[10];
+    return PalmTlsArmletEd25519Field(actual, left, right,
+        PALM_TLS_ARMLET_ED25519_MUL) &&
+        MemCmp(actual, expected, sizeof(actual)) == 0;
+}
+
 static Boolean IsArmProcessor(void)
 {
     UInt32 processor = 0;
@@ -340,6 +353,7 @@ void PalmTlsArmletInitialize(void)
     gArmletChecked = true;
     gArmletEnabled = false;
     gChaChaPolyEnabled = false;
+    gEd25519FieldEnabled = false;
     gRawP256PointP = 0;
     gArmletStatus = palmTlsArmUnavailable;
     if (!IsArmProcessor()) return;
@@ -361,6 +375,8 @@ void PalmTlsArmletInitialize(void)
                 RunP256KnownAnswer() && RunSha256KnownAnswer() &&
                 RunAesGcmKnownAnswer() && RunOrderKnownAnswer();
             gChaChaPolyEnabled = gArmletEnabled && RunChaChaPolyKnownAnswer();
+            gEd25519FieldEnabled = gArmletEnabled;
+            gEd25519FieldEnabled = gEd25519FieldEnabled && RunEd25519FieldKnownAnswer();
             gArmletStatus = gArmletEnabled ? palmTlsArmSelfTestPassed
                                            : palmTlsArmSelfTestFailed;
             return;
@@ -389,6 +405,7 @@ void PalmTlsArmletShutdown(void)
     gArmletChecked = false;
     gArmletEnabled = false;
     gChaChaPolyEnabled = false;
+    gEd25519FieldEnabled = false;
     gRawP256PointP = 0;
     gArmletStatus = palmTlsArmUnavailable;
     MemSet(gAesKeys, sizeof(gAesKeys), 0);
@@ -415,6 +432,30 @@ int PalmTlsArmletSha256Transform(word32 *digestP, const byte *blockP,
         PALM_TLS_ARMLET_SUCCESS) return -1;
     MemMove(digestP, requestP->output, 32);
     return 0;
+}
+
+/* A failed native call leaves the operands intact for wolfSSL's fallback,
+ * including when the destination aliases either operand. */
+int PalmTlsArmletEd25519Field(void *outputP, const void *leftP,
+                            const void *rightP, word32 operation)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    const UInt16 size = PALM_TLS_ARMLET_ED25519_FIELD_BYTES;
+    if (!gEd25519FieldEnabled || !requestP) return 0;
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_ED25519_FIELD;
+    requestP->leftUsed = (UInt8)operation;
+    requestP->rightUsed = 0;
+    MemMove(requestP->left, leftP, size);
+    if (operation == PALM_TLS_ARMLET_ED25519_MUL)
+        MemMove(requestP->right, rightP, size);
+    UInt32 status = PceNativeCall(gArmletEntryP, requestP);
+    if (status == PALM_TLS_ARMLET_SUCCESS)
+        MemMove(outputP, requestP->output, size);
+    MemSet(requestP->left, size, 0);
+    MemSet(requestP->right, size, 0);
+    MemSet(requestP->output, size, 0);
+    return status == PALM_TLS_ARMLET_SUCCESS;
 }
 
 void PalmTlsArmletAesGcmSetKey(Aes *aesP, const byte *keyP, word32 length)
@@ -552,6 +593,7 @@ void PalmTlsArmletDisable(void)
         gArmletStatus = palmTlsArmSelfTestFailed;
     gArmletEnabled = false;
     gChaChaPolyEnabled = false;
+    gEd25519FieldEnabled = false;
     gRawP256PointP = 0;
 }
 

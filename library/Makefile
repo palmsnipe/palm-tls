@@ -202,7 +202,7 @@ $(PALM_BUILD)/armlet-config: FORCE | $(PALM_BUILD)
 	@printf '%s\n' '$(ARM_CC) --target=armv4t-none-eabi $(ARM_CPU_FLAGS) -march=armv4t -marm $(ARM_OPT_FLAGS)' > $@.tmp
 	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
 
-$(ARMLET_OBJECT): arm/multiply.c arm/armlet_abi.h $(P256_COMB) $(PALM_BUILD)/armlet-config Makefile | $(PALM_BUILD)
+$(ARMLET_OBJECT): arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc $(P256_COMB) $(PALM_BUILD)/armlet-config Makefile | $(PALM_BUILD)
 	$(ARM_CC) --target=armv4t-none-eabi $(ARM_CPU_FLAGS) -march=armv4t -marm $(ARM_OPT_FLAGS) \
 		-ffreestanding -fno-builtin -fno-stack-protector -fomit-frame-pointer \
 		-fpic -ffunction-sections -fdata-sections -I$(GENERATED) \
@@ -211,11 +211,11 @@ $(ARMLET_CODE): $(ARMLET_OBJECT) tools/extract-armlet.mjs tools/arm-attributes.m
 	node tools/extract-armlet.mjs $< $@
 $(ARMLET_PAD): $(PROFILE_RESOURCES_ARM) tools/generate-armlet-pad.mjs | $(PALM_BUILD)
 	node tools/generate-armlet-pad.mjs $@ $(PROFILE_RESOURCES_ARM)
-$(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h src/tls_arm_compat.h $(P256_COMB)
+$(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc src/tls_arm_compat.h $(P256_COMB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -std=c99 -O2 -Wall -Wextra -Werror \
 		-DPALM_ARMLET_HOST_TEST -I$(GENERATED) $(filter %.c,$^) -o $@
-$(ARMLET_ORACLE): arm/multiply.c arm/armlet_abi.h $(P256_COMB)
+$(ARMLET_ORACLE): arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc $(P256_COMB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -std=c99 -O2 -shared -fPIC -Wall -Wextra -Werror \
 		-DPALM_ARMLET_HOST_TEST -I$(GENERATED) $< -o $@

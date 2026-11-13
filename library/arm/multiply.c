@@ -1840,6 +1840,8 @@ static u32 P256Field(const volatile u8 *leftP, const volatile u8 *rightP,
     return PALM_TLS_ARMLET_SUCCESS;
 }
 
+#include "ed25519_field.inc"
+
 ARMLET_ENTRY_ATTRIBUTES
 u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
                        void *call68KFuncP)
@@ -1875,6 +1877,8 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
         return P256OrderScalars(leftP, outputP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_VALIDATE)
         return P256Validate(rightP, requestP[1], requestP[2]);
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_ED25519_FIELD)
+        return Ed25519Field(leftP, rightP, outputP, requestP[1], requestP[2]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_FIELD)
         return P256Field(leftP, rightP, outputP, requestP[1], requestP[2]);
     if (requestP[3] != PALM_TLS_ARMLET_COMMAND_MULTIPLY)

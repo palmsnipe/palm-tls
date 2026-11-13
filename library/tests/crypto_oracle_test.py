@@ -489,6 +489,57 @@ def chacha(backend, rng):
     return len(expected)*3
 
 
+def ed25519_field(backend, rng):
+    prime = 2**255 - 19
+    weights = [1 << ((51 * i + 1) // 2) for i in range(10)]
+    bounds = [(164 * (1 << (26 - i % 2))) // 100 for i in range(10)]
+
+    def number(limbs):
+        return sum(x * w for x, w in zip(limbs, weights)) % prime
+
+    def encode(limbs):
+        return b''.join(x.to_bytes(4, 'big', signed=True) for x in limbs)
+
+    def sample():
+        return [rng.randint(-bound, bound) for bound in bounds]
+
+    pairs = [([0] * 10, bounds), (bounds, bounds),
+             ([-x for x in bounds], bounds),
+             ([0] * 9 + [1], [0] * 9 + [1])]
+    pairs.extend((sample(), sample()) for _ in range(128))
+    for index, (left, right) in enumerate(pairs):
+        a, b = number(left), number(right)
+        for op, expected in enumerate((a * b, a * a, 2 * a * a)):
+            data = request(10)
+            data[1] = op
+            data[LEFT:LEFT + 40] = encode(left)
+            data[RIGHT:RIGHT + 40] = encode(right)
+            assert backend.invoke(data, index % 4) == SUCCESS
+            result = [int.from_bytes(data[OUTPUT+i:OUTPUT+i+4], 'big', signed=True)
+                      for i in range(0, 40, 4)]
+            assert number(result) == expected % prime, (index, op, result)
+            assert all(abs(x) <= (101 * (1 << (25 - i % 2))) // 100
+                       for i, x in enumerate(result)), (index, op, result)
+    # Group addition can pass a loose first operand to multiplication.
+    # The highest limb here overflows if the wrap factor is applied in 32 bits.
+    left = [0, 0, 0, 0, 0, 0, 1 << 27, 0, 0, 0]
+    right = [0, 0, 0, 0, -1, 0, 0, 0, 0, 0]
+    data = request(10)
+    data[LEFT:LEFT + 40] = encode(left)
+    data[RIGHT:RIGHT + 40] = encode(right)
+    assert backend.invoke(data, 1) == SUCCESS
+    result = [int.from_bytes(data[OUTPUT+i:OUTPUT+i+4], 'big', signed=True)
+              for i in range(0, 40, 4)]
+    assert number(result) == number(left) * number(right) % prime
+    for op, reserved in ((3, 0), (0, 1)):
+        data = request(10)
+        data[1:3] = bytes((op, reserved))
+        data[OUTPUT:OUTPUT + 40] = b'\xa5' * 40
+        assert backend.invoke(data) == ERROR
+        assert data[OUTPUT:OUTPUT + 40] == b'\xa5' * 40
+    return len(pairs) * 3 + 1
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
@@ -501,6 +552,7 @@ def main():
     chacha_records = chacha(backend, rng)
     records = aes(backend, rng)
     fields = field_arithmetic(backend)
+    ed_fields = ed25519_field(backend, rng)
     inverses, multiplies, verifies = p256(backend, rng)
     validations = p256_validation(backend, rng)
     orders = order_scalars(backend, rng)
@@ -510,7 +562,8 @@ def main():
           f'{chacha_records} ChaCha records, {records} AES-GCM records, {fields} raw-field chains, {inverses} inversions/maps, '
           f'{multiplies} scalar products, {verifies} double-scalar cases, '
           f'{orders} order preparations, {validations} point validations, '
-          f'{signatures} ECDSA valid/tampered cases; alignment offsets 0..3')
+          f'{signatures} ECDSA valid/tampered cases, {ed_fields} Ed25519 field cases; '
+          'alignment offsets 0..3')
 
 
 if __name__ == '__main__':

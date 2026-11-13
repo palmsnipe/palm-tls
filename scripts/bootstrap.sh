@@ -36,6 +36,7 @@ patches=(
   wolfssl-palm-armlet-chacha.patch
   wolfssl-palm-16bit-int64.patch
   wolfssl-palm-client-auth.patch
+  wolfssl-palm-armlet-ed25519.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \

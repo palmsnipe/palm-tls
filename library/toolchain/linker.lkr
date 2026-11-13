@@ -55,7 +55,7 @@ SECTIONS
         *libwolfssl*.a:libwolfssl_la-ssl.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:libwolfssl_la-internal.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-sp_c32.o(.text.sp_256_sqr_9*)
-        *libwolfssl*.a:src_libwolfssl_la-fe_operations.o(.text.fe_mul*)
+        *libwolfssl*.a:src_libwolfssl_la-fe_operations.o(.text.fe_mul* .text.palm_portable_fe_mul*)
         *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text.ecc_mul2add*)
         *libwolfssl*.a:src_libwolfssl_la-tfm.o(.text.fp_div*)
         *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.DecodeExtensionType*)
