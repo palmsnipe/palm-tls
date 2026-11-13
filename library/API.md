@@ -101,11 +101,12 @@ When `PALM_TLS_CAP_STYLUS_SEED` is present, a client can call
 `PalmTlsLibSeedFromStylus` to opt in to experimental pairing. Pass complete
 down/move/up strokes with Palm OS ticks and uncalibrated raw coordinates
 during contact. Use zero coordinates for pen-up. Submit at least
-`PALM_TLS_STYLUS_STROKES` complete strokes and `PALM_TLS_STYLUS_POINTS`
-contact samples, up to `PALM_TLS_STYLUS_MAX_POINTS` total events. The library
-checks sequencing and variation, hashes the samples with SHA-512, and
-advertises `PALM_TLS_CAP_STYLUS_RANDOM` on success. These checks establish
-input diversity. The E2's physical entropy remains unverified.
+`PALM_TLS_STYLUS_POINTS` qualifying move samples across one or more complete
+strokes, up to `PALM_TLS_STYLUS_MAX_POINTS` total events. A move qualifies when
+its tick and at least one raw coordinate differ from the last qualifying move
+or the pen-down in that stroke. The library checks sequencing and variation,
+hashes the samples with SHA-512, and advertises `PALM_TLS_CAP_STYLUS_RANDOM`
+on success. The E2's physical entropy remains unverified.
 
 Keep the library open while using the seed and clear the sample buffer
 after the call. An invalid capture leaves any previously accepted state

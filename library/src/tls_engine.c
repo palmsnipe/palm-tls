@@ -498,39 +498,35 @@ static void SeedFromStylus(const PalmTlsEngineParams *paramsP,
 {
     const PalmTlsStylusSample *samplesP = paramsP->requestP;
     UInt16 count = (UInt16)paramsP->requestLength;
-    UInt16 strokes = 0, points = 0, changed = 0, varied = 0;
-    UInt32 lastDown = 0, lastGap = 0;
-    Boolean down = false;
-    UInt16 i;
+    UInt16 points = 0;
+    const PalmTlsStylusSample *previousP = NULL;
 
     resultP->status = palmTlsStatusRandomUnavailable;
-    if (count < PALM_TLS_STYLUS_POINTS) return;
-    for (i = 0; i < count; i++) {
-        const PalmTlsStylusSample *sample = &samplesP[i];
-        if (sample->phase == PALM_TLS_STYLUS_DOWN) {
-            if (down) return;
-            UInt32 gap = sample->tick - lastDown;
-            if (strokes && !gap) return;
-            if (strokes > 1 && gap != lastGap) varied++;
-            lastGap = gap;
-            lastDown = sample->tick;
-            down = true;
-        } else if (sample->phase == PALM_TLS_STYLUS_UP) {
-            if (!down) return;
-            strokes++;
-            down = false;
-            continue;
-        } else if (sample->phase != PALM_TLS_STYLUS_MOVE || !down) {
+    if (count <= PALM_TLS_STYLUS_POINTS) return;
+    for (UInt16 i = 0; i < count; i++) {
+        const PalmTlsStylusSample *sampleP = &samplesP[i];
+        switch (sampleP->phase) {
+        case PALM_TLS_STYLUS_DOWN:
+            if (previousP) return;
+            previousP = sampleP;
+            break;
+        case PALM_TLS_STYLUS_MOVE:
+            if (!previousP) return;
+            if (sampleP->tick != previousP->tick &&
+                (sampleP->rawX != previousP->rawX || sampleP->rawY != previousP->rawY)) {
+                points++;
+                previousP = sampleP;
+            }
+            break;
+        case PALM_TLS_STYLUS_UP:
+            if (!previousP) return;
+            previousP = NULL;
+            break;
+        default:
             return;
         }
-        ++points;
-        if (i && samplesP[i - 1].phase != PALM_TLS_STYLUS_UP &&
-            (sample->rawX != samplesP[i - 1].rawX ||
-             sample->rawY != samplesP[i - 1].rawY))
-            changed++;
     }
-    if (down || strokes < PALM_TLS_STYLUS_STROKES ||
-        points < PALM_TLS_STYLUS_POINTS || changed < 64 || varied < 16) return;
+    if (previousP || points < PALM_TLS_STYLUS_POINTS) return;
 
     UInt8 digest[WC_SHA512_DIGEST_SIZE];
     int error = wc_Sha512Hash((const UInt8 *)samplesP,
