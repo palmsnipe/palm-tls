@@ -1,0 +1,22 @@
+diff --git a/src/internal.c b/src/internal.c
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -30097,7 +30097,18 @@
+     size = (sz < (size_t)ssl->buffers.clearOutputBuffer.length) ?
+         (int)sz : (int)ssl->buffers.clearOutputBuffer.length;
+
++#ifdef PALM_WOLFSSL_ARMLET_MATH
++    /* TLS plaintext often starts at an odd address after the record header.
++     * Palm OS can copy it natively instead of falling back to byte-at-a-time
++     * 68K memcpy. Only the authenticated clear-output buffer is copied. */
++    {
++        extern void WolfPalmCopyPlaintext(void*, const void*, word32);
++        WolfPalmCopyPlaintext(output, ssl->buffers.clearOutputBuffer.buffer,
++                              (word32)size);
++    }
++#else
+     XMEMCPY(output, ssl->buffers.clearOutputBuffer.buffer, (size_t)(size));
++#endif
+
+     if (peek == 0) {
+         ssl->buffers.clearOutputBuffer.length -= (word32)size;

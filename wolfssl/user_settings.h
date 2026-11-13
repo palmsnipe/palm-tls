@@ -61,6 +61,9 @@ extern void PalmTlsTrustProfileLeave(void);
 #define WOLFSSL_NO_CLIENT_AUTH
 #else
 #define HAVE_ALPN
+#define WOLFSSL_TLS_READ_AHEAD
+/* Palm's wolfSSL build uses 16-bit int. Keep speculative reads below INT_MAX. */
+#define WOLFSSL_MAX_READ_AHEAD_SZ 0x7fffUL
 #define HAVE_ED25519
 #define WOLFSSL_SHA512
 #define WOLFSSL_PALM_16BIT_INT64

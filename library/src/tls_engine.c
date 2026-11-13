@@ -679,6 +679,9 @@ static void ContinueHandshake(const PalmTlsEngineParams *paramsP,
                 CloseSession(controlP, false);
                 return;
             }
+            /* Coalesce record headers with their payload and retain the
+             * input buffer across reads. Keep NetLib's driver-safe chunk. */
+            wolfSSL_set_read_ahead(sessionP, 1);
         }
 #endif
         PalmTlsHandshakeProfileFinish(finishedAt);

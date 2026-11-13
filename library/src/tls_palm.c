@@ -104,6 +104,11 @@ int WolfPalmRandomBlock(unsigned char *outputP, unsigned long size)
     return 0;
 }
 
+void WolfPalmCopyPlaintext(void *outputP, const void *inputP, UInt32 length)
+{
+    MemMove(outputP, inputP, length);
+}
+
 Int32 PalmTlsReceive(UInt32 netRefNum, Int32 socket, void *bufferP,
                      UInt32 length, Int32 timeout, Err *errorP)
 {
