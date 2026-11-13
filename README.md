@@ -16,6 +16,7 @@ not produce an additional PRC.
   parsing code
 - `examples/network/`: small compile-checked integration examples
 - `apps/tls-tester/`: the installable HTTP/HTTPS and download tester
+- `apps/pen-probe/`: Tungsten E2 stylus timing and raw digitizer capture
 - `patches/wolfssl/`: Palm-specific changes to the pinned wolfSSL source
 
 ## Requirements

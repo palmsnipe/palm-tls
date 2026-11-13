@@ -1,0 +1,21 @@
+#include "resource.h"
+
+DATA "code" ID 1 "code0001.bin"
+DATA "armc" ID 1 "raw-pen.bin"
+APPLICATIONICONNAME ID 1000 "Palm Pen Probe"
+VERSION ID 1000 "0.1.0"
+STRING ID 1000 "0.1.0"
+
+FORM ID MainForm AT (0 0 160 160) USABLE
+BEGIN
+    TITLE "Palm Pen Probe"
+    BUTTON "Start" ID CaptureButton AT (6 140 48 14)
+END
+
+ALERT ID UnsupportedDeviceAlert
+INFORMATION
+BEGIN
+    TITLE "Palm Pen Probe"
+    MESSAGE "This probe requires a Tungsten E2."
+    BUTTONS "OK"
+END
