@@ -121,6 +121,17 @@ def tag_commit(repo, tag):
     raise ValueError('release tag nesting exceeds limit')
 
 
+def find_release(repo, tag):
+    release = api(repo, f'releases/tags/{tag}', missing=True)
+    if release is not None:
+        return release
+    # The tag endpoint can return 404 for a draft visible in the release list.
+    pages = json.loads(gh('api', f'repos/{repo}/releases?per_page=100', '--paginate', '--slurp'))
+    matches = [item for page in pages for item in page if item['tag_name'] == tag]
+    require(len(matches) <= 1, f'multiple releases found for {tag}')
+    return matches[0] if matches else None
+
+
 def check_assets(release, expected, complete=False):
     actual = {}
     for asset in release['assets']:
@@ -184,7 +195,7 @@ def publish(args):
                  'SHA256SUMS covers every download asset except itself.\n')
         notes = staging / 'notes.md'
         notes.write_text(body)
-        release = api(repo, f'releases/tags/{tag}', missing=True)
+        release = find_release(repo, tag)
         actual = check_assets(release, expected) if release else {}
         if not args.draft_only and (release is None or release['draft']):
             latest = api(repo, 'releases/latest', missing=True)
@@ -209,14 +220,16 @@ def publish(args):
             missing = [output / name for name in expected if name not in actual]
             if missing:
                 gh('release', 'upload', tag, *missing, '--repo', repo)
-        uploaded = api(repo, f'releases/tags/{tag}')
+        uploaded = find_release(repo, tag)
+        require(uploaded is not None, f'cannot find release {tag} after uploading')
         check_assets(uploaded, expected, complete=True)
         downloads = staging / 'downloads'
         gh('release', 'download', tag, '--repo', repo, '--dir', downloads)
         require(files(downloads) == expected, 'downloaded assets differ from the verified release inputs')
         if uploaded['draft'] and not args.draft_only:
             gh('release', 'edit', tag, '--repo', repo, '--draft=false', '--latest')
-        final = api(repo, f'releases/tags/{tag}')
+        final = find_release(repo, tag)
+        require(final is not None, f'cannot find release {tag} after verification')
         require(args.draft_only or not final['draft'], 'release is still a draft')
         print(final['html_url'])
 

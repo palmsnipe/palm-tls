@@ -226,19 +226,24 @@ class FakeGitHub:
             self.mutations.append('tag-object');return dict(sha='a'*40)
         if endpoint=='git/refs':
             self.mutations.append('tag-ref');self.target=COMMIT;return {}
-        if endpoint.startswith('releases/tags/'):
-            if self.release is None:return None
-            result=copy.deepcopy(self.release)
-            result['assets']=[dict(name=name,state='uploaded',digest='sha256:'+sha(data))
-                              for name,data in self.uploads.items()]
-            return result
+        if endpoint=='releases/tags/v0.1.5':
+            return self.release_data() if self.release and not self.release['draft'] else None
         raise AssertionError(endpoint)
 
+    def release_data(self):
+        result=copy.deepcopy(self.release)
+        result['assets']=[dict(name=name,state='uploaded',digest='sha256:'+sha(data))
+                          for name,data in self.uploads.items()]
+        return result
+
     def gh(self,*args,**kwargs):
+        if args[0]=='api':
+            assert args == ('api','repos/owner/repo/releases?per_page=100','--paginate','--slurp')
+            return json.dumps([[dict(tag_name='v0.1.4')], [self.release_data()] if self.release else []])
         operation=args[1]
         if operation=='create':
             self.mutations.append('create-release')
-            self.release=dict(draft=True,body=Path(args[args.index('--notes-file')+1]).read_text(),
+            self.release=dict(tag_name=args[2],draft=True,body=Path(args[args.index('--notes-file')+1]).read_text(),
                               html_url='https://github.com/owner/repo/releases/tag/v0.1.5')
         elif operation=='edit':
             self.mutations.append('edit-release')
