@@ -88,12 +88,29 @@ zero for synchronous I/O.
 ### TLS 1.3 with a pinned peer and client identity
 
 `PALM_TLS_CAP_PINNED_CLIENT` advertises `PalmTlsLibGenerateIdentity` and
-`PalmTlsLibSessionOpenEx`. The caller must also check
-`PALM_TLS_CAP_QUALIFIED_RANDOM`. A library compiled for emulator
-interoperability tests advertises `PALM_TLS_CAP_TEST_RANDOM` instead, and only a
-test client should accept that flag. A production build currently returns
-`palmTlsStatusRandomUnavailable` for both calls because it has no qualified
-random provider.
+`PalmTlsLibSessionOpenEx`. Check for `PALM_TLS_CAP_QUALIFIED_RANDOM` for a
+qualified source. Explicitly opted-in clients can also accept
+`PALM_TLS_CAP_STYLUS_RANDOM`. A seeded emulator test library advertises
+`PALM_TLS_CAP_TEST_RANDOM` while its generator is available. Only a test
+client should accept that flag.
+
+The pinned TLS 1.3 engine routes both operations through HMAC-DRBG with
+SHA-256. Its state belongs to the open library and is cleared on final close.
+Both calls report `palmTlsStatusRandomUnavailable` without a usable seed.
+When `PALM_TLS_CAP_STYLUS_SEED` is present, a client can call
+`PalmTlsLibSeedFromStylus` to opt in to experimental pairing. Pass complete
+down/move/up strokes with Palm OS ticks and uncalibrated raw coordinates
+during contact. Use zero coordinates for pen-up. Submit at least
+`PALM_TLS_STYLUS_STROKES` complete strokes and `PALM_TLS_STYLUS_POINTS`
+contact samples, up to `PALM_TLS_STYLUS_MAX_POINTS` total events. The library
+checks sequencing and variation, hashes the samples with SHA-512, and
+advertises `PALM_TLS_CAP_STYLUS_RANDOM` on success. These checks establish
+input diversity. The E2's physical entropy remains unverified.
+
+Keep the library open while using the seed and clear the sample buffer
+after the call. An invalid capture leaves any previously accepted state
+available. A successful capture replaces the state and requires no active
+TLS sessions. Never use diagnostic recordings as pairing input.
 
 Set `PalmTlsIdentityParams.structSize` and `PalmTlsIdentityResult.structSize` to
 their corresponding ABI constants. Supply a common name of up to 63 bytes and
@@ -119,8 +136,10 @@ the TLS Tester and handshake benchmark do.
 For interop testing only, build an isolated artifact with
 `make -C library TLS_PROFILE=tls13 PALM_TLS_TEST_RANDOM=1 test-prc`.
 Install `library/build/insecure-test-random/palm/PalmTLSArm-TLS13.prc` in a
-disposable emulator. This artifact uses non-cryptographic randomness and
-must never be used with real identities or files.
+disposable emulator. This artifact embeds a public deterministic test seed.
+Use it with disposable identities and files. Build with
+`PALM_TLS_TEST_RANDOM=seedless` to test the same code with the seed resource
+absent. [CloudpilotEmu test instructions](tests/palm-rng/README.md).
 
 ### Cooperative handshake and I/O
 

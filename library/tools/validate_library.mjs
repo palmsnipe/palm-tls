@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 
 const [file, variant = '68k', profile = 'full', expectedVersion,
-  expectedDbVersion] = process.argv.slice(2);
+  expectedDbVersion, seedMode = 'no-test-seed'] = process.argv.slice(2);
 if (!file || !expectedVersion || !expectedDbVersion) {
   throw new Error(
-    'usage: validate_library.mjs FILE [68k|arm] [tls13|modern|full] VERSION DB_VERSION',
+    'usage: validate_library.mjs FILE [68k|arm] [tls13|modern|full] VERSION DB_VERSION [test-seed|no-test-seed]',
   );
 }
 const selectedProtocols = {
@@ -75,6 +75,20 @@ if (variant === 'arm') {
   if (armlet.offset % 4 !== 0) throw new Error('ARMlet resource is not word-aligned');
 }
 const ordered = [...resources].sort((a, b) => a.offset - b.offset);
+const seedIndex = ordered.findIndex(({ type: resourceType }) => resourceType === 'tRng');
+if (seedMode === 'test-seed') {
+  if (seedIndex === -1 || ordered[seedIndex].id !== 1) {
+    throw new Error('missing deterministic test seed resource');
+  }
+  const start = ordered[seedIndex].offset;
+  const end = ordered[seedIndex + 1]?.offset ?? data.length;
+  const seed = data.subarray(start, end);
+  if (seed.length !== 48 || !seed.every((byte, index) => byte === index)) {
+    throw new Error('invalid deterministic test seed');
+  }
+} else if (seedMode !== 'no-test-seed' || seedIndex !== -1) {
+  throw new Error('unexpected test seed resource or invalid seed mode');
+}
 for (let i = 0; i < ordered.length; i += 1) {
   const end = i + 1 < ordered.length ? ordered[i + 1].offset : data.length;
   if (ordered[i].offset < 78 + count * 10 ||

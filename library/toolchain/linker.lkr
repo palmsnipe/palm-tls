@@ -66,7 +66,8 @@ SECTIONS
     } > tls2
 
     .tls3 : {
-        *tls_palm.o(.text .text.* .rodata .rodata.*)
+        *tls_palm*.o(.text .text.* .rodata .rodata.*)
+        *tls_drbg.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-coding.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-hmac.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-kdf.o(.text .text.* .rodata .rodata.*)

@@ -409,6 +409,7 @@ UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
         loadedHere = true;
     }
     CopyEngineParams(&params, paramsP);
+    params.drbgP = &stateP->drbg;
     switch (params.command) {
         case palmTlsEngineExchange:
         case palmTlsEngineSessionOpen:
@@ -446,6 +447,7 @@ UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
             break;
         case palmTlsEngineSelfTest:
         case palmTlsEngineGenerateIdentity:
+        case palmTlsEngineSeedFromStylus:
             if (EngineHasActiveSessions(&stateP->engine)) {
                 resultP->status = palmTlsStatusBusy;
                 return resultP->status;

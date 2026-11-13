@@ -56,6 +56,8 @@ _Static_assert(sizeof(PalmTlsIdentityResult) == PALM_TLS_IDENTITY_RESULT_SIZE,
 _Static_assert(sizeof(PalmTlsPinnedSessionParams) ==
     PALM_TLS_PINNED_SESSION_PARAMS_SIZE, "Pinned session parameter ABI changed");
 
+_Static_assert(sizeof(PalmTlsStylusSample) == 10, "Stylus sample ABI changed");
+
 static PalmTlsLibraryState *LibraryState(UInt16 refNum)
 {
     SysLibTblEntryPtr entryP = SysLibTblEntry(refNum);
@@ -129,16 +131,41 @@ static Boolean ProtocolAvailable(UInt16 protocol)
     return false;
 }
 
-static UInt32 PinnedRandomCapability(void)
+static UInt32 PinnedRandomCapability(const PalmTlsLibraryState *stateP)
 {
+    if (!stateP || !PalmTlsDrbgReady(&stateP->drbg)) return 0;
+    if (stateP->stylusSeed) return PALM_TLS_CAP_STYLUS_RANDOM;
 #ifdef PALM_TLS_INSECURE_TEST_RANDOM
     return PALM_TLS_CAP_TEST_RANDOM;
 #else
-    /* Palm OS exposes CPMLibGenerateRandomBytes, but the stock Garnet
-     * provider has not been qualified as a source of cryptographic entropy. */
     return 0;
 #endif
 }
+
+#ifdef PALM_TLS_INSECURE_TEST_RANDOM
+static void LoadTestSeed(PalmTlsDrbg *drbgP)
+{
+    LocalID databaseId = DmFindDatabase(0, PALM_TLS_LIB_NAME);
+    if (!databaseId) return;
+    DmOpenRef databaseP = DmOpenDatabase(0, databaseId, dmModeReadOnly);
+    if (!databaseP) return;
+    UInt16 index = DmFindResource(databaseP, 'tRng', 1, NULL);
+    MemHandle handle = index == dmMaxRecordIndex ? NULL :
+        DmGetResourceIndex(databaseP, index);
+    if (handle) {
+        if (MemHandleSize(handle) == sizeof(drbgP->seed)) {
+            const UInt8 *bytesP = MemHandleLock(handle);
+            if (bytesP) {
+                MemMove(drbgP->seed, bytesP, sizeof(drbgP->seed));
+                drbgP->seedPending = true;
+                MemHandleUnlock(handle);
+            }
+        }
+        DmReleaseResource(handle);
+    }
+    DmCloseDatabase(databaseP);
+}
+#endif
 
 static Boolean ValidCommon(UInt16 structSize, UInt16 expectedSize,
                            UInt16 protocol, UInt16 verifyMode,
@@ -176,6 +203,9 @@ Err PalmTlsLibOpen(UInt16 refNum)
         stateP = (PalmTlsLibraryState *)MemPtrNew(sizeof(*stateP));
         if (stateP == 0) return memErrNotEnoughSpace;
         MemSet(stateP, sizeof(*stateP), 0);
+#ifdef PALM_TLS_INSECURE_TEST_RANDOM
+        LoadTestSeed(&stateP->drbg);
+#endif
         entryP->globalsP = stateP;
     }
     stateP->openCount++;
@@ -191,6 +221,7 @@ Err PalmTlsLibClose(UInt16 refNum)
     if (stateP->openCount > 0) stateP->openCount--;
     if (stateP->openCount == 0) {
         PalmTlsUnloadEngine(stateP);
+        PalmTlsDrbgClear(&stateP->drbg, sizeof(stateP->drbg));
         MemPtrFree(stateP);
         entryP->globalsP = 0;
     }
@@ -225,7 +256,8 @@ Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
     if ((*capabilitiesP & PALM_TLS_CAP_TLS_1_3) != 0)
         *capabilitiesP |= PALM_TLS_CAP_HANDSHAKE_PROFILE | PALM_TLS_CAP_CONTEXT_REUSE |
             PALM_TLS_CAP_ECDHE_PROFILE | PALM_TLS_CAP_STARTUP_PROFILE |
-            PALM_TLS_CAP_PINNED_CLIENT | PinnedRandomCapability();
+            PALM_TLS_CAP_PINNED_CLIENT | PALM_TLS_CAP_STYLUS_SEED |
+            PinnedRandomCapability(stateP);
     if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) == errNone &&
         sysFtrNumProcessorIsARM(processor)) {
         UInt16 index;
@@ -501,7 +533,7 @@ Err PalmTlsLibSessionOpenEx(UInt16 refNum,
         resultP->status = palmTlsStatusResourceMissing;
         return errNone;
     }
-    if (!PinnedRandomCapability()) {
+    if (!PinnedRandomCapability(stateP)) {
         resultP->status = palmTlsStatusRandomUnavailable;
         return errNone;
     }
@@ -550,7 +582,7 @@ Err PalmTlsLibGenerateIdentity(UInt16 refNum,
         resultP->status = palmTlsStatusResourceMissing;
         return errNone;
     }
-    if (!PinnedRandomCapability()) {
+    if (!PinnedRandomCapability(stateP)) {
         resultP->status = palmTlsStatusRandomUnavailable;
         return errNone;
     }
@@ -562,6 +594,29 @@ Err PalmTlsLibGenerateIdentity(UInt16 refNum,
     PalmTlsExecute(stateP, &params, &result);
     resultP->status = result.status;
     resultP->tlsError = result.tlsError;
+    return errNone;
+}
+
+Err PalmTlsLibSeedFromStylus(UInt16 refNum, const PalmTlsStylusSample *samplesP,
+    UInt16 count, UInt16 *statusP)
+{
+    PalmTlsLibraryState *stateP = LibraryState(refNum);
+    if (!stateP || !samplesP || !statusP || count > PALM_TLS_STYLUS_MAX_POINTS)
+        return sysErrParamErr;
+    if (!ProtocolAvailable(palmTlsProtocolTls13)) {
+        *statusP = palmTlsStatusResourceMissing;
+        return errNone;
+    }
+    PalmTlsEngineParams params;
+    PalmTlsEngineResult result;
+    MemSet(&params, sizeof(params), 0);
+    params.protocol = palmTlsProtocolTls13;
+    params.command = palmTlsEngineSeedFromStylus;
+    params.requestP = samplesP;
+    params.requestLength = count;
+    PalmTlsExecute(stateP, &params, &result);
+    if (result.status == palmTlsStatusOk) stateP->stylusSeed = true;
+    *statusP = result.status;
     return errNone;
 }
 

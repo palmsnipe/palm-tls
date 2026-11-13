@@ -23,7 +23,13 @@ BUILD := $(ROOT)/build
 PALM_TLS_TEST_RANDOM ?= 0
 ifeq ($(PALM_TLS_TEST_RANDOM),1)
 BUILD := $(BUILD)/insecure-test-random
+TEST_RANDOM_RESOURCE := $(BUILD)/palm/tRng0001.bin
 TEST_RANDOM_FLAGS := -DPALM_TLS_INSECURE_TEST_RANDOM
+else ifeq ($(PALM_TLS_TEST_RANDOM),seedless)
+BUILD := $(BUILD)/seedless-test
+TEST_RANDOM_FLAGS := -DPALM_TLS_INSECURE_TEST_RANDOM
+else ifneq ($(PALM_TLS_TEST_RANDOM),0)
+$(error PALM_TLS_TEST_RANDOM must be 0, 1, or seedless)
 endif
 GENERATED := $(BUILD)/generated
 PALM_BUILD := $(BUILD)/palm
@@ -45,15 +51,17 @@ P256_COMB := $(GENERATED)/p256_comb8.inc
 ARMLET_HOST_TEST := $(BUILD)/host/armlet_math_test
 ARMLET_ORACLE := $(BUILD)/host/armlet_oracle.so
 COMMON_OBJECTS := $(PALM_BUILD)/palm_library.o $(PALM_BUILD)/tls_loader.o \
-	$(PALM_BUILD)/tls_palm.o $(PALM_BUILD)/tls_verify_profile.o $(PALM_BUILD)/tls_handshake_profile.o $(PALM_BUILD)/dispatch.o
+	$(PALM_BUILD)/tls_verify_profile.o $(PALM_BUILD)/tls_handshake_profile.o $(PALM_BUILD)/dispatch.o
 COMMON_OBJECTS_68K := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_68k.o
 COMMON_OBJECTS_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet.o
-OBJECTS_12_68K := $(COMMON_OBJECTS_68K) $(PALM_BUILD)/tls_engine_12.o
-OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PALM_BUILD)/tls_engine_13.o
-OBJECTS_11_68K := $(COMMON_OBJECTS_68K) $(PALM_BUILD)/tls_engine_11.o
-OBJECTS_12_ARM := $(COMMON_OBJECTS_ARM) $(PALM_BUILD)/tls_engine_12.o
-OBJECTS_13_ARM := $(COMMON_OBJECTS_ARM) $(PALM_BUILD)/tls_engine_13.o
-OBJECTS_11_ARM := $(COMMON_OBJECTS_ARM) $(PALM_BUILD)/tls_engine_11.o
+LEGACY_RANDOM := $(PALM_BUILD)/tls_palm.o
+PINNED_RANDOM := $(PALM_BUILD)/tls_palm_13.o $(PALM_BUILD)/tls_drbg.o
+OBJECTS_12_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o
+OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o
+OBJECTS_11_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
+OBJECTS_12_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o
+OBJECTS_13_ARM := $(COMMON_OBJECTS_ARM) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o
+OBJECTS_11_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
 SDK_INCLUDES := -isystem$(SDK) -isystem$(SDK)/Core -isystem$(SDK)/Core/Hardware \
 	-isystem$(SDK)/Core/System -isystem$(SDK)/Core/UI -isystem$(SDK)/Dynamic \
 	-isystem$(SDK)/Libraries -isystem$(SDK)/Libraries/PalmOSGlue
@@ -119,22 +127,28 @@ $(DISPATCH): library.def | $(GENERATED)
 $(RESOURCE_RCP): resources/library.rcp app.mk | $(GENERATED)
 	sed 's/@LIB_VERSION@/$(LIB_VERSION)/g' $< > $@
 
-$(PALM_BUILD)/palm_library.o: src/palm_library.c include/palm_tls.h src/tls_internal.h src/tls_handshake_profile.h | $(PALM_BUILD)
+$(PALM_BUILD)/palm_library.o: src/palm_library.c include/palm_tls.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h | $(PALM_BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
-$(PALM_BUILD)/tls_loader.o: src/tls_loader.c include/palm_tls.h src/tls_segments.h src/tls_internal.h src/tls_handshake_profile.h | $(PALM_BUILD)
+$(PALM_BUILD)/tls_loader.o: src/tls_loader.c include/palm_tls.h src/tls_segments.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h | $(PALM_BUILD)
 	$(CC) $(COMMON_FLAGS) -fno-builtin-memset \
 		-fno-tree-loop-distribute-patterns -c $< -o $@
-$(PALM_BUILD)/tls_engine_12.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_engine_12.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=12 \
 		-DPALM_WOLFSSL_TLS12_ONLY -c $< -o $@
-$(PALM_BUILD)/tls_engine_13.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_engine_13.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=13 \
 		-DWOLFSSL_NO_TLS12 -c $< -o $@
-$(PALM_BUILD)/tls_engine_11.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_engine_11.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=11 \
 		-DPALM_WOLFSSL_TLS11_ONLY -c $< -o $@
-$(PALM_BUILD)/tls_palm.o: src/tls_palm.c src/tls_palm.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_palm.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
+$(PALM_BUILD)/tls_palm_13.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DWOLFSSL_NO_TLS12 -c $< -o $@
+$(PALM_BUILD)/tls_drbg.o: src/tls_drbg.c src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DWOLFSSL_NO_TLS12 -c $< -o $@
+$(PALM_BUILD)/tRng0001.bin: Makefile | $(PALM_BUILD)
+	python3 -c 'import sys; sys.stdout.buffer.write(bytes(range(48)))' > $@
 $(PALM_BUILD)/tls_verify_profile.o: src/tls_verify_profile.c src/tls_verify_profile.h include/palm_tls.h | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(PALM_BUILD)/tls_handshake_profile.o: src/tls_handshake_profile.c src/tls_handshake_profile.h include/palm_tls.h | $(PALM_BUILD)
@@ -209,8 +223,8 @@ $(ARMLET_OBJECT): arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc $(P256_C
 		-Wall -Wextra -Werror -c $< -o $@
 $(ARMLET_CODE): $(ARMLET_OBJECT) tools/extract-armlet.mjs tools/arm-attributes.mjs
 	node tools/extract-armlet.mjs $< $@
-$(ARMLET_PAD): $(PROFILE_RESOURCES_ARM) tools/generate-armlet-pad.mjs | $(PALM_BUILD)
-	node tools/generate-armlet-pad.mjs $@ $(PROFILE_RESOURCES_ARM)
+$(ARMLET_PAD): $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE) tools/generate-armlet-pad.mjs | $(PALM_BUILD)
+	node tools/generate-armlet-pad.mjs $@ $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE)
 $(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc src/tls_arm_compat.h $(P256_COMB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -std=c99 -O2 -Wall -Wextra -Werror \
@@ -224,22 +238,22 @@ $(BASE_RO): $(RESOURCE_RCP) $(LIBRARY_CODE) | $(PALM_BUILD)
 	cd $(PALM_BUILD) && $(PILRC) -ro -o $(BASE_RO) -creator $(LIB_CREATOR) \
 		-type $(LIB_TYPE) -name '$(LIB_NAME)' $(RESOURCE_RCP)
 
-$(PRC_68K): $(LIBRARY_CODE) $(PROFILE_RESOURCES_68K) resources/library.rcp app.mk $(BASE_RO)
+$(PRC_68K): $(LIBRARY_CODE) $(PROFILE_RESOURCES_68K) resources/library.rcp app.mk $(BASE_RO) $(TEST_RANDOM_RESOURCE)
 	$(BUILD_PRC) --no-check -o $@ -n '$(LIB_NAME)' -c $(LIB_CREATOR) \
 		-t $(LIB_TYPE) -v $(LIB_DB_VERSION) \
-		$(BASE_RO) $(PROFILE_RESOURCES_68K)
+		$(BASE_RO) $(PROFILE_RESOURCES_68K) $(TEST_RANDOM_RESOURCE)
 	@echo "Built $@"
 
 $(PRC_ARM): $(LIBRARY_CODE) $(PROFILE_RESOURCES_ARM) resources/library.rcp app.mk \
-		$(BASE_RO) $(ARMLET_CODE) $(ARMLET_PAD)
+		$(BASE_RO) $(ARMLET_CODE) $(ARMLET_PAD) $(TEST_RANDOM_RESOURCE)
 	$(BUILD_PRC) --no-check -o $@ -n '$(LIB_NAME)' -c $(LIB_CREATOR) \
 		-t $(LIB_TYPE) -v $(LIB_DB_VERSION) \
-		$(BASE_RO) $(PROFILE_RESOURCES_ARM) $(ARMLET_PAD) $(ARMLET_CODE)
+		$(BASE_RO) $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE) $(ARMLET_PAD) $(ARMLET_CODE)
 	@echo "Built $@"
 
 test-prc: $(PRC_68K) $(PRC_ARM)
-	node tools/validate_library.mjs $(PRC_68K) 68k $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION)
-	node tools/validate_library.mjs $(PRC_ARM) arm $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION)
+	node tools/validate_library.mjs $(PRC_68K) 68k $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION) $(if $(TEST_RANDOM_RESOURCE),test-seed,no-test-seed)
+	node tools/validate_library.mjs $(PRC_ARM) arm $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION) $(if $(TEST_RANDOM_RESOURCE),test-seed,no-test-seed)
 	$(SIZE) $(PROFILE_ELFS_68K) $(PROFILE_ELFS_ARM)
 
 test: profiles $(ARMLET_HOST_TEST) $(ARMLET_ORACLE)

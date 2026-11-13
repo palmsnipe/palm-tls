@@ -1,4 +1,5 @@
-ROOT := $(abspath ../..)
+PROBE_ROOT ?= ../..
+ROOT := $(abspath $(PROBE_ROOT))
 PALM_TOOLCHAIN_ROOT ?= $(ROOT)/../palm-toolchain
 PALM_TOOLCHAIN_PREFIX ?= $(PALM_TOOLCHAIN_ROOT)/.toolchain/prefix
 BIN := $(PALM_TOOLCHAIN_PREFIX)/bin
@@ -12,7 +13,9 @@ CFLAGS := $(ABI) -std=gnu17 -Os -Wall -Wextra -Wno-multichar -Wno-old-style-decl
 	-isystem$(SDK)/Core/Hardware -isystem$(SDK)/Dynamic -isystem$(SDK)/Libraries \
 	-isystem$(SDK)/Extensions/ExpansionMgr
 OBJECTS := $(BUILD)/main.o $(BUILD)/startup.o
-LINKER := ../tls-tester/toolchain/linker.lkr
+PROBE_STARTUP ?= ../tls-tester/src/startup.c
+PROBE_LINKER ?= ../tls-tester/toolchain/linker.lkr
+LINKER := $(PROBE_LINKER)
 LDFLAGS := $(ABI) -nostartfiles -Wl,--gc-sections -Wl,-T,$(LINKER)
 
 .PHONY: all test
@@ -24,7 +27,7 @@ $(BUILD):
 $(BUILD)/main.o: main.c $(APP_HEADERS) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/startup.o: ../tls-tester/src/startup.c | $(BUILD)
+$(BUILD)/startup.o: $(PROBE_STARTUP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/probe.elf: $(OBJECTS) $(LINKER)

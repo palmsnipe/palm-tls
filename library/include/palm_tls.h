@@ -57,6 +57,22 @@
 #define PALM_TLS_CAP_PINNED_CLIENT 0x00100000UL
 #define PALM_TLS_CAP_QUALIFIED_RANDOM 0x00200000UL
 #define PALM_TLS_CAP_TEST_RANDOM 0x00400000UL
+#define PALM_TLS_CAP_STYLUS_SEED 0x00800000UL
+#define PALM_TLS_CAP_STYLUS_RANDOM 0x01000000UL
+#define PALM_TLS_STYLUS_STROKES 64
+#define PALM_TLS_STYLUS_POINTS 256
+#define PALM_TLS_STYLUS_MAX_POINTS 1024
+
+#define PALM_TLS_STYLUS_DOWN 1
+#define PALM_TLS_STYLUS_MOVE 2
+#define PALM_TLS_STYLUS_UP 3
+
+/* Palm OS ticks and uncalibrated digitizer values. */
+typedef struct PalmTlsStylusSample {
+    unsigned long tick;
+    signed short rawX, rawY;
+    unsigned short phase;
+} PalmTlsStylusSample;
 #define PALM_TLS_MAX_CONCURRENT_SESSIONS 2
 #define PALM_TLS_SESSION_ALLOW_RESUME 0x00000001UL
 #define PALM_TLS_SESSION_COOPERATIVE 0x00000002UL
@@ -403,7 +419,8 @@ enum PalmTlsLibTrap {
     palmTlsLibTrapRunSelfTest,
     palmTlsLibTrapGetSessionProfile,
     palmTlsLibTrapSessionOpenEx,
-    palmTlsLibTrapGenerateIdentity
+    palmTlsLibTrapGenerateIdentity,
+    palmTlsLibTrapSeedFromStylus
 };
 
 #if defined(PALM_TLS_LIB_BUILD)
@@ -457,6 +474,9 @@ Err PalmTlsLibSessionOpenEx(UInt16 refNum,
 Err PalmTlsLibGenerateIdentity(UInt16 refNum,
     const PalmTlsIdentityParams *paramsP, PalmTlsIdentityResult *resultP)
     PALM_TLS_TRAP(palmTlsLibTrapGenerateIdentity);
+
+Err PalmTlsLibSeedFromStylus(UInt16 refNum, const PalmTlsStylusSample *samplesP,
+    UInt16 count, UInt16 *statusP) PALM_TLS_TRAP(palmTlsLibTrapSeedFromStylus);
 
 #undef PALM_TLS_TRAP
 #endif

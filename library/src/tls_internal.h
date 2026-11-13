@@ -4,6 +4,7 @@
 #include <PalmOS.h>
 #include "palm_tls.h"
 #include "tls_segments.h"
+#include "tls_drbg.h"
 #include "tls_handshake_profile.h"
 
 #define PALM_TLS_ENGINE_DISABLE_ARM 0x80000000UL
@@ -23,7 +24,8 @@ typedef enum PalmTlsEngineCommand {
     palmTlsEngineSelfTest,
     palmTlsEngineShutdown,
     palmTlsEngineGetProfile,
-    palmTlsEngineGenerateIdentity
+    palmTlsEngineGenerateIdentity,
+    palmTlsEngineSeedFromStylus
 } PalmTlsEngineCommand;
 
 typedef struct PalmTlsEngineControl {
@@ -86,6 +88,7 @@ typedef struct PalmTlsEngineParams {
     const PalmTlsPinnedSessionParams *pinnedP;
     const PalmTlsIdentityParams *identityP;
     PalmTlsIdentityResult *identityResultP;
+    PalmTlsDrbg *drbgP;
 } PalmTlsEngineParams;
 
 typedef struct PalmTlsEngineResult {
@@ -125,6 +128,8 @@ typedef struct PalmTlsLibraryState {
     UInt16 nextSessionId;
     UInt16 armStatus;
     PalmTlsLoadedEngine engine;
+    PalmTlsDrbg drbg;
+    Boolean stylusSeed;
 } PalmTlsLibraryState;
 
 UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,

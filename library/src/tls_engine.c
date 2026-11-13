@@ -491,6 +491,60 @@ static void CloseSession(PalmTlsEngineControl *controlP, Boolean saveResume)
 }
 
 #if PALM_TLS_ENGINE_PROTOCOL == 13
+/* Reject malformed or plainly repetitive input. These checks do not
+ * estimate the physical entropy of the digitizer. */
+static void SeedFromStylus(const PalmTlsEngineParams *paramsP,
+                          PalmTlsEngineResult *resultP)
+{
+    const PalmTlsStylusSample *samplesP = paramsP->requestP;
+    UInt16 count = (UInt16)paramsP->requestLength;
+    UInt16 strokes = 0, points = 0, changed = 0, varied = 0;
+    UInt32 lastDown = 0, lastGap = 0;
+    Boolean down = false;
+    UInt16 i;
+
+    resultP->status = palmTlsStatusRandomUnavailable;
+    if (count < PALM_TLS_STYLUS_POINTS) return;
+    for (i = 0; i < count; i++) {
+        const PalmTlsStylusSample *sample = &samplesP[i];
+        if (sample->phase == PALM_TLS_STYLUS_DOWN) {
+            if (down) return;
+            UInt32 gap = sample->tick - lastDown;
+            if (strokes && !gap) return;
+            if (strokes > 1 && gap != lastGap) varied++;
+            lastGap = gap;
+            lastDown = sample->tick;
+            down = true;
+        } else if (sample->phase == PALM_TLS_STYLUS_UP) {
+            if (!down) return;
+            strokes++;
+            down = false;
+            continue;
+        } else if (sample->phase != PALM_TLS_STYLUS_MOVE || !down) {
+            return;
+        }
+        ++points;
+        if (i && samplesP[i - 1].phase != PALM_TLS_STYLUS_UP &&
+            (sample->rawX != samplesP[i - 1].rawX ||
+             sample->rawY != samplesP[i - 1].rawY))
+            changed++;
+    }
+    if (down || strokes < PALM_TLS_STYLUS_STROKES ||
+        points < PALM_TLS_STYLUS_POINTS || changed < 64 || varied < 16) return;
+
+    UInt8 digest[WC_SHA512_DIGEST_SIZE];
+    int error = wc_Sha512Hash((const UInt8 *)samplesP,
+        (UInt32)count * sizeof(*samplesP), digest);
+    if (!error) {
+        PalmTlsDrbg *drbgP = paramsP->drbgP;
+        PalmTlsDrbgClear(drbgP, sizeof(*drbgP));
+        MemMove(drbgP->seed, digest, sizeof(drbgP->seed));
+        drbgP->seedPending = true;
+        resultP->status = palmTlsStatusOk;
+    }
+    PalmTlsDrbgClear(digest, sizeof(digest));
+}
+
 static void GenerateIdentity(const PalmTlsIdentityParams *paramsP,
                              PalmTlsIdentityResult *resultP,
                              PalmTlsEngineResult *engineResultP)
@@ -702,10 +756,15 @@ static void ContinueHandshake(const PalmTlsEngineParams *paramsP,
         resultP->netError = controlP->lastError;
         return;
     }
-    resultP->status = controlP->pinned && !controlP->pinMatched &&
-        (tlsError == ASN_NO_SIGNER_E || tlsError == ASN_SELF_SIGNED_E ||
-         tlsError == VERIFY_CERT_ERROR) ? palmTlsStatusPeerMismatch :
-        palmTlsStatusHandshakeFailed;
+    if (controlP->pinned && (tlsError == RNG_FAILURE_E ||
+        !PalmTlsDrbgReady(paramsP->drbgP))) {
+        resultP->status = palmTlsStatusRandomUnavailable;
+    } else {
+        resultP->status = controlP->pinned && !controlP->pinMatched &&
+            (tlsError == ASN_NO_SIGNER_E || tlsError == ASN_SELF_SIGNED_E ||
+             tlsError == VERIFY_CERT_ERROR) ? palmTlsStatusPeerMismatch :
+            palmTlsStatusHandshakeFailed;
+    }
     resultP->tlsError = (Int16)tlsError;
     resultP->netError = controlP->lastError;
     CloseSession(controlP, false);
@@ -742,7 +801,8 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
     contextP = (WOLFSSL_CTX *)controlP->contextP;
     sessionP = wolfSSL_new(contextP);
     if (sessionP == 0) {
-        resultP->status = palmTlsStatusNoMemory;
+        resultP->status = paramsP->pinnedP && !PalmTlsDrbgReady(paramsP->drbgP) ?
+            palmTlsStatusRandomUnavailable : palmTlsStatusNoMemory;
         CloseSession(controlP, false);
         return;
     }
@@ -759,7 +819,9 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
         WOLFSSL_ECC_SECP256R1);
     PalmTlsHandshakeProfileLeave();
     if (operationResult != WOLFSSL_SUCCESS) {
-        resultP->status = palmTlsStatusConfigurationFailed;
+        resultP->status = paramsP->pinnedP && (operationResult == RNG_FAILURE_E ||
+            !PalmTlsDrbgReady(paramsP->drbgP)) ? palmTlsStatusRandomUnavailable :
+            palmTlsStatusConfigurationFailed;
         resultP->tlsError = (Int16)operationResult;
         CloseSession(controlP, false);
         return;
@@ -987,7 +1049,7 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
     if (controlP == 0) return resultP->status;
 #if PALM_TLS_ENGINE_PROTOCOL == 13
     PalmTlsSetPinnedRandom(paramsP->pinnedP || controlP->pinned ||
-        paramsP->command == palmTlsEngineGenerateIdentity);
+        paramsP->command == palmTlsEngineGenerateIdentity, paramsP->drbgP);
 #endif
     if (paramsP->command != palmTlsEngineSessionOpen &&
         paramsP->command != palmTlsEngineExchange)
@@ -1079,6 +1141,9 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
             RunOfflineSelfTest(controlP, resultP);
             break;
 #if PALM_TLS_ENGINE_PROTOCOL == 13
+        case palmTlsEngineSeedFromStylus:
+            SeedFromStylus(paramsP, resultP);
+            break;
         case palmTlsEngineGenerateIdentity:
             GenerateIdentity(paramsP->identityP, paramsP->identityResultP, resultP);
             break;
@@ -1105,7 +1170,7 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
         controlP->profiler.result.status = resultP->status;
     PalmTlsHandshakeProfileSuspend();
 #if PALM_TLS_ENGINE_PROTOCOL == 13
-    PalmTlsSetPinnedRandom(false);
+    PalmTlsSetPinnedRandom(false, NULL);
 #endif
     return resultP->status;
 }
