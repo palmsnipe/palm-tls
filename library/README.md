@@ -53,6 +53,12 @@ nonzero value aborts the request and reports that value as `sinkError`.
 The examples under `../examples/network` demonstrate incremental-session
 use without depending on a particular application.
 
+The TLS 1.3 engine also supports Ed25519 client certificates, SHA-256
+certificate pins, ALPN negotiation, and on-device identity generation
+through the pinned session API. These calls require a qualified random
+provider and report that randomness is unavailable on unqualified devices.
+See [API.md](API.md) for the separate emulator interoperability build.
+
 PalmTLS includes a deterministic, network-free native-ARM self-test and
 per-protocol timings for engine load, P-256 key generation, shared-secret
 calculation, and signature verification.
@@ -92,9 +98,9 @@ file.
 
 The full PRC contains three compact protocol-specific engines behind the same
 API and loads only the selected engine. Compact profiles omit unused engines
-entirely. Each included engine is split into four resources:
-three code-only segments execute from a temporary resource database while the
-final code/data segment remains in dynamic RAM. This keeps every resource below
+entirely. Each engine has three code-only segments that execute from a
+temporary resource database and one code/data segment in dynamic RAM.
+TLS 1.3 uses an extra read-only segment for Ed25519. This keeps every resource below
 Palm's 65 KB safety limit while leaving enough dynamic heap for a TLS 1.3
 handshake. The relocated resources remain resident until the library closes,
 the protocol changes, or the caller purges the cache.

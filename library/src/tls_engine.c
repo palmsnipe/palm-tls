@@ -4,6 +4,10 @@
 #include <wolfssl/wolfcrypt/aes.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/random.h>
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+#include <wolfssl/wolfcrypt/ed25519.h>
+#include <wolfssl/wolfcrypt/hash.h>
+#endif
 
 #define PALMOS 1
 #include "tls_internal.h"
@@ -481,8 +485,87 @@ static void CloseSession(PalmTlsEngineControl *controlP, Boolean saveResume)
     controlP->sessionId = 0;
     controlP->active = false;
     controlP->opening = false;
+    controlP->pinned = false;
+    controlP->pinMatched = false;
     PalmTlsHandshakeProfileClose();
 }
+
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+static void GenerateIdentity(const PalmTlsIdentityParams *paramsP,
+                             PalmTlsIdentityResult *resultP,
+                             PalmTlsEngineResult *engineResultP)
+{
+    Cert *certificateP = wc_CertNew(0);
+    ed25519_key *keyP = 0;
+    WC_RNG rng;
+    Boolean rngReady = false;
+    int certificateLength = 0;
+    int privateKeyLength = 0;
+    int ret = MEMORY_E;
+    if (!certificateP) goto cleanup;
+    keyP = wc_ed25519_new(0, INVALID_DEVID, &ret);
+    if (!keyP) goto cleanup;
+    ret = wc_InitRng(&rng);
+    if (ret != 0) goto cleanup;
+    rngReady = true;
+    ret = wc_ed25519_make_key(&rng, ED25519_KEY_SIZE, keyP);
+    if (ret != 0) goto cleanup;
+    StrCopy(certificateP->subject.commonName, paramsP->commonNameP);
+    certificateP->sigType = CTC_ED25519;
+    certificateP->daysValid = 3650;
+    ret = wc_MakeCert_ex(certificateP, paramsP->certificateP,
+        paramsP->certificateCapacity, ED25519_TYPE, keyP, &rng);
+    if (ret <= 0) goto cleanup;
+    ret = wc_SignCert_ex(ret, CTC_ED25519, paramsP->certificateP,
+        paramsP->certificateCapacity, ED25519_TYPE, keyP, &rng);
+    if (ret <= 0) goto cleanup;
+    certificateLength = ret;
+    ret = wc_Ed25519PrivateKeyToDer(keyP, paramsP->privateKeyP,
+        paramsP->privateKeyCapacity);
+    if (ret <= 0) goto cleanup;
+    privateKeyLength = ret;
+    ret = wc_Sha256Hash(paramsP->certificateP, certificateLength,
+        resultP->fingerprint);
+    if (ret != 0) goto cleanup;
+    resultP->certificateLength = certificateLength;
+    resultP->privateKeyLength = privateKeyLength;
+    engineResultP->status = palmTlsStatusOk;
+
+cleanup:
+    if (engineResultP->status != palmTlsStatusOk) {
+        volatile UInt8 *keyBytesP = paramsP->privateKeyP;
+        UInt32 remaining = paramsP->privateKeyCapacity;
+        while (remaining--) *keyBytesP++ = 0;
+        engineResultP->status = ret == MEMORY_E ? palmTlsStatusNoMemory :
+            ret == RNG_FAILURE_E ? palmTlsStatusRandomUnavailable :
+            palmTlsStatusConfigurationFailed;
+        engineResultP->tlsError = (Int16)ret;
+    }
+    if (rngReady) wc_FreeRng(&rng);
+    if (keyP) wc_ed25519_delete(keyP, 0);
+    if (certificateP) wc_CertFree(certificateP);
+}
+
+static int VerifyPinnedLeaf(int preverified, WOLFSSL_X509_STORE_CTX *storeP)
+{
+    PalmTlsEngineControl *controlP = storeP->userCtx;
+    UInt8 fingerprint[PALM_TLS_FINGERPRINT_SIZE];
+    UInt8 mismatch = 0;
+    UInt16 i;
+    if (!controlP || storeP->error_depth != 0 ||
+        storeP->totalCerts != 1 || !storeP->certs ||
+        wc_Sha256Hash(storeP->certs[0].buffer, storeP->certs[0].length,
+                      fingerprint) != 0)
+        return 0;
+    for (i = 0; i < sizeof(fingerprint); i++)
+        mismatch |= fingerprint[i] ^ controlP->peerFingerprint[i];
+    controlP->pinMatched = mismatch == 0;
+    /* Treat a matching pin as trust for the self-issued leaf. TLS still
+     * verifies CertificateVerify with the pinned certificate's public key. */
+    return controlP->pinMatched && (preverified ||
+        storeP->error == ASN_NO_SIGNER_E || storeP->error == ASN_SELF_SIGNED_E);
+}
+#endif
 
 /* A per-slot context is reusable only for an exact owned trust configuration
  * and hostname. Session objects and ephemeral key shares are always fresh. */
@@ -516,6 +599,23 @@ static int ConfigureContext(const PalmTlsEngineParams *paramsP)
     if (!contextP) return MEMORY_E;
     PalmTlsHandshakeProfileEnter(palmTlsHsTrust);
     controlP->contextVerifyMode = paramsP->verifyMode;
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+    if (paramsP->pinnedP) {
+        const PalmTlsPinnedSessionParams *pinnedP = paramsP->pinnedP;
+        ret = wolfSSL_CTX_use_certificate_buffer(contextP, pinnedP->certificateP,
+            pinnedP->certificateLength, WOLFSSL_FILETYPE_ASN1);
+        if (ret == WOLFSSL_SUCCESS)
+            ret = wolfSSL_CTX_use_PrivateKey_buffer(contextP, pinnedP->privateKeyP,
+                pinnedP->privateKeyLength, WOLFSSL_FILETYPE_ASN1);
+        if (ret == WOLFSSL_SUCCESS)
+            wolfSSL_CTX_set_verify(contextP, WOLFSSL_VERIFY_PEER, VerifyPinnedLeaf);
+        PalmTlsHandshakeProfileLeave();
+        if (ret != WOLFSSL_SUCCESS) { FreeContext(controlP); return ret; }
+        wolfSSL_CTX_SetIORecv(contextP, TlsReceive);
+        wolfSSL_CTX_SetIOSend(contextP, TlsSend);
+        return WOLFSSL_SUCCESS;
+    }
+#endif
     if (length) {
         controlP->contextTrustP = MemPtrNew(length);
         if (!controlP->contextTrustP) ret = MEMORY_E;
@@ -565,6 +665,22 @@ static void ContinueHandshake(const PalmTlsEngineParams *paramsP,
     resultP->handshakeTicks = finishedAt - controlP->handshakeStartTicks;
     resultP->sessionId = controlP->sessionId;
     if (operationResult == WOLFSSL_SUCCESS) {
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+        if (controlP->pinned) {
+            Char *alpnP = 0;
+            word16 alpnLength = 0;
+            if (!controlP->pinMatched ||
+                wolfSSL_ALPN_GetProtocol(sessionP, &alpnP, &alpnLength)
+                    != WOLFSSL_SUCCESS || !alpnP ||
+                alpnLength != StrLen(controlP->alpn) ||
+                MemCmp(alpnP, controlP->alpn, alpnLength) != 0) {
+                resultP->status = controlP->pinMatched ?
+                    palmTlsStatusHandshakeFailed : palmTlsStatusPeerMismatch;
+                CloseSession(controlP, false);
+                return;
+            }
+        }
+#endif
         PalmTlsHandshakeProfileFinish(finishedAt);
         controlP->opening = false;
         controlP->active = true;
@@ -583,7 +699,10 @@ static void ContinueHandshake(const PalmTlsEngineParams *paramsP,
         resultP->netError = controlP->lastError;
         return;
     }
-    resultP->status = palmTlsStatusHandshakeFailed;
+    resultP->status = controlP->pinned && !controlP->pinMatched &&
+        (tlsError == ASN_NO_SIGNER_E || tlsError == ASN_SELF_SIGNED_E ||
+         tlsError == VERIFY_CERT_ERROR) ? palmTlsStatusPeerMismatch :
+        palmTlsStatusHandshakeFailed;
     resultP->tlsError = (Int16)tlsError;
     resultP->netError = controlP->lastError;
     CloseSession(controlP, false);
@@ -637,6 +756,31 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
         WOLFSSL_ECC_SECP256R1);
     PalmTlsHandshakeProfileLeave();
     if (operationResult != WOLFSSL_SUCCESS) {
+        resultP->status = palmTlsStatusConfigurationFailed;
+        resultP->tlsError = (Int16)operationResult;
+        CloseSession(controlP, false);
+        return;
+    }
+#endif
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+    if (paramsP->pinnedP) {
+        const PalmTlsPinnedSessionParams *pinnedP = paramsP->pinnedP;
+        MemMove(controlP->peerFingerprint, pinnedP->peerFingerprintP,
+            sizeof(controlP->peerFingerprint));
+        StrCopy(controlP->alpn, pinnedP->alpnP);
+        controlP->pinned = true;
+        controlP->pinMatched = false;
+        wolfSSL_SetCertCbCtx(sessionP, controlP);
+        operationResult = wolfSSL_UseALPN(sessionP, controlP->alpn,
+            StrLen(controlP->alpn), WOLFSSL_ALPN_FAILED_ON_MISMATCH);
+        if (operationResult == WOLFSSL_SUCCESS) {
+            FreeResume(controlP);
+            controlP->allowResume = false;
+            controlP->sessionId = paramsP->sessionId;
+            controlP->opening = true;
+            ContinueHandshake(paramsP, resultP);
+            return;
+        }
         resultP->status = palmTlsStatusConfigurationFailed;
         resultP->tlsError = (Int16)operationResult;
         CloseSession(controlP, false);
@@ -838,6 +982,10 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
     MemSet(resultP, sizeof(*resultP), 0);
     resultP->status = palmTlsStatusBadParameter;
     if (controlP == 0) return resultP->status;
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+    PalmTlsSetPinnedRandom(paramsP->pinnedP || controlP->pinned ||
+        paramsP->command == palmTlsEngineGenerateIdentity);
+#endif
     if (paramsP->command != palmTlsEngineSessionOpen &&
         paramsP->command != palmTlsEngineExchange)
         PalmTlsHandshakeProfileBind(&controlP->profiler);
@@ -927,6 +1075,11 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
         case palmTlsEngineSelfTest:
             RunOfflineSelfTest(controlP, resultP);
             break;
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+        case palmTlsEngineGenerateIdentity:
+            GenerateIdentity(paramsP->identityP, paramsP->identityResultP, resultP);
+            break;
+#endif
         case palmTlsEngineShutdown:
             CloseSession(controlP, false);
             FreeResume(controlP);
@@ -944,8 +1097,12 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
         default:
             break;
     }
-    if (paramsP->command != palmTlsEngineGetProfile)
+    if (paramsP->command != palmTlsEngineGetProfile &&
+        paramsP->command != palmTlsEngineGenerateIdentity)
         controlP->profiler.result.status = resultP->status;
     PalmTlsHandshakeProfileSuspend();
+#if PALM_TLS_ENGINE_PROTOCOL == 13
+    PalmTlsSetPinnedRandom(false);
+#endif
     return resultP->status;
 }

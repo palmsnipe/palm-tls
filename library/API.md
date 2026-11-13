@@ -85,6 +85,43 @@ use, reports `palmTlsStatusBusy`.
 Use `PALM_TLS_SESSION_IO_PARAMS_SIZE`, which includes `options`. Set options to
 zero for synchronous I/O.
 
+### TLS 1.3 with a pinned peer and client identity
+
+`PALM_TLS_CAP_PINNED_CLIENT` advertises `PalmTlsLibGenerateIdentity` and
+`PalmTlsLibSessionOpenEx`. The caller must also check
+`PALM_TLS_CAP_QUALIFIED_RANDOM`. A library compiled for emulator
+interoperability tests advertises `PALM_TLS_CAP_TEST_RANDOM` instead, and only a
+test client should accept that flag. A production build currently returns
+`palmTlsStatusRandomUnavailable` for both calls because it has no qualified
+random provider.
+
+Set `PalmTlsIdentityParams.structSize` and `PalmTlsIdentityResult.structSize` to
+their corresponding ABI constants. Supply a common name of up to 63 bytes and
+caller-owned output buffers of `PALM_TLS_IDENTITY_CERT_MAX` and
+`PALM_TLS_IDENTITY_KEY_MAX` bytes. A successful identity includes a
+self-signed Ed25519 certificate, its private key, and the SHA-256 digest of the
+full certificate DER. Persist the outputs together in private storage if the
+device identity must survive app restarts.
+
+Pass the certificate and key DER to `PalmTlsLibSessionOpenEx` with the
+32-byte SHA-256 pin of the remote certificate, one ALPN protocol name, and a
+connected socket in `PalmTlsPinnedSessionParams`. Set the input and result
+structure sizes using their ABI constants. The library copies the data it
+needs before returning and uses the existing session I/O, handshake, close,
+and cancel calls. A successful handshake confirms the exact pinned leaf,
+TLS proof of key possession, and ALPN selection. This mode uses the
+fingerprint as the peer identity and disables session resumption and context
+reuse.
+
+On Palm OS, reserve a 32 KiB application stack with a `pref` resource, as
+the TLS Tester and handshake benchmark do.
+
+For interop testing only, build an isolated artifact with
+`make -C library TLS_PROFILE=tls13 PALM_TLS_TEST_RANDOM=1 test-prc`.
+Install `library/build/insecure-test-random/palm/PalmTLSArm-TLS13.prc` in a
+disposable emulator. This artifact uses non-cryptographic randomness and
+must never be used with real identities or files.
+
 ### Cooperative handshake and I/O
 
 Open with `PALM_TLS_SESSION_COOPERATIVE`. If `SessionOpen` reports

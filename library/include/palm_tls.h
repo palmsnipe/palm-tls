@@ -26,6 +26,12 @@
 #define PALM_TLS_SESSION_ECDHE_PROFILE_SIZE 288
 #define PALM_TLS_LOAD_PROFILE_SIZE 64
 #define PALM_TLS_TRUST_PROFILE_SIZE 48
+#define PALM_TLS_IDENTITY_PARAMS_SIZE 22
+#define PALM_TLS_IDENTITY_RESULT_SIZE 48
+#define PALM_TLS_PINNED_SESSION_PARAMS_SIZE 38
+#define PALM_TLS_FINGERPRINT_SIZE 32
+#define PALM_TLS_IDENTITY_CERT_MAX 1024
+#define PALM_TLS_IDENTITY_KEY_MAX 128
 #define PALM_TLS_SESSION_STARTUP_PROFILE_SIZE 400
 
 #define PALM_TLS_CAP_TLS_1_2 0x00000001UL
@@ -48,6 +54,9 @@
 #define PALM_TLS_CAP_CONTEXT_REUSE 0x00020000UL
 #define PALM_TLS_CAP_ECDHE_PROFILE 0x00040000UL
 #define PALM_TLS_CAP_STARTUP_PROFILE 0x00080000UL
+#define PALM_TLS_CAP_PINNED_CLIENT 0x00100000UL
+#define PALM_TLS_CAP_QUALIFIED_RANDOM 0x00200000UL
+#define PALM_TLS_CAP_TEST_RANDOM 0x00400000UL
 #define PALM_TLS_MAX_CONCURRENT_SESSIONS 2
 #define PALM_TLS_SESSION_ALLOW_RESUME 0x00000001UL
 #define PALM_TLS_SESSION_COOPERATIVE 0x00000002UL
@@ -84,7 +93,9 @@ typedef enum PalmTlsStatus {
     palmTlsStatusBusy,
     palmTlsStatusWouldBlock,
     palmTlsStatusCancelled,
-    palmTlsStatusSelfTestFailed
+    palmTlsStatusSelfTestFailed,
+    palmTlsStatusRandomUnavailable,
+    palmTlsStatusPeerMismatch
 } PalmTlsStatus;
 
 typedef enum PalmTlsArmStatus {
@@ -324,6 +335,39 @@ typedef struct PalmTlsSessionOpenResult {
     unsigned long handshakeTicks;
 } PalmTlsSessionOpenResult;
 
+typedef struct PalmTlsIdentityParams {
+    unsigned short structSize;
+    const char *commonNameP;
+    void *certificateP;
+    unsigned long certificateCapacity;
+    void *privateKeyP;
+    unsigned long privateKeyCapacity;
+} PalmTlsIdentityParams;
+
+typedef struct PalmTlsIdentityResult {
+    unsigned short structSize;
+    unsigned short status;
+    signed short tlsError;
+    unsigned short reserved;
+    unsigned long certificateLength;
+    unsigned long privateKeyLength;
+    unsigned char fingerprint[PALM_TLS_FINGERPRINT_SIZE];
+} PalmTlsIdentityResult;
+
+typedef struct PalmTlsPinnedSessionParams {
+    unsigned short structSize;
+    unsigned short netRefNum;
+    signed short socket;
+    unsigned long options;
+    signed long timeoutTicks;
+    const void *certificateP;
+    unsigned long certificateLength;
+    const void *privateKeyP;
+    unsigned long privateKeyLength;
+    const unsigned char *peerFingerprintP;
+    const char *alpnP;
+} PalmTlsPinnedSessionParams;
+
 typedef struct PalmTlsSessionIoParams {
     unsigned short structSize;
     unsigned long sessionId;
@@ -357,7 +401,9 @@ enum PalmTlsLibTrap {
     palmTlsLibTrapSessionHandshake,
     palmTlsLibTrapSessionCancel,
     palmTlsLibTrapRunSelfTest,
-    palmTlsLibTrapGetSessionProfile
+    palmTlsLibTrapGetSessionProfile,
+    palmTlsLibTrapSessionOpenEx,
+    palmTlsLibTrapGenerateIdentity
 };
 
 #if defined(PALM_TLS_LIB_BUILD)
@@ -404,6 +450,13 @@ Err PalmTlsLibRunSelfTest(UInt16 refNum, PalmTlsSelfTestResult *resultP)
 Err PalmTlsLibGetSessionProfile(UInt16 refNum, unsigned long sessionId,
     PalmTlsSessionProfile *resultP)
     PALM_TLS_TRAP(palmTlsLibTrapGetSessionProfile);
+Err PalmTlsLibSessionOpenEx(UInt16 refNum,
+    const PalmTlsPinnedSessionParams *paramsP,
+    PalmTlsSessionOpenResult *resultP)
+    PALM_TLS_TRAP(palmTlsLibTrapSessionOpenEx);
+Err PalmTlsLibGenerateIdentity(UInt16 refNum,
+    const PalmTlsIdentityParams *paramsP, PalmTlsIdentityResult *resultP)
+    PALM_TLS_TRAP(palmTlsLibTrapGenerateIdentity);
 
 #undef PALM_TLS_TRAP
 #endif

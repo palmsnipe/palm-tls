@@ -16,4 +16,6 @@ export {
     PalmTlsLibSessionCancel
     PalmTlsLibRunSelfTest
     PalmTlsLibGetSessionProfile
+    PalmTlsLibSessionOpenEx
+    PalmTlsLibGenerateIdentity
 }

@@ -1,0 +1,11 @@
+diff --git a/wolfssl/wolfcrypt/types.h b/wolfssl/wolfcrypt/types.h
+--- a/wolfssl/wolfcrypt/types.h
++++ b/wolfssl/wolfcrypt/types.h
+@@ -469,6 +469,7 @@
+      * code-path change for existing non-C28x ports. */
+     #if !defined(MICROCHIP_PIC24) && \
++        !defined(WOLFSSL_PALM_16BIT_INT64) && \
+         !(defined(WOLFSSL_WIDE_BYTE) && \
+           ((defined(SIZEOF_LONG) && (SIZEOF_LONG == 8)) || \
+            (defined(SIZEOF_LONG_LONG) && (SIZEOF_LONG_LONG == 8)) || \
+            (defined(__SIZEOF_LONG_LONG__) && (__SIZEOF_LONG_LONG__ == 8))))

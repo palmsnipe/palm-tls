@@ -34,7 +34,17 @@
 #define XTIME WolfPalmTime
 #define XGMTIME WolfPalmGmtime
 #define NO_WOLFSSL_SERVER
+#ifndef WOLFSSL_NO_TLS12
 #define WOLFSSL_NO_CLIENT_AUTH
+#else
+#define HAVE_ALPN
+#define HAVE_ED25519
+#define WOLFSSL_SHA512
+#define WOLFSSL_PALM_16BIT_INT64
+#define USE_SLOW_SHA512
+#define WOLFSSL_CERT_GEN
+#define WOLFSSL_ALWAYS_VERIFY_CB
+#endif
 #ifndef PALM_WOLFSSL_TLS11_ONLY
 #define NO_OLD_TLS
 #endif
@@ -102,7 +112,9 @@
 #ifndef PALM_WOLFSSL_TLS11_ONLY
 #define NO_SHA
 #endif
+#ifndef WOLFSSL_NO_TLS12
 #define NO_SHA512
+#endif
 #define NO_DSA
 #define NO_RC4
 #define NO_MD4

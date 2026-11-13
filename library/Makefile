@@ -20,6 +20,11 @@ PILRC := $(PREFIX)/bin/pilrc
 BUILD_PRC := $(PREFIX)/bin/build-prc
 STUBGEN := $(PREFIX)/bin/m68k-palmos-stubgen
 BUILD := $(ROOT)/build
+PALM_TLS_TEST_RANDOM ?= 0
+ifeq ($(PALM_TLS_TEST_RANDOM),1)
+BUILD := $(BUILD)/insecure-test-random
+TEST_RANDOM_FLAGS := -DPALM_TLS_INSECURE_TEST_RANDOM
+endif
 GENERATED := $(BUILD)/generated
 PALM_BUILD := $(BUILD)/palm
 PALM_68K_BUILD := $(PALM_BUILD)/68k
@@ -56,7 +61,7 @@ ABI_FLAGS := -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -
 WARN_FLAGS := -Wall -Wextra -Wsign-compare -Wno-unused-parameter -Wno-old-style-declaration -Wno-error=cpp
 COMMON_FLAGS := $(ABI_FLAGS) $(WARN_FLAGS) -std=gnu17 -Os -ffunction-sections -fdata-sections \
 	-DPALMOS -DPALM_TLS_LIB_BUILD -DWOLFSSL_USER_SETTINGS -Iinclude -Isrc \
-	-I$(REPO)/wolfssl -I$(DEPS_PREFIX)/include $(SDK_INCLUDES)
+	-I$(REPO)/wolfssl -I$(DEPS_PREFIX)/include $(SDK_INCLUDES) $(TEST_RANDOM_FLAGS)
 LDFLAGS := $(ABI_FLAGS) -Os -nostartfiles -Wl,--gc-sections \
 	-Wl,-T,toolchain/linker.lkr -L$(DEPS_PREFIX)/lib
 TLS12_ARCHIVE_68K := -Wl,-l:libwolfssl.a
@@ -88,10 +93,10 @@ endif
 
 TLS11_RESOURCES_68K := $(addprefix $(PALM_68K_BUILD)/,TlsC0015.bin TlsC0016.bin TlsC0017.bin TlsC0018.bin TlsR0003.bin)
 TLS12_RESOURCES_68K := $(addprefix $(PALM_68K_BUILD)/,TlsC0001.bin TlsC0002.bin TlsC0003.bin TlsC0004.bin TlsR0001.bin)
-TLS13_RESOURCES_68K := $(addprefix $(PALM_68K_BUILD)/,TlsC000b.bin TlsC000c.bin TlsC000d.bin TlsC000e.bin TlsR0002.bin)
+TLS13_RESOURCES_68K := $(addprefix $(PALM_68K_BUILD)/,TlsC000b.bin TlsC000c.bin TlsC000d.bin TlsC000e.bin TlsC000f.bin TlsR0002.bin)
 TLS11_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC0015.bin TlsC0016.bin TlsC0017.bin TlsC0018.bin TlsR0003.bin)
 TLS12_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC0001.bin TlsC0002.bin TlsC0003.bin TlsC0004.bin TlsR0001.bin)
-TLS13_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC000b.bin TlsC000c.bin TlsC000d.bin TlsC000e.bin TlsR0002.bin)
+TLS13_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC000b.bin TlsC000c.bin TlsC000d.bin TlsC000e.bin TlsC000f.bin TlsR0002.bin)
 PROFILE_RESOURCES_68K := $(foreach protocol,$(PROFILE_PROTOCOLS),$(TLS$(protocol)_RESOURCES_68K))
 PROFILE_RESOURCES_ARM := $(foreach protocol,$(PROFILE_PROTOCOLS),$(TLS$(protocol)_RESOURCES_ARM))
 PROFILE_ELFS_68K := $(foreach protocol,$(PROFILE_PROTOCOLS),$(ELF_$(protocol)_68K))
@@ -184,6 +189,11 @@ $(eval $(call ENGINE_RESOURCES,$(ELF_11_68K),$(PALM_68K_BUILD),0015,0016,0017,00
 $(eval $(call ENGINE_RESOURCES,$(ELF_12_ARM),$(PALM_ARM_BUILD),0001,0002,0003,0004,0001))
 $(eval $(call ENGINE_RESOURCES,$(ELF_13_ARM),$(PALM_ARM_BUILD),000b,000c,000d,000e,0002))
 $(eval $(call ENGINE_RESOURCES,$(ELF_11_ARM),$(PALM_ARM_BUILD),0015,0016,0017,0018,0003))
+
+$(PALM_68K_BUILD)/TlsC000f.bin: $(ELF_13_68K)
+	$(OBJCOPY) -O binary $< $@ -j .tls6
+$(PALM_ARM_BUILD)/TlsC000f.bin: $(ELF_13_ARM)
+	$(OBJCOPY) -O binary $< $@ -j .tls6
 
 $(P256_COMB): tools/generate-p256-comb.mjs | $(GENERATED)
 	node $< $@

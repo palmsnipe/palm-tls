@@ -1,5 +1,6 @@
 #include <PalmOS.h>
 #include <wolfssl/wolfcrypt/types.h>
+#include <wolfssl/wolfcrypt/error-crypt.h>
 
 #include "tls_palm.h"
 
@@ -76,11 +77,23 @@ void *WolfPalmRealloc(void *pointerP, unsigned long size)
     return newPointerP;
 }
 
+/* Each engine has its own relocated data. Its entry point sets this only
+ * during serialized pinned operations, including cooperative continuation. */
+static Boolean PinnedRandom;
+
+void PalmTlsSetPinnedRandom(Boolean pinned)
+{
+    PinnedRandom = pinned;
+}
+
 int WolfPalmRandomBlock(unsigned char *outputP, unsigned long size)
 {
     UInt32 offset;
     UInt32 seed = TimGetSeconds() ^ TimGetTicks() ^ (UInt32)outputP;
 
+#ifndef PALM_TLS_INSECURE_TEST_RANDOM
+    if (PinnedRandom) return RNG_FAILURE_E;
+#endif
     for (offset = 0; offset < size; offset++) {
         if ((offset & 3U) == 0) {
             seed ^= (UInt32)SysRandom((Int32)(seed ^ TimGetTicks()));

@@ -49,6 +49,12 @@ typedef char PalmTlsAssertSessionEcdheProfile[
 typedef char PalmTlsAssertLoadProfile[sizeof(PalmTlsLoadProfile) == PALM_TLS_LOAD_PROFILE_SIZE ? 1 : -1];
 typedef char PalmTlsAssertTrustProfile[sizeof(PalmTlsTrustProfile) == PALM_TLS_TRUST_PROFILE_SIZE ? 1 : -1];
 typedef char PalmTlsAssertStartupProfile[sizeof(PalmTlsSessionStartupProfile) == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE ? 1 : -1];
+_Static_assert(sizeof(PalmTlsIdentityParams) == PALM_TLS_IDENTITY_PARAMS_SIZE,
+    "Identity parameter ABI changed");
+_Static_assert(sizeof(PalmTlsIdentityResult) == PALM_TLS_IDENTITY_RESULT_SIZE,
+    "Identity result ABI changed");
+_Static_assert(sizeof(PalmTlsPinnedSessionParams) ==
+    PALM_TLS_PINNED_SESSION_PARAMS_SIZE, "Pinned session parameter ABI changed");
 
 static PalmTlsLibraryState *LibraryState(UInt16 refNum)
 {
@@ -80,7 +86,9 @@ static Boolean EngineResourcesPresent(DmOpenRef databaseP,
                                       DmResID relocationId)
 {
     UInt16 index;
-    for (index = 0; index < PALM_TLS_SEGMENT_COUNT; index++)
+    UInt16 segmentCount = firstSegmentId == PALM_TLS13_SEGMENT_FIRST_ID ?
+        PALM_TLS_SEGMENT_COUNT : PALM_TLS_LEGACY_SEGMENT_COUNT;
+    for (index = 0; index < segmentCount; index++)
         if (DmFindResource(databaseP, PALM_TLS_SEGMENT_TYPE,
                 firstSegmentId + index, 0) == dmMaxRecordIndex)
             return false;
@@ -119,6 +127,17 @@ static Boolean ProtocolAvailable(UInt16 protocol)
     if (protocol == palmTlsProtocolTls13)
         return (capabilities & PALM_TLS_CAP_TLS_1_3) != 0;
     return false;
+}
+
+static UInt32 PinnedRandomCapability(void)
+{
+#ifdef PALM_TLS_INSECURE_TEST_RANDOM
+    return PALM_TLS_CAP_TEST_RANDOM;
+#else
+    /* Palm OS exposes CPMLibGenerateRandomBytes, but the stock Garnet
+     * provider has not been qualified as a source of cryptographic entropy. */
+    return 0;
+#endif
 }
 
 static Boolean ValidCommon(UInt16 structSize, UInt16 expectedSize,
@@ -205,7 +224,8 @@ Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
         PALM_TLS_CAP_COOPERATIVE_IO | PALM_TLS_CAP_VERIFY_PROFILE;
     if ((*capabilitiesP & PALM_TLS_CAP_TLS_1_3) != 0)
         *capabilitiesP |= PALM_TLS_CAP_HANDSHAKE_PROFILE | PALM_TLS_CAP_CONTEXT_REUSE |
-            PALM_TLS_CAP_ECDHE_PROFILE | PALM_TLS_CAP_STARTUP_PROFILE;
+            PALM_TLS_CAP_ECDHE_PROFILE | PALM_TLS_CAP_STARTUP_PROFILE |
+            PALM_TLS_CAP_PINNED_CLIENT | PinnedRandomCapability();
     if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) == errNone &&
         sysFtrNumProcessorIsARM(processor)) {
         UInt16 index;
@@ -450,6 +470,98 @@ Err PalmTlsLibSessionOpen(UInt16 refNum,
     resultP->sessionId = result.sessionId;
     resultP->loadTicks = result.loadTicks;
     resultP->handshakeTicks = result.handshakeTicks;
+    return errNone;
+}
+
+Err PalmTlsLibSessionOpenEx(UInt16 refNum,
+    const PalmTlsPinnedSessionParams *paramsP,
+    PalmTlsSessionOpenResult *resultP)
+{
+    PalmTlsLibraryState *stateP = LibraryState(refNum);
+    PalmTlsEngineParams params;
+    PalmTlsEngineResult result;
+    if (!resultP || resultP->structSize != PALM_TLS_SESSION_OPEN_RESULT_SIZE)
+        return sysErrParamErr;
+    MemSet(resultP, sizeof(*resultP), 0);
+    resultP->structSize = PALM_TLS_SESSION_OPEN_RESULT_SIZE;
+    resultP->status = palmTlsStatusBadParameter;
+    if (!stateP || !paramsP ||
+        paramsP->structSize != PALM_TLS_PINNED_SESSION_PARAMS_SIZE ||
+        !paramsP->certificateP || !paramsP->certificateLength ||
+        paramsP->certificateLength > PALM_TLS_IDENTITY_CERT_MAX ||
+        !paramsP->privateKeyP || !paramsP->privateKeyLength ||
+        paramsP->privateKeyLength > PALM_TLS_IDENTITY_KEY_MAX ||
+        !paramsP->peerFingerprintP || !paramsP->alpnP ||
+        !paramsP->alpnP[0] || StrLen(paramsP->alpnP) > 255 ||
+        StrChr(paramsP->alpnP, ',') || paramsP->timeoutTicks <= 0 ||
+        (paramsP->options & ~(PALM_TLS_SESSION_COOPERATIVE |
+            PALM_TLS_SESSION_PROFILE | PALM_TLS_SESSION_NO_CONTEXT_REUSE)))
+        return sysErrParamErr;
+    if (!ProtocolAvailable(palmTlsProtocolTls13)) {
+        resultP->status = palmTlsStatusResourceMissing;
+        return errNone;
+    }
+    if (!PinnedRandomCapability()) {
+        resultP->status = palmTlsStatusRandomUnavailable;
+        return errNone;
+    }
+    MemSet(&params, sizeof(params), 0);
+    params.command = palmTlsEngineSessionOpen;
+    params.protocol = palmTlsProtocolTls13;
+    params.netRefNum = paramsP->netRefNum;
+    params.socket = paramsP->socket;
+    params.hostnameP = "";
+    params.timeoutTicks = paramsP->timeoutTicks;
+    params.options = paramsP->options | PALM_TLS_SESSION_NO_CONTEXT_REUSE;
+    params.sessionId = NextSessionId(stateP);
+    params.pinnedP = paramsP;
+    PalmTlsExecute(stateP, &params, &result);
+    resultP->status = result.status;
+    resultP->tlsError = result.tlsError;
+    resultP->netError = result.netError;
+    resultP->platformError = result.platformError;
+    resultP->sessionId = result.sessionId;
+    resultP->loadTicks = result.loadTicks;
+    resultP->handshakeTicks = result.handshakeTicks;
+    return errNone;
+}
+
+Err PalmTlsLibGenerateIdentity(UInt16 refNum,
+    const PalmTlsIdentityParams *paramsP, PalmTlsIdentityResult *resultP)
+{
+    PalmTlsLibraryState *stateP = LibraryState(refNum);
+    PalmTlsEngineParams params;
+    PalmTlsEngineResult result;
+    if (!resultP || resultP->structSize != PALM_TLS_IDENTITY_RESULT_SIZE)
+        return sysErrParamErr;
+    MemSet(resultP, sizeof(*resultP), 0);
+    resultP->structSize = PALM_TLS_IDENTITY_RESULT_SIZE;
+    resultP->status = palmTlsStatusBadParameter;
+    if (!stateP || !paramsP ||
+        paramsP->structSize != PALM_TLS_IDENTITY_PARAMS_SIZE ||
+        !paramsP->commonNameP || !paramsP->commonNameP[0] ||
+        StrLen(paramsP->commonNameP) > 63 || !paramsP->certificateP ||
+        !paramsP->certificateCapacity ||
+        paramsP->certificateCapacity > PALM_TLS_IDENTITY_CERT_MAX ||
+        !paramsP->privateKeyP || !paramsP->privateKeyCapacity ||
+        paramsP->privateKeyCapacity > PALM_TLS_IDENTITY_KEY_MAX)
+        return sysErrParamErr;
+    if (!ProtocolAvailable(palmTlsProtocolTls13)) {
+        resultP->status = palmTlsStatusResourceMissing;
+        return errNone;
+    }
+    if (!PinnedRandomCapability()) {
+        resultP->status = palmTlsStatusRandomUnavailable;
+        return errNone;
+    }
+    MemSet(&params, sizeof(params), 0);
+    params.command = palmTlsEngineGenerateIdentity;
+    params.protocol = palmTlsProtocolTls13;
+    params.identityP = paramsP;
+    params.identityResultP = resultP;
+    PalmTlsExecute(stateP, &params, &result);
+    resultP->status = result.status;
+    resultP->tlsError = result.tlsError;
     return errNone;
 }
 

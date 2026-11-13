@@ -34,6 +34,8 @@ patches=(
   wolfssl-palm-trust-profile.patch
   wolfssl-palm-public-ca-pem.patch
   wolfssl-palm-armlet-chacha.patch
+  wolfssl-palm-16bit-int64.patch
+  wolfssl-palm-client-auth.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
@@ -73,6 +75,10 @@ fi
 build_variant() {
   local name="$1" defines="$2" oldtls="$3" destination="$4" install_mode="$5"
   local build_dir="$BUILD/$name"
+  local sha512=--disable-sha512
+  if [[ "$defines" == *-DWOLFSSL_NO_TLS12* ]]; then
+    sha512=--enable-sha512
+  fi
   rm -rf "$build_dir"
   mkdir -p "$build_dir"
   (
@@ -89,7 +95,7 @@ build_variant() {
         --disable-filesystem --disable-tls13 "$oldtls" \
         --disable-sp-math --disable-sp-math-all --enable-fastmath \
         --disable-rsa --disable-rsapub --enable-ecc --disable-dh --disable-mlkem \
-        --disable-sha3 --disable-sha512 --disable-sha384 --disable-sha224 \
+        --disable-sha3 "$sha512" --disable-sha384 --disable-sha224 \
         --disable-shake128 --disable-shake256 --disable-chacha \
         --disable-poly1305 --disable-pkcs8 --disable-pkcs12
     make -j"$JOBS" src/libwolfssl.la

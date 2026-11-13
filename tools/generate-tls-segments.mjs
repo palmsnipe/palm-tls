@@ -9,7 +9,7 @@ if (!elf || !output) {
 const sectionText = execFileSync(readelf, ["-SW", elf], { encoding: "utf8" });
 const sections = new Map();
 for (const line of sectionText.split("\n")) {
-  const match = line.match(/^\s*\[\s*\d+\]\s+(\.tls(?:2|3|4a?|5))\s+\S+\s+([0-9a-fA-F]+)\s+\S+\s+([0-9a-fA-F]+)/);
+  const match = line.match(/^\s*\[\s*\d+\]\s+(\.tls(?:2|3|4a?|5|6))\s+\S+\s+([0-9a-fA-F]+)\s+\S+\s+([0-9a-fA-F]+)/);
   if (match) {
     sections.set(match[1], {
       address: Number.parseInt(match[2], 16),
@@ -17,9 +17,10 @@ for (const line of sectionText.split("\n")) {
     });
   }
 }
-const segmentForSection = (name) => name === ".tls2" ? 0 : name === ".tls3" ? 1 : name === ".tls5" ? 3 : 2;
+const segmentForSection = (name) => Number(name[4]) - 2;
 const hasFourthSegment = sections.has(".tls5");
-const segmentCount = hasFourthSegment ? 4 : 3;
+const hasFifthSegment = sections.has(".tls6");
+const segmentCount = hasFifthSegment ? 5 : hasFourthSegment ? 4 : 3;
 const segmentBases = Array(segmentCount).fill(Infinity);
 const segmentEnds = Array(segmentCount).fill(0);
 for (const [name, section] of sections) {
@@ -31,6 +32,7 @@ for (const [name, section] of sections) {
 const requiredSections = hasFourthSegment
   ? [".tls2", ".tls3", ".tls4a", ".tls5"]
   : [".tls2", ".tls3", ".tls4"];
+if (hasFifthSegment) requiredSections.push(".tls6");
 for (const name of requiredSections) {
   if (!sections.has(name)) throw new Error(`missing ${name} in ${elf}`);
 }
@@ -44,7 +46,7 @@ const relocText = execFileSync(readelf, ["-rW", elf], { encoding: "utf8" });
 let current = null;
 const entries = [];
 for (const line of relocText.split("\n")) {
-  const heading = line.match(/^Relocation section '(?:\.rela|\.rel)(\.tls(?:2|3|4a?|5))'/);
+  const heading = line.match(/^Relocation section '(?:\.rela|\.rel)(\.tls(?:2|3|4a?|5|6))'/);
   if (heading) {
     current = heading[1];
     continue;
@@ -60,7 +62,8 @@ for (const line of relocText.split("\n")) {
     /^[0-9a-fA-F]+\s+\S+\s+R_68K_32\s+([0-9a-fA-F]+)/);
   if (!targetMatch) throw new Error(`cannot parse TLS relocation target: ${line.trim()}`);
   const target = Number.parseInt(targetMatch[1], 16);
-  const targetsEngine = target >= 0x11000000 && target < 0x14010000;
+  const topBank = hasFifthSegment ? 0x15010000 : 0x14010000;
+  const targetsEngine = target >= 0x11000000 && target < topBank;
   if (hasFourthSegment && !targetsEngine) {
     throw new Error(
       `TLS relocation targets non-engine address 0x${target.toString(16)}: ${line.trim()}`,

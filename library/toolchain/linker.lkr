@@ -5,6 +5,7 @@ MEMORY
     tls3 : ORIGIN = 0x12000000, LENGTH = 65000
     tls4 : ORIGIN = 0x13000000, LENGTH = 65000
     tls5 : ORIGIN = 0x14000000, LENGTH = 65000
+    tls6 : ORIGIN = 0x15000000, LENGTH = 65000
     trash : ORIGIN = 0x40000000, LENGTH = 64K
 }
 
@@ -20,12 +21,21 @@ SECTIONS
         . = ALIGN(2);
     } > library
 
-    /* Spill a few independent ASN helpers into the fourth code segment before
-     * the broader ASN patterns below consume them. */
+    /* Place certificate generation and other ASN helpers in the fourth code
+     * segment before the broader ASN patterns below consume them. */
     .tls4a : {
         *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.GetCertName*)
         *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.FreeDer*)
         *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.GetHashId*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.SetTime* .text.GetTime*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.EncodeExtensions*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.SetName* .text.GetOneCertName*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.MakeAnyCert* .text.SignCert* .text.AddSignature*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.wc_InitCert* .text.wc_CertNew* .text.wc_CertFree*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.wc_MakeCert* .text.wc_SignCert*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.SetAsymKeyDer* .text.wc_Ed25519*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.wolfssl_local_Match*)
+        *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.GetUriHost* .text.DirStringNext*)
         *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text.wc_ecc_is_point*)
         *tls_engine_*.o(.text .text.* .rodata .rodata.*)
         *tls_armlet*.o(.text .text.* .rodata .rodata.*)
@@ -45,6 +55,7 @@ SECTIONS
         *libwolfssl*.a:libwolfssl_la-ssl.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:libwolfssl_la-internal.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-sp_c32.o(.text.sp_256_sqr_9*)
+        *libwolfssl*.a:src_libwolfssl_la-fe_operations.o(.text.fe_mul*)
         *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text.ecc_mul2add*)
         *libwolfssl*.a:src_libwolfssl_la-tfm.o(.text.fp_div*)
         *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.DecodeExtensionType*)
@@ -66,6 +77,12 @@ SECTIONS
         *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-sp_c32.o(.text .text.* .rodata .rodata.*)
     } > tls3
+
+    .tls6 : {
+        /* Ref10's fixed-base Ed25519 table is read-only. Keep its group
+         * routines and table out of the always-writable data segment. */
+        *libwolfssl*.a:src_libwolfssl_la-ge_operations.o(.text .text.* .rodata .rodata.*)
+    } > tls6
 
     .tls5 : {
         *libwolfssl*.a:*(.text .text.* .rodata .rodata.*)

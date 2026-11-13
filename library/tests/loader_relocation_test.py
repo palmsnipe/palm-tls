@@ -56,8 +56,8 @@ static UInt32 ReferenceAddress(UInt32 linked, UInt8 **segments) {
     return linked;
 }
 int main(void) {
-    UInt32 words[4][16];
-    UInt8 *segments[4]; UInt32 sizes[4]={64,64,64,64};
+    UInt32 words[5][16];
+    UInt8 *segments[5]={0}; UInt32 sizes[5]={64,64,64,64,64};
     Table table={1,5,{{3,14},{0,2},{2,10},{1,6},{0,60}}};
     UInt32 links[5]={PALM_TLS5_LINK_BASE+20,PALM_TLS2_LINK_BASE+8,
                     PALM_TLS4_LINK_BASE+4,PALM_TLS3_LINK_BASE+16,0xdeadbeef};
@@ -97,6 +97,15 @@ int main(void) {
     assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));failAlloc=0;
     failWrite=1;
     assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));
+    failWrite=0;
+    segments[4]=(UInt8 *)words[4];
+    table.count=1;
+    table.entries[0].sourceSegment=4;
+    actual=PALM_TLS6_LINK_BASE+12;
+    memcpy(segments[4],&actual,4);
+    assert(ApplyRelocations((UInt8 *)&table,10,segments,sizes));
+    memcpy(&actual,segments[4],4);
+    assert(actual==(UInt32)(uintptr_t)segments[4]+12);
     assert(!live);
     return 0;
 }

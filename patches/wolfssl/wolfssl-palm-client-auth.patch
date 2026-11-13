@@ -1,0 +1,45 @@
+diff --git a/wolfssl/ssl.h b/wolfssl/ssl.h
+--- a/wolfssl/ssl.h
++++ b/wolfssl/ssl.h
+@@ -4827,14 +4827,14 @@
+ 
+ WOLFSSL_ABI WOLFSSL_API int wolfSSL_UseALPN(WOLFSSL* ssl,
+                                 char *protocol_name_list,
+-                                unsigned int protocol_name_listSz,
++                                word32 protocol_name_listSz,
+                                 unsigned char options);
+ 
+ WOLFSSL_API int wolfSSL_ALPN_GetProtocol(WOLFSSL* ssl, char **protocol_name,
+-                                         unsigned short *size);
++                                         word16 *size);
+ 
+ WOLFSSL_API int wolfSSL_ALPN_GetPeerProtocol(WOLFSSL* ssl, char **list,
+-                                             unsigned short *listSz);
++                                             word16 *listSz);
+ WOLFSSL_API int wolfSSL_ALPN_FreePeerProtocol(WOLFSSL* ssl, char **list);
+ #endif /* HAVE_ALPN */
+ 
+diff --git a/src/ssl_api_ext.c b/src/ssl_api_ext.c
+--- a/src/ssl_api_ext.c
++++ b/src/ssl_api_ext.c
+@@ -680,7 +680,7 @@
+     if ((ssl == NULL) || (protocol_name_list == NULL)) {
+         ret = BAD_FUNC_ARG;
+     }
+-    else if (protocol_name_listSz > (WOLFSSL_MAX_ALPN_NUMBER *
++    else if (protocol_name_listSz > ((word32)WOLFSSL_MAX_ALPN_NUMBER *
+              WOLFSSL_MAX_ALPN_PROTO_NAME_LEN + WOLFSSL_MAX_ALPN_NUMBER)) {
+         WOLFSSL_MSG("Invalid arguments, protocol name list too long");
+         ret = BAD_FUNC_ARG;
+diff --git a/src/tls13.c b/src/tls13.c
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -11747,7 +11747,7 @@
+         #endif
+             /* Only the per-algorithm signing branches below consume this. */
+             (void)sigOut;
+-        #ifdef HAVE_ECC
++        #if defined(HAVE_ECC_SIGN) || (defined(WOLFSSL_SM2) && defined(WOLFSSL_SM3))
+             if (ssl->hsType == DYNAMIC_TYPE_ECC) {
+             #if defined(WOLFSSL_SM2) && defined(WOLFSSL_SM3)
+                 if (ssl->buffers.keyType == sm2_sa_algo) {

@@ -45,7 +45,7 @@ for (let i = 0; i < count; i += 1) {
 const protocolResources = {
   11: [['TlsC', 21], ['TlsC', 22], ['TlsC', 23], ['TlsC', 24], ['TlsR', 3]],
   12: [['TlsC', 1], ['TlsC', 2], ['TlsC', 3], ['TlsC', 4], ['TlsR', 1]],
-  13: [['TlsC', 11], ['TlsC', 12], ['TlsC', 13], ['TlsC', 14], ['TlsR', 2]],
+  13: [['TlsC', 11], ['TlsC', 12], ['TlsC', 13], ['TlsC', 14], ['TlsC', 15], ['TlsR', 2]],
 };
 const requiredResources = [['libr', 0], ['tver', 1],
   ...selectedProtocols.flatMap((protocol) => protocolResources[protocol])];
@@ -99,7 +99,7 @@ if (version !== expectedVersion) {
 }
 for (const engine of [
   { protocol: 12, reloc: 1, segments: [1, 2, 3, 4] },
-  { protocol: 13, reloc: 2, segments: [11, 12, 13, 14] },
+  { protocol: 13, reloc: 2, segments: [11, 12, 13, 14, 15] },
   { protocol: 11, reloc: 3, segments: [21, 22, 23, 24] },
 ].filter(({ protocol }) => selectedProtocols.includes(protocol))) {
   const reloc = resource('TlsR', engine.reloc);

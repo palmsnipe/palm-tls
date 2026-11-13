@@ -22,7 +22,8 @@ typedef enum PalmTlsEngineCommand {
     palmTlsEngineSessionCancel,
     palmTlsEngineSelfTest,
     palmTlsEngineShutdown,
-    palmTlsEngineGetProfile
+    palmTlsEngineGetProfile,
+    palmTlsEngineGenerateIdentity
 } PalmTlsEngineCommand;
 
 typedef struct PalmTlsEngineControl {
@@ -56,6 +57,10 @@ typedef struct PalmTlsEngineControl {
     Err lastError;
     Char resumeHostname[256];
     Char activeHostname[256];
+    UInt8 peerFingerprint[PALM_TLS_FINGERPRINT_SIZE];
+    Char alpn[256];
+    Boolean pinned;
+    Boolean pinMatched;
 } PalmTlsEngineControl;
 
 typedef struct PalmTlsEngineParams {
@@ -78,6 +83,9 @@ typedef struct PalmTlsEngineParams {
     Int32 timeoutTicks;
     UInt32 sessionId;
     UInt32 options;
+    const PalmTlsPinnedSessionParams *pinnedP;
+    const PalmTlsIdentityParams *identityP;
+    PalmTlsIdentityResult *identityResultP;
 } PalmTlsEngineParams;
 
 typedef struct PalmTlsEngineResult {
