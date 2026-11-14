@@ -541,6 +541,21 @@ static void SeedFromStylus(const PalmTlsEngineParams *paramsP,
     PalmTlsDrbgClear(digest, sizeof(digest));
 }
 
+/* Split a stored secret into the next stored secret and this open's
+ * independent working seed. The caller commits the replacement first. */
+static void RotateSeed(const PalmTlsEngineParams *paramsP, PalmTlsEngineResult *resultP)
+{
+    PalmTlsDrbg drbg;
+    PalmTlsDrbgClear(&drbg, sizeof(drbg));
+    UInt8 *seedsP = paramsP->responseP;
+    MemMove(drbg.seed, paramsP->requestP, sizeof(drbg.seed));
+    drbg.seedPending = true;
+    resultP->status = palmTlsStatusRandomUnavailable;
+    if (PalmTlsDrbgGenerate(&drbg, seedsP, 2 * PALM_TLS_DRBG_SEED_SIZE) == 0)
+        resultP->status = palmTlsStatusOk;
+    PalmTlsDrbgClear(&drbg, sizeof(drbg));
+}
+
 static void GenerateIdentity(const PalmTlsIdentityParams *paramsP,
                              PalmTlsIdentityResult *resultP,
                              PalmTlsEngineResult *engineResultP)
@@ -1137,6 +1152,9 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
             RunOfflineSelfTest(controlP, resultP);
             break;
 #if PALM_TLS_ENGINE_PROTOCOL == 13
+        case palmTlsEngineRotateSeed:
+            RotateSeed(paramsP, resultP);
+            break;
         case palmTlsEngineSeedFromStylus:
             SeedFromStylus(paramsP, resultP);
             break;

@@ -95,7 +95,13 @@ qualified source. Explicitly opted-in clients can also accept
 client should accept that flag.
 
 The pinned TLS 1.3 engine routes both operations through HMAC-DRBG with
-SHA-256. Its state belongs to the open library and is cleared on final close.
+SHA-256. On final close, PalmTLS clears the working generator. The normal
+library keeps a separate successor seed in Palm OS Feature Manager memory
+for the current system boot. Before any open can use a seed, PalmTLS
+derives a new working seed and replaces the cached seed with a distinct
+successor. A soft reset discards the cache; it is never written to a
+database or SD card. Each drawing allows up to 1,024 such derivations.
+The emulator test library does not read or write this cache.
 Both calls report `palmTlsStatusRandomUnavailable` without a usable seed.
 When `PALM_TLS_CAP_STYLUS_SEED` is present, a client can call
 `PalmTlsLibSeedFromStylus` to opt in to experimental pairing. Pass complete
@@ -108,8 +114,8 @@ or the pen-down in that stroke. The library checks sequencing and variation,
 hashes the samples with SHA-512, and advertises `PALM_TLS_CAP_STYLUS_RANDOM`
 on success. The E2's physical entropy remains unverified.
 
-Keep the library open while using the seed and clear the sample buffer
-after the call. An invalid capture leaves any previously accepted state
+Clear the sample buffer after the call. On relaunch, check
+`PALM_TLS_CAP_STYLUS_RANDOM` before asking for another drawing. An invalid capture leaves any previously accepted state
 available. A successful capture replaces the state and requires no active
 TLS sessions. Never use diagnostic recordings as pairing input.
 

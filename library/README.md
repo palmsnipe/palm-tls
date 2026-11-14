@@ -55,9 +55,10 @@ use without depending on a particular application.
 
 The TLS 1.3 engine also supports Ed25519 client certificates, SHA-256
 certificate pins, ALPN negotiation, and on-device identity generation
-through the pinned session API. These calls require a qualified random
-provider and report that randomness is unavailable on unqualified devices.
-See [API.md](API.md) for the separate emulator interoperability build.
+through the pinned session API. These calls require a usable seed. Clients
+can opt into experimental stylus seeding, which survives app relaunch within
+the same system boot. A Palm reset requires a new drawing. See
+[API.md](API.md) for the capability flags and emulator test build.
 
 PalmTLS includes a deterministic, network-free native-ARM self-test and
 per-protocol timings for engine load, P-256 key generation, shared-secret

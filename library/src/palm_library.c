@@ -131,8 +131,87 @@ static Boolean ProtocolAvailable(UInt16 protocol)
     return false;
 }
 
-static UInt32 PinnedRandomCapability(const PalmTlsLibraryState *stateP)
+#ifndef PALM_TLS_INSECURE_TEST_RANDOM
+/* A Feature Manager chunk outlives library unloads, but is discarded on
+ * reset. Never put the seed in preferences or a backup-restorable database. */
+#define SEED_FEATURE 0x5253
+#define SEED_VERSION 1
+#define SEED_LIMIT 1024
+
+typedef struct {
+    UInt16 version;
+    UInt16 remaining;
+    UInt8 seed[PALM_TLS_DRBG_SEED_SIZE];
+    UInt16 checksum;
+} SavedSeed;
+
+static UInt16 SeedChecksum(const SavedSeed *seedP)
 {
+    return Crc16CalcBlock(seedP, sizeof(*seedP) - sizeof(seedP->checksum), 0);
+}
+
+/* Release the working seed only after replacing the cached one. */
+static Boolean UseSavedSeed(PalmTlsLibraryState *stateP, const UInt8 *freshP)
+{
+    UInt32 feature;
+    Err error = FtrGet(PALM_TLS_LIB_CREATOR, SEED_FEATURE, &feature);
+    if (error != errNone && (!freshP || error != ftrErrNoSuchFeature)) return false;
+    void *slotP = error == errNone ? (void *)feature : NULL;
+    if (slotP && MemPtrSize(slotP) != sizeof(SavedSeed)) return false;
+
+    SavedSeed saved;
+    UInt8 derived[2 * PALM_TLS_DRBG_SEED_SIZE];
+    Boolean ready = false;
+    MemSet(&saved, sizeof(saved), 0);
+    if (freshP) {
+        saved.version = SEED_VERSION;
+        saved.remaining = SEED_LIMIT;
+        MemMove(saved.seed, freshP, sizeof(saved.seed));
+    } else {
+        if (!slotP) goto done;
+        MemMove(&saved, slotP, sizeof(saved));
+        if (saved.version != SEED_VERSION || saved.remaining == 0 ||
+            saved.remaining > SEED_LIMIT || saved.checksum != SeedChecksum(&saved))
+            goto done;
+    }
+
+    PalmTlsEngineParams params;
+    PalmTlsEngineResult result;
+    MemSet(&params, sizeof(params), 0);
+    params.protocol = palmTlsProtocolTls13;
+    params.command = palmTlsEngineRotateSeed;
+    params.requestP = saved.seed;
+    params.responseP = derived;
+    if (PalmTlsExecute(stateP, &params, &result) != palmTlsStatusOk) goto done;
+    if (!slotP && FtrPtrNew(PALM_TLS_LIB_CREATOR, SEED_FEATURE, sizeof(saved),
+            &slotP) != errNone) goto done;
+    --saved.remaining;
+    MemMove(saved.seed, derived, sizeof(saved.seed));
+    saved.checksum = SeedChecksum(&saved);
+    ready = DmWrite(slotP, 0, &saved, sizeof(saved)) == errNone &&
+        MemCmp(slotP, &saved, sizeof(saved)) == 0;
+    if (ready) {
+        PalmTlsDrbgClear(&stateP->drbg, sizeof(stateP->drbg));
+        MemMove(stateP->drbg.seed, derived + PALM_TLS_DRBG_SEED_SIZE,
+            sizeof(stateP->drbg.seed));
+        stateP->drbg.seedPending = true;
+        stateP->stylusSeed = true;
+    }
+done:
+    PalmTlsDrbgClear(derived, sizeof(derived));
+    PalmTlsDrbgClear(&saved, sizeof(saved));
+    return ready;
+}
+#endif
+
+static UInt32 PinnedRandomCapability(PalmTlsLibraryState *stateP)
+{
+#ifndef PALM_TLS_INSECURE_TEST_RANDOM
+    if (stateP && !stateP->triedSavedSeed && !PalmTlsDrbgReady(&stateP->drbg)) {
+        stateP->triedSavedSeed = true;
+        UseSavedSeed(stateP, NULL);
+    }
+#endif
     if (!stateP || !PalmTlsDrbgReady(&stateP->drbg)) return 0;
     if (stateP->stylusSeed) return PALM_TLS_CAP_STYLUS_RANDOM;
 #ifdef PALM_TLS_INSECURE_TEST_RANDOM
@@ -615,7 +694,18 @@ Err PalmTlsLibSeedFromStylus(UInt16 refNum, const PalmTlsStylusSample *samplesP,
     params.requestP = samplesP;
     params.requestLength = count;
     PalmTlsExecute(stateP, &params, &result);
-    if (result.status == palmTlsStatusOk) stateP->stylusSeed = true;
+    if (result.status == palmTlsStatusOk) {
+#ifdef PALM_TLS_INSECURE_TEST_RANDOM
+        stateP->stylusSeed = true;
+#else
+        stateP->triedSavedSeed = true;
+        if (!UseSavedSeed(stateP, stateP->drbg.seed)) {
+            PalmTlsDrbgClear(&stateP->drbg, sizeof(stateP->drbg));
+            stateP->stylusSeed = false;
+            result.status = palmTlsStatusRandomUnavailable;
+        }
+#endif
+    }
     *statusP = result.status;
     return errNone;
 }

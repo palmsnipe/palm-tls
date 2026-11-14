@@ -448,6 +448,7 @@ UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
         case palmTlsEngineSelfTest:
         case palmTlsEngineGenerateIdentity:
         case palmTlsEngineSeedFromStylus:
+        case palmTlsEngineRotateSeed:
             if (EngineHasActiveSessions(&stateP->engine)) {
                 resultP->status = palmTlsStatusBusy;
                 return resultP->status;

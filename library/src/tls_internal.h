@@ -25,7 +25,8 @@ typedef enum PalmTlsEngineCommand {
     palmTlsEngineShutdown,
     palmTlsEngineGetProfile,
     palmTlsEngineGenerateIdentity,
-    palmTlsEngineSeedFromStylus
+    palmTlsEngineSeedFromStylus,
+    palmTlsEngineRotateSeed
 } PalmTlsEngineCommand;
 
 typedef struct PalmTlsEngineControl {
@@ -130,6 +131,7 @@ typedef struct PalmTlsLibraryState {
     PalmTlsLoadedEngine engine;
     PalmTlsDrbg drbg;
     Boolean stylusSeed;
+    Boolean triedSavedSeed;
 } PalmTlsLibraryState;
 
 UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
