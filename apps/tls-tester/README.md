@@ -75,6 +75,18 @@ version, and tap **Test**. PalmTLS reports only the protocols included in the
 installed profile, so the selector adapts to smaller builds. The **Get** button
 downloads a URL, while **Files** opens the saved-download catalog.
 
+To try stylus seeding, install `library/build/palm/PalmTLSArm-Browser.prc`
+and use a Tungsten E2, Palm TX, or Zire 72. Select **HTTPS / Stylus**, tap
+**Seed**, and draw in the box. Keep drawing and changing direction until the
+bar fills. Lift the stylus and tap **Use seed**, then use **Test** or **Get**
+with the matching trust profile.
+
+This mode negotiates TLS 1.2 or 1.3 and requires certificate verification.
+Stylus entropy is experimental. TLS Tester clears the samples after use or
+cancellation. PalmTLS can reuse the seed during the current boot. Draw again
+after reset or when PalmTLS reports that the seed is unavailable. The other
+protocol choices remain available without this setup.
+
 The certificate verification checkbox is enabled by default. Select the issuer
 profile that matches the server being tested. Disabling verification is useful
 only for diagnosis and must not be used with credentials or sensitive data.

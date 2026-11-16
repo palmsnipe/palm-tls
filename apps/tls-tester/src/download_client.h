@@ -35,6 +35,7 @@ typedef enum DownloadClientStatus {
 typedef struct DownloadClientConfig {
     UInt16 tlsRefNum;
     UInt16 tlsProtocol;
+    UInt32 tlsOptions;
     UInt16 verifyMode;
     const UInt8 *trustedPeerP;
     UInt32 trustedPeerLength;

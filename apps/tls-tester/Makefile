@@ -11,6 +11,8 @@ TLS_LIB := $(REPO)/library
 HTTP_COMPONENT := $(REPO)/components/http
 CC := $(PREFIX)/bin/m68k-none-elf-gcc
 OBJCOPY := $(PREFIX)/bin/m68k-none-elf-objcopy
+ARM_AS := $(PREFIX)/bin/arm-none-eabi-as
+ARM_OBJCOPY := $(PREFIX)/bin/arm-none-eabi-objcopy
 SIZE := $(PREFIX)/bin/m68k-none-elf-size
 PILRC := $(PREFIX)/bin/pilrc
 BUILD_PRC := $(PREFIX)/bin/build-prc
@@ -26,7 +28,7 @@ RESOURCE_RCP := $(BUILD_DIR)/app.rcp
 MAP := $(BUILD_DIR)/$(APP_ID).map
 OBJECTS := $(BUILD_DIR)/main.o $(BUILD_DIR)/download_store.o \
 	$(BUILD_DIR)/download_client.o $(BUILD_DIR)/http.o \
-	$(BUILD_DIR)/startup.o
+	$(BUILD_DIR)/startup.o $(BUILD_DIR)/stylus_seed.o
 DEPS := $(OBJECTS:.o=.d)
 SDK_INCLUDES := -isystem$(SDK) -isystem$(SDK)/Core -isystem$(SDK)/Core/Hardware \
 	-isystem$(SDK)/Core/System -isystem$(SDK)/Core/UI -isystem$(SDK)/Dynamic \
@@ -85,7 +87,13 @@ $(BUILD_DIR)/icon-color.bmp: resources/icon.svg | $(BUILD_DIR)
 	$(MAGICK) resources/icon.svg -background '#ff00ff' -alpha remove -colors 256 \
 		-compress none BMP3:$@
 
-$(PRC): $(CODE) $(BUILD_DIR)/icon-mono.bmp $(BUILD_DIR)/icon-color.bmp $(RESOURCE_RCP) resources/resource.h \
+$(BUILD_DIR)/raw-pen.o: ../pen-probe/raw-pen.S | $(BUILD_DIR)
+	$(ARM_AS) -march=armv5te $< -o $@
+
+$(BUILD_DIR)/raw-pen.bin: $(BUILD_DIR)/raw-pen.o
+	$(ARM_OBJCOPY) -O binary -j .text $< $@
+
+$(PRC): $(CODE) $(BUILD_DIR)/raw-pen.bin $(BUILD_DIR)/icon-mono.bmp $(BUILD_DIR)/icon-color.bmp $(RESOURCE_RCP) resources/resource.h \
 	certs/gts-wr2.der certs/gts-we1.der certs/letsencrypt-yr2.der app.mk
 	cd $(BUILD_DIR) && $(PILRC) -ro -o $(BASE_RO) -creator $(APP_CREATOR) \
 		-type $(APP_TYPE) -name '$(APP_NAME)' \

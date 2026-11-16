@@ -1,6 +1,7 @@
 #include "resource.h"
 
 DATA "code" ID 1 "code0001.bin"
+DATA "pPen" ID RawPenResource "raw-pen.bin"
 DATA "cert" ID GoogleIssuerCertificate "../../certs/gts-wr2.der"
 DATA "cert" ID CloudflareIssuerCertificate "../../certs/gts-we1.der"
 DATA "cert" ID LetsEncryptIssuerCertificate "../../certs/letsencrypt-yr2.der"
@@ -15,19 +16,37 @@ BEGIN
     GRAFFITISTATEINDICATOR AT (143 30)
     LABEL "Protocol" ID 1201 AT (4 47) FONT 1
     POPUPTRIGGER "HTTPS / TLS 1.2" ID ProtocolTrigger AT (48 45 108 14) LEFTANCHOR
-    LIST "HTTPS / TLS 1.1" "HTTPS / TLS 1.2" "HTTPS / TLS 1.3" "HTTP" ID ProtocolList AT (48 45 108 56) VISIBLEITEMS 4 NONUSABLE
+    LIST "HTTPS / TLS 1.1" "HTTPS / TLS 1.2" "HTTPS / TLS 1.3" "HTTPS / Stylus" "HTTP" ID ProtocolList AT (48 45 108 70) VISIBLEITEMS 5 NONUSABLE
     POPUPLIST ID ProtocolTrigger ProtocolList
     LABEL "Trust" ID 1202 AT (4 60) FONT 1
     POPUPTRIGGER "Google issuer (WR2)" ID TrustTrigger AT (48 58 108 14) LEFTANCHOR
     LIST "Google issuer (WR2)" "Cloudflare issuer (WE1)" "Let's Encrypt (YR2)" ID TrustList AT (48 58 108 42) VISIBLEITEMS 3 NONUSABLE
     POPUPLIST ID TrustTrigger TrustList
     CHECKBOX "Verify certificate" ID VerifyCheckbox AT (4 75 116 12)
+    BUTTON "Seed" ID CollectSeedButton AT (118 73 38 14) NONUSABLE
     BUTTON "Test" ID RequestButton AT (4 89 31 14)
     BUTTON "Get" ID DownloadButton AT (38 89 34 14)
     BUTTON "Files" ID CatalogButton AT (75 89 38 14)
     BUTTON "Cancel" ID CancelButton AT (116 89 40 14)
     FIELD ID ResultField AT (4 108 145 48) NONEDITABLE MULTIPLELINES MAXCHARS 511
     SCROLLBAR ID ResultScrollBar AT (150 108 7 48) VALUE 0 MIN 0 MAX 0 PAGESIZE 43
+END
+
+FORM ID StylusSeedForm AT (0 0 160 160)
+BEGIN
+    TITLE "Stylus seed"
+    LABEL "Draw loops and change direction." ID 1203 AT (5 16)
+    LABEL "Keep drawing until the bar fills." ID 1204 AT (5 28)
+    BUTTON "Use seed" ID UseSeedButton AT (5 142 60 14)
+    BUTTON "Cancel" ID CancelSeedButton AT (75 142 55 14)
+END
+
+ALERT ID StylusSeedAlert
+CONFIRMATION
+BEGIN
+    TITLE "Experimental seed"
+    MESSAGE "Stylus entropy has not been measured on physical hardware. Continue for trial use?"
+    BUTTONS "Continue" "Cancel"
 END
 
 FORM ID CatalogForm AT (0 0 160 160)

@@ -12,9 +12,9 @@ SECTIONS
         *(.text .text.* .rodata .rodata.*)
         *libgcc.a:*(.text .text.* .rodata .rodata.*)
         . = ALIGN(4);
-        __reloc_offsets_start = ABSOLUTE(.);
+        __reloc_offsets_position = ABSOLUTE(. - ORIGIN(main));
         KEEP(*(.reloc_offsets))
-        __reloc_offsets_end = ABSOLUTE(.);
+        __reloc_offsets_length = ABSOLUTE(. - ORIGIN(main) - __reloc_offsets_position);
         . = ALIGN(4);
     } > main
     .trash2 : { *(.init) *(.init.*) *(.fini) *(.fini.*) *(*.macsbug) } > trash

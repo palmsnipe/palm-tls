@@ -5,6 +5,7 @@
 #include "download_client.h"
 #include "download_store.h"
 #include "resource.h"
+#include "stylus_seed.h"
 
 #define RESPONSE_CAPACITY 2048UL
 #define RESPONSE_LIMIT (1024UL * 1024UL)
@@ -20,7 +21,8 @@ typedef enum TestProtocol {
     testProtocolTls11 = 0,
     testProtocolTls12 = 1,
     testProtocolTls13 = 2,
-    testProtocolHttp = 3
+    testProtocolHttp = 3,
+    testProtocolStylus = 4
 } TestProtocol;
 
 typedef enum TrustProfile {
@@ -36,9 +38,10 @@ typedef struct AppState {
     UInt16 protocol;
     UInt32 tlsCapabilities;
     UInt16 protocolChoiceCount;
-    Char protocolLabels[4][20];
-    Char *protocolChoices[4];
-    UInt16 protocolValues[4];
+    Char protocolLabels[5][20];
+    Char *protocolChoices[5];
+    UInt16 protocolValues[5];
+    StylusSeed stylus;
     UInt16 trustProfile;
     Boolean verifyCertificate;
     UInt16 armStatus;
@@ -150,6 +153,25 @@ static const Char *TlsVersion(UInt16 protocol)
     return "1.2";
 }
 
+static UInt16 SessionProtocol(UInt16 protocol)
+{
+    if (protocol == testProtocolStylus) return palmTlsProtocolModern;
+    if (protocol == testProtocolTls11) return palmTlsProtocolTls11;
+    if (protocol == testProtocolTls13) return palmTlsProtocolTls13;
+    return palmTlsProtocolTls12;
+}
+
+static Boolean VerifyCertificate(const AppState *state)
+{
+    return state->protocol == testProtocolStylus || state->verifyCertificate;
+}
+
+static UInt32 SessionOptions(const AppState *state)
+{
+    return state->protocol == testProtocolStylus ?
+        PALM_TLS_SESSION_REQUIRE_STYLUS_RANDOM : PALM_TLS_SESSION_ALLOW_RESUME;
+}
+
 static void AddProtocolChoice(AppState *state, const Char *labelP,
                               UInt16 protocol)
 {
@@ -167,6 +189,10 @@ static Boolean TestProtocolAvailable(const AppState *state, UInt16 protocol)
         return (state->tlsCapabilities & PALM_TLS_CAP_TLS_1_2) != 0;
     if (protocol == testProtocolTls13)
         return (state->tlsCapabilities & PALM_TLS_CAP_TLS_1_3) != 0;
+    if (protocol == testProtocolStylus) {
+        const UInt32 required = PALM_TLS_CAP_MODERN | PALM_TLS_CAP_BROWSER_STYLUS_SEED;
+        return (state->tlsCapabilities & required) == required && StylusSeedSupported();
+    }
     return protocol == testProtocolHttp;
 }
 
@@ -179,6 +205,8 @@ static void ConfigureProtocolChoices(AppState *state)
         AddProtocolChoice(state, "HTTPS / TLS 1.2", testProtocolTls12);
     if ((state->tlsCapabilities & PALM_TLS_CAP_TLS_1_3) != 0)
         AddProtocolChoice(state, "HTTPS / TLS 1.3", testProtocolTls13);
+    if (TestProtocolAvailable(state, testProtocolStylus))
+        AddProtocolChoice(state, "HTTPS / Stylus", testProtocolStylus);
     AddProtocolChoice(state, "HTTP", testProtocolHttp);
     if (!TestProtocolAvailable(state, state->protocol)) {
         if ((state->tlsCapabilities & PALM_TLS_CAP_TLS_1_2) != 0)
@@ -372,6 +400,7 @@ static const Char *TlsStatusName(UInt16 status)
         case palmTlsStatusBusy: return "library busy";
         case palmTlsStatusWouldBlock: return "operation would block";
         case palmTlsStatusCancelled: return "operation cancelled";
+        case palmTlsStatusRandomUnavailable: return "stylus seed unavailable";
         default: return "unknown TLS error";
     }
 }
@@ -453,6 +482,16 @@ static Err PlainExchange(UInt16 netRefNum, NetSocketRef socket,
     return errNone;
 }
 
+static Boolean StylusReady(AppState *state)
+{
+    if (state->protocol != testProtocolStylus) return true;
+    UInt32 capabilities;
+    if (PalmTlsLibGetCapabilities(state->tlsRefNum, &capabilities) == errNone &&
+        (capabilities & PALM_TLS_CAP_BROWSER_STYLUS_RANDOM)) return true;
+    SetResult(state, "Tap Seed to collect stylus input.");
+    return false;
+}
+
 static void RunRequest(AppState *state)
 {
     FieldType *addressField = GetField(AddressField);
@@ -495,7 +534,10 @@ static void RunRequest(AppState *state)
     NetSocketAddrINType socketAddress;
     UInt16 port = state->protocol == testProtocolHttp ? 80 : 443;
     UInt16 statusCode = 0;
+    UInt16 protocol = state->protocol;
+    Boolean verify = VerifyCertificate(state);
 
+    if (!StylusReady(state)) return;
     message[0] = '\0';
     if (!NormalizeAddress(addressTextP != 0 ? addressTextP : "", host,
                           sizeof(host), &port)) {
@@ -584,13 +626,10 @@ static void RunRequest(AppState *state)
         openParams.structSize = sizeof(openParams);
         openParams.netRefNum = netRefNum;
         openParams.socket = socket;
-        openParams.verifyMode = state->verifyCertificate
+        openParams.verifyMode = verify
             ? palmTlsVerifyCaStore : palmTlsVerifyNone;
-        openParams.protocol = state->protocol == testProtocolTls11
-            ? palmTlsProtocolTls11
-            : state->protocol == testProtocolTls13
-                ? palmTlsProtocolTls13 : palmTlsProtocolTls12;
-        if (state->verifyCertificate) {
+        openParams.protocol = SessionProtocol(state->protocol);
+        if (verify) {
             certificateH = DmGetResource('cert',
                 TrustAnchorResource(state->trustProfile));
             if (certificateH == 0) {
@@ -608,7 +647,7 @@ static void RunRequest(AppState *state)
         }
         openParams.hostnameP = host;
         openParams.timeoutTicks = stepTimeout;
-        openParams.options = PALM_TLS_SESSION_ALLOW_RESUME |
+        openParams.options = SessionOptions(state) |
             PALM_TLS_SESSION_COOPERATIVE;
         openResult.structSize = sizeof(openResult);
         tlsAttempted = true;
@@ -656,6 +695,13 @@ static void RunRequest(AppState *state)
         tlsSessionOpening = false;
         tlsSessionOpen = true;
         tlsSessionReused = openResult.sessionReused != 0;
+        if (protocol == testProtocolStylus) {
+            UInt16 negotiated;
+            if (PalmTlsLibGetSessionProtocol(state->tlsRefNum, tlsSessionId,
+                    &negotiated) == errNone)
+                protocol = negotiated == palmTlsProtocolTls13 ?
+                    testProtocolTls13 : testProtocolTls12;
+        }
         phaseStart = TimGetTicks();
         transferStarted = true;
         MemSet(&ioParams, sizeof(ioParams), 0);
@@ -738,10 +784,10 @@ static void RunRequest(AppState *state)
     if (statusCode != 0) {
         if (state->protocol != testProtocolHttp)
             StrPrintF(message,
-                state->verifyCertificate
+                verify
                     ? "SUCCESS - HTTPS / TLS %s\nHTTP %u, %u bytes\nCertificate verified."
                     : "SUCCESS - HTTPS / TLS %s\nHTTP %u, %u bytes\nCertificate not verified.",
-                TlsVersion(state->protocol),
+                TlsVersion(protocol),
                 statusCode, (UInt16)totalResponseLength);
         else
             StrPrintF(message,
@@ -879,13 +925,12 @@ static void StartDownload(AppState *state)
     const Char *addressTextP = FldGetTextPtr(addressField);
     DownloadClientConfig config;
     MemSet(&config, sizeof(config), 0);
-    if (state->downloadJobP != 0) return;
+    if (state->downloadJobP != 0 || !StylusReady(state)) return;
     state->downloadStartTicks = TimGetTicks();
     config.tlsRefNum = state->tlsRefNum;
-    config.tlsProtocol = state->protocol == testProtocolTls11
-        ? palmTlsProtocolTls11 : state->protocol == testProtocolTls13
-            ? palmTlsProtocolTls13 : palmTlsProtocolTls12;
-    config.verifyMode = state->verifyCertificate
+    config.tlsProtocol = SessionProtocol(state->protocol);
+    config.tlsOptions = SessionOptions(state);
+    config.verifyMode = VerifyCertificate(state)
         ? palmTlsVerifyCaStore : palmTlsVerifyNone;
     config.operationTimeoutTicks = NetworkTimeoutTicks(state);
     config.stepTimeoutTicks = (Int32)SysTicksPerSecond() / 2;
@@ -894,7 +939,7 @@ static void StartDownload(AppState *state)
     config.progressProcP = DownloadProgress;
     config.phaseProcP = DownloadPhase;
     config.callbackContextP = state;
-    if (state->verifyCertificate && state->protocol != testProtocolHttp) {
+    if (VerifyCertificate(state) && state->protocol != testProtocolHttp) {
         state->downloadCertificateH = DmGetResource('cert',
             TrustAnchorResource(state->trustProfile));
         if (state->downloadCertificateH == 0) {
@@ -923,6 +968,19 @@ static void AdvanceDownload(AppState *state)
     if (state->downloadJobP != 0 &&
         DownloadClientStep(&state->downloadJobP) == downloadStepFinished)
         ShowDownloadResult(state);
+}
+
+static void UpdateSeedControls(AppState *state)
+{
+    FormType *form = FrmGetActiveForm();
+    Boolean stylus = state->protocol == testProtocolStylus;
+    UInt16 button = FrmGetObjectIndex(form, CollectSeedButton);
+    ControlType *verify = FrmGetObjectPtr(form,
+        FrmGetObjectIndex(form, VerifyCheckbox));
+    CtlSetValue(verify, VerifyCertificate(state));
+    CtlSetEnabled(verify, !stylus);
+    if (stylus) FrmShowObject(form, button);
+    else FrmHideObject(form, button);
 }
 
 static void InitializeForm(AppState *state)
@@ -956,8 +1014,7 @@ static void InitializeForm(AppState *state)
     triggerP = (ControlType *)FrmGetObjectPtr(form,
         FrmGetObjectIndex(form, TrustTrigger));
     CtlSetLabel(triggerP, LstGetSelectionText(listP, state->trustProfile));
-    CtlSetValue((ControlType *)FrmGetObjectPtr(form,
-        FrmGetObjectIndex(form, VerifyCheckbox)), state->verifyCertificate);
+    UpdateSeedControls(state);
 }
 
 static void CatalogShowSelection(AppState *state)
@@ -1086,6 +1143,34 @@ static void PageResult(WinDirectionType direction)
 static Boolean HandleEvent(EventType *eventP, AppState *state)
 {
     FormType *form;
+    if (FrmGetActiveFormID() == StylusSeedForm) {
+        if (eventP->eType == frmOpenEvent || eventP->eType == frmUpdateEvent) {
+            StylusSeedDraw(&state->stylus);
+            return true;
+        }
+        if (eventP->eType == ctlSelectEvent) {
+            UInt16 control = eventP->data.ctlSelect.controlID;
+            if (control == UseSeedButton) {
+                if (state->stylus.points < PALM_TLS_STYLUS_POINTS ||
+                    state->stylus.down) return true;
+                UInt16 status;
+                Err error = PalmTlsLibSeedFromStylus(state->tlsRefNum,
+                    state->stylus.samples, state->stylus.count, &status);
+                StylusSeedClear(&state->stylus);
+                FrmReturnToForm(MainForm);
+                SetResult(state, error == errNone && status == palmTlsStatusOk ?
+                    "Stylus seed ready.\nTap Test or Get." :
+                    "Could not set stylus seed.\nTap Seed to try again.");
+                UpdateScrollBar();
+                return true;
+            }
+            if (control == CancelSeedButton) {
+                StylusSeedClear(&state->stylus);
+                FrmReturnToForm(MainForm);
+                return true;
+            }
+        }
+    }
     if ((UInt16)eventP->eType == winDisplayChangedEvent &&
         FrmGetActiveFormID() == MainForm) {
         LayoutMainForm();
@@ -1120,6 +1205,14 @@ static Boolean HandleEvent(EventType *eventP, AppState *state)
             }
             break;
         case ctlSelectEvent:
+            if (eventP->data.ctlSelect.controlID == CollectSeedButton) {
+                if (state->downloadJobP == 0 && state->protocol == testProtocolStylus &&
+                    FrmAlert(StylusSeedAlert) == 0) {
+                    if (StylusSeedStart(&state->stylus)) FrmPopupForm(StylusSeedForm);
+                    else SetResult(state, "Could not start stylus capture.");
+                }
+                return true;
+            }
             if (eventP->data.ctlSelect.controlID == VerifyCheckbox) {
                 state->verifyCertificate = CtlGetValue(
                     eventP->data.ctlSelect.pControl);
@@ -1199,8 +1292,11 @@ static Boolean HandleEvent(EventType *eventP, AppState *state)
             break;
         case popSelectEvent:
             if (eventP->data.popSelect.listID == ProtocolList) {
-                state->protocol = state->protocolValues[
-                    eventP->data.popSelect.selection];
+                Int16 selection = eventP->data.popSelect.selection;
+                if (selection >= 0 && (UInt16)selection < state->protocolChoiceCount) {
+                    state->protocol = state->protocolValues[selection];
+                    UpdateSeedControls(state);
+                }
                 return false;
             }
             if (eventP->data.popSelect.listID == TrustList) {
@@ -1391,8 +1487,10 @@ UInt32 PilotMain(UInt16 cmd, void *cmdPBP, UInt16 launchFlags)
 
     FrmGotoForm(MainForm);
     do {
-        EvtGetEvent(&event, state.downloadJobP != 0 ? 1 : evtWaitForever);
-        if (!SysHandleEvent(&event) && !MenuHandleEvent(0, &event, &error) &&
+        Boolean pollStylus = state.stylus.down && state.stylus.poll;
+        EvtGetEvent(&event, state.downloadJobP != 0 || pollStylus ? 1 : evtWaitForever);
+        if (!StylusSeedCapture(&state.stylus, &event) &&
+            !SysHandleEvent(&event) && !MenuHandleEvent(0, &event, &error) &&
             !HandleEvent(&event, &state))
             FrmDispatchEvent(&event);
     } while (event.eType != appStopEvent);
@@ -1401,8 +1499,12 @@ UInt32 PilotMain(UInt16 cmd, void *cmdPBP, UInt16 launchFlags)
         DownloadClientStep(&state.downloadJobP);
     }
     ReleaseDownloadCertificate(&state);
-    FldFreeMemory(GetField(AddressField));
-    state.addressH = 0;
+    StylusSeedClear(&state.stylus);
+    FormType *mainForm = FrmGetFormPtr(MainForm);
+    FieldType *addressField = mainForm ? FrmGetObjectPtr(mainForm,
+        FrmGetObjectIndex(mainForm, AddressField)) : NULL;
+    if (addressField) FldFreeMemory(addressField);
+    else if (state.addressH) MemHandleFree(state.addressH);
     FrmCloseAllForms();
     CloseTlsLibrary(&state);
     return errNone;

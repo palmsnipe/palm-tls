@@ -93,7 +93,7 @@ static Boolean OpenTls(UInt16 netRefNum, NetSocketRef socket,
     params.trustedPeerP = configP->trustedPeerP;
     params.trustedPeerLength = configP->trustedPeerLength;
     params.timeoutTicks = configP->stepTimeoutTicks;
-    params.options = PALM_TLS_SESSION_ALLOW_RESUME |
+    params.options = configP->tlsOptions |
         PALM_TLS_SESSION_COOPERATIVE;
     result.structSize = sizeof(result);
     error = PalmTlsLibSessionOpen(configP->tlsRefNum, &params, &result);
@@ -954,7 +954,7 @@ UInt16 DownloadClientStep(DownloadClientJob **jobPP)
             params.trustedPeerP = jobP->config.trustedPeerP;
             params.trustedPeerLength = jobP->config.trustedPeerLength;
             params.timeoutTicks = jobP->config.stepTimeoutTicks;
-            params.options = PALM_TLS_SESSION_ALLOW_RESUME |
+            params.options = jobP->config.tlsOptions |
                 PALM_TLS_SESSION_COOPERATIVE;
             tlsResult.structSize = sizeof(tlsResult);
             error = PalmTlsLibSessionOpen(jobP->config.tlsRefNum, &params,

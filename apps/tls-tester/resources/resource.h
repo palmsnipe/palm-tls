@@ -22,7 +22,13 @@
 #define CatalogDeleteButton 1018
 #define CatalogExportButton 1019
 #define CatalogCloseButton 1020
+#define CollectSeedButton 1021
+#define StylusSeedForm 1022
+#define UseSeedButton 1023
+#define CancelSeedButton 1024
 #define DeleteDownloadAlert 1102
+#define StylusSeedAlert 1103
+#define RawPenResource 1
 #define GoogleIssuerCertificate 2000
 #define CloudflareIssuerCertificate 2001
 #define LetsEncryptIssuerCertificate 2002
