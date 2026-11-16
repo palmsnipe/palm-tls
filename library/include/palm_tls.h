@@ -84,6 +84,7 @@ typedef struct PalmTlsStylusSample {
 #define PALM_TLS_SESSION_PROFILE 0x00000004UL
 /* Diagnostic comparison: recreate the configured context on each request. */
 #define PALM_TLS_SESSION_NO_CONTEXT_REUSE 0x00000008UL
+/* Modern sessions default to app-supplied host randomness. */
 #define PALM_TLS_SESSION_REQUIRE_HOST_RANDOM 0x00000010UL
 /* Explicit experimental stylus source for modern, CA-verified HTTPS. */
 #define PALM_TLS_SESSION_REQUIRE_STYLUS_RANDOM 0x00000020UL

@@ -15,10 +15,11 @@ required=(
   "$repo/library/build/palm/PalmTLSArm.prc"
   "$repo/library/build/palm/PalmTLSArm-Modern.prc"
   "$repo/library/build/palm/PalmTLSArm-TLS13.prc"
-  "$repo/apps/tls-tester/build/release/TlsTester.prc"
+  "$repo/library/build/palm/PalmTLSArm-Browser.prc"
 )
+tester="$repo/apps/tls-tester/build/release/TlsTester.prc"
 
-for file in "${required[@]}"; do
+for file in "${required[@]}" "$tester"; do
   if [[ ! -f "$file" ]]; then
     echo "Missing build output: $file" >&2
     exit 1
@@ -28,11 +29,11 @@ done
 rm -rf -- "$dist"
 mkdir -p "$dist/library" "$dist/tls-tester"
 
-cp "${required[@]:0:6}" "$dist/library/"
+cp "${required[@]}" "$dist/library/"
 cp "$repo/library/include/palm_tls.h" "$dist/library/"
 cp "$repo/library/API.md" "$repo/library/README.md" "$repo/library/ARM.md" "$repo/library/PERFORMANCE.md" "$dist/library/"
 cp "$repo/library/arm/p256-inverse.LICENSE" "$dist/library/"
-cp "${required[6]}" "$dist/tls-tester/"
+cp "$tester" "$dist/tls-tester/"
 cp "$repo/apps/tls-tester/README.md" "$dist/tls-tester/"
 cp "$repo/LICENSE" "$repo/THIRD_PARTY.md" "$dist/"
 

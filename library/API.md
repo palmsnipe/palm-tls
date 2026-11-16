@@ -16,16 +16,20 @@ Install it in place of the other PalmTLS profiles. Check
 `PALM_TLS_CAP_MODERN` and `PALM_TLS_CAP_HOST_SEED` before using the browser TLS
 interfaces. `PALM_TLS_CAP_HOST_RANDOM` reports a ready host-seeded generator.
 
-Call `PalmTlsLibSeedFromHost` with `PALM_TLS_HOST_SEED_SIZE` fresh bytes from
-the host operating system's CSPRNG. Import while no PalmTLS session is opening
-or active. Treat both the returned `Err` and PalmTLS status as authoritative.
+Applications can load PalmTLS and query its capabilities without providing a
+seed. To provision Modern TLS, an application can call `PalmTlsLibSeedFromHost`
+with `PALM_TLS_HOST_SEED_SIZE` fresh bytes from a trusted CSPRNG. Import while
+no PalmTLS session is opening or active. Treat both the returned `Err` and
+PalmTLS status as authoritative.
 The caller owns the bytes and clears its buffer after the call. The library
 keeps the seed successor in boot-scoped Feature Manager memory. Require an
 independently generated seed after reset or exhaustion.
 
-Call `PalmTlsLibSessionOpen` with `palmTlsProtocolModern`, `palmTlsVerifyCaStore`,
-and `PALM_TLS_SESSION_REQUIRE_HOST_RANDOM`, supplying a hostname and trusted
-CA bundle. A dotted-decimal IPv4 literal requires an exact `iPAddress` SAN
+Call `PalmTlsLibSessionOpen` with `palmTlsProtocolModern` and `palmTlsVerifyCaStore`,
+supplying a hostname and trusted CA bundle. Modern sessions use the
+app-provisioned generator by default. Applications can also explicitly pass
+`PALM_TLS_SESSION_REQUIRE_HOST_RANDOM` for the same behavior.
+A dotted-decimal IPv4 literal requires an exact `iPAddress` SAN
 and omits SNI. The handshake negotiates TLS 1.2 or 1.3 and uses the host-seeded
 HMAC-DRBG. Missing randomness returns `palmTlsStatusRandomUnavailable`.
 After the session opens, `PalmTlsLibGetSessionProtocol` returns
@@ -41,8 +45,8 @@ Physical digitizer entropy has not been measured.
 
 To opt into this source, open a Modern session with
 `PALM_TLS_SESSION_REQUIRE_STYLUS_RANDOM` and `palmTlsVerifyCaStore`.
-Specify exactly one of the two random-source flags. Existing
-`PALM_TLS_SESSION_REQUIRE_HOST_RANDOM` callers still require host randomness.
+The two random-source flags are mutually exclusive. Stylus randomness
+requires explicit opt-in.
 Stylus sessions use a separate DRBG and fresh handshakes with context reuse
 and resumption disabled. The app owns and clears the raw sample buffer.
 

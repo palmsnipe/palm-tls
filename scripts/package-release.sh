@@ -31,6 +31,7 @@ required=(
   "$dist/library/PalmTLSArm.prc"
   "$dist/library/PalmTLSArm-Modern.prc"
   "$dist/library/PalmTLSArm-TLS13.prc"
+  "$dist/library/PalmTLSArm-Browser.prc"
   "$dist/tls-tester/TlsTester.prc"
 )
 for file in "${required[@]}"; do

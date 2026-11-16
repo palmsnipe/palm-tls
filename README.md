@@ -97,8 +97,9 @@ the same Palm database identity, so they cannot coexist on one device. See
 `library/README.md` and `library/API.md` for selection and integration details.
 
 Use `make -C library TLS_PROFILE=browser test-prc` for the Browser profile. It
-negotiates TLS 1.2 and 1.3 in one engine, requires host-provisioned randomness
-for browser sessions, and supports P-384, SHA-384, and RSA-4096 certificates.
+negotiates TLS 1.2 and 1.3 in one engine and supports P-384, SHA-384, and
+RSA-4096 certificates. Browser sessions use app-provided seed material by
+default. See the API guide for the experimental stylus option.
 
 Applications compile `components/http/src/http.c` directly when they need the
 included HTTP helpers. No separate HTTP PRC is installed or distributed.
@@ -117,7 +118,7 @@ For an optimized application build, run:
 make -C apps/tls-tester release
 ```
 
-Create a distributable directory containing all six library PRCs, the public
+Create a distributable directory containing all seven library PRCs, the public
 header and documentation, and the release TLS Tester with:
 
 ```sh

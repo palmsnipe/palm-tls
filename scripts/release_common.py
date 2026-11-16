@@ -10,7 +10,8 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = '.github/workflows/build-artifacts.yml'
 PRCS = ('PalmTLS68K.prc', 'PalmTLS68K-Modern.prc', 'PalmTLS68K-TLS13.prc',
-        'PalmTLSArm.prc', 'PalmTLSArm-Modern.prc', 'PalmTLSArm-TLS13.prc', 'TlsTester.prc')
+        'PalmTLSArm.prc', 'PalmTLSArm-Modern.prc', 'PalmTLSArm-TLS13.prc',
+        'PalmTLSArm-Browser.prc', 'TlsTester.prc')
 
 
 def require(condition, message):

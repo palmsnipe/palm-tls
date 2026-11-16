@@ -654,10 +654,11 @@ Err PalmTlsLibSessionOpen(UInt16 refNum,
     Boolean modern = paramsP->protocol == palmTlsProtocolModern;
     Boolean host = (paramsP->options & PALM_TLS_SESSION_REQUIRE_HOST_RANDOM) != 0;
     Boolean stylus = (paramsP->options & PALM_TLS_SESSION_REQUIRE_STYLUS_RANDOM) != 0;
-    if ((host && stylus) || modern != (host || stylus) ||
+    if ((host && stylus) || (!modern && (host || stylus)) ||
         (modern && paramsP->verifyMode != palmTlsVerifyCaStore))
         return sysErrParamErr;
-    if ((host && !HostRandomReady(stateP)) || (stylus && !BrowserStylusReady(stateP))) {
+    if (modern &&
+        !(stylus ? BrowserStylusReady(stateP) : HostRandomReady(stateP))) {
         resultP->status = palmTlsStatusRandomUnavailable;
         return errNone;
     }
@@ -676,7 +677,7 @@ Err PalmTlsLibSessionOpen(UInt16 refNum,
     if (stylus) {
         params.options &= ~PALM_TLS_SESSION_ALLOW_RESUME;
         params.options |= PALM_TLS_SESSION_NO_CONTEXT_REUSE;
-    }
+    } else if (modern) params.options |= PALM_TLS_SESSION_REQUIRE_HOST_RANDOM;
     params.sessionId = NextSessionId(stateP);
     PalmTlsExecute(stateP, &params, &result);
     resultP->status = result.status;
