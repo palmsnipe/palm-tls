@@ -1222,15 +1222,17 @@ static void PointAddMixedWindow(Point256 *resultP, const Point256 *pointP,
 /* ECDSA verification points and scalars are public. This complete addition
  * can therefore branch on exceptional cases and avoids calculating a
  * Jacobian doubling during every ordinary table addition. Secret-scalar
- * multiplication uses the bounded fixed-window mixed addition above. */
+ * multiplication uses the bounded fixed-window mixed addition above.
+ * Reuse the table operand's precomputed Z powers for either sign of Y. */
 static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
-                           const Point256 *rightP)
+                           const Point256 *rightP, const Fe256 *rightZ2P,
+                           const Fe256 *rightZ3P, u32 negate)
 {
-    Fe256 z1z1, z2z2, u1, u2, s1, s2, h, i, j, r, v;
-    Fe256 temporary1;
+    Fe256 z1z1, u1, u2, s1, s2, h, hh, hhh, r, v, temporary;
     Point256 added;
     if (FeIsZero(&leftP->z)) {
         PointCopy(resultP, rightP);
+        if (negate) FeSubtract(&resultP->y, &kZero, &resultP->y);
         return;
     }
     if (FeIsZero(&rightP->z)) {
@@ -1238,13 +1240,12 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
         return;
     }
     FeSquare(&z1z1, &leftP->z);
-    FeSquare(&z2z2, &rightP->z);
-    FeMultiply(&u1, &leftP->x, &z2z2);
+    FeMultiply(&u1, &leftP->x, rightZ2P);
     FeMultiply(&u2, &rightP->x, &z1z1);
-    FeMultiply(&temporary1, &rightP->z, &z2z2);
-    FeMultiply(&s1, &leftP->y, &temporary1);
-    FeMultiply(&temporary1, &leftP->z, &z1z1);
-    FeMultiply(&s2, &rightP->y, &temporary1);
+    FeMultiply(&s1, &leftP->y, rightZ3P);
+    FeMultiply(&temporary, &leftP->z, &z1z1);
+    FeMultiply(&s2, &rightP->y, &temporary);
+    if (negate) FeSubtract(&s2, &kZero, &s2);
     FeSubtract(&h, &u2, &u1);
     FeSubtract(&r, &s2, &s1);
     if (FeIsZero(&h)) {
@@ -1254,25 +1255,20 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
             PointSetInfinity(resultP);
         return;
     }
-    FeDouble(&temporary1, &h);
-    FeSquare(&i, &temporary1);
-    FeMultiply(&j, &h, &i);
-    FeDouble(&r, &r);
-    FeMultiply(&v, &u1, &i);
+    /* Use the unscaled Jacobian formula: H = U2 - U1, R = S2 - S1. */
+    FeSquare(&hh, &h);
+    FeMultiply(&hhh, &h, &hh);
+    FeMultiply(&v, &u1, &hh);
     FeSquare(&added.x, &r);
-    FeSubtract(&added.x, &added.x, &j);
-    FeDouble(&temporary1, &v);
-    FeSubtract(&added.x, &added.x, &temporary1);
-    FeSubtract(&temporary1, &v, &added.x);
-    FeMultiply(&added.y, &r, &temporary1);
-    FeMultiply(&temporary1, &s1, &j);
-    FeDouble(&temporary1, &temporary1);
-    FeSubtract(&added.y, &added.y, &temporary1);
-    FeAdd(&temporary1, &leftP->z, &rightP->z);
-    FeSquare(&added.z, &temporary1);
-    FeSubtract(&added.z, &added.z, &z1z1);
-    FeSubtract(&added.z, &added.z, &z2z2);
-    FeMultiply(&added.z, &added.z, &h);
+    FeSubtract(&added.x, &added.x, &hhh);
+    FeDouble(&temporary, &v);
+    FeSubtract(&added.x, &added.x, &temporary);
+    FeSubtract(&temporary, &v, &added.x);
+    FeMultiply(&added.y, &r, &temporary);
+    FeMultiply(&temporary, &s1, &hhh);
+    FeSubtract(&added.y, &added.y, &temporary);
+    FeMultiply(&temporary, &leftP->z, &rightP->z);
+    FeMultiply(&added.z, &temporary, &h);
     PointCopy(resultP, &added);
 }
 
@@ -1282,7 +1278,7 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
 static void PointAddMixedPublic(Point256 *resultP, const Point256 *pointP,
                                 const Fe256 *affineXP, const Fe256 *affineYP)
 {
-    Fe256 zSquared, u2, s2, h, hh, i, j, r, v, temporary;
+    Fe256 zSquared, u2, s2, h, hh, hhh, r, v, temporary;
     Point256 added;
     if (FeIsZero(&pointP->z)) {
         FeCopy(&resultP->x, affineXP);
@@ -1304,23 +1300,17 @@ static void PointAddMixedPublic(Point256 *resultP, const Point256 *pointP,
         return;
     }
     FeSquare(&hh, &h);
-    FeTimes4(&i, &hh);
-    FeMultiply(&j, &h, &i);
-    FeDouble(&r, &r);
-    FeMultiply(&v, &pointP->x, &i);
+    FeMultiply(&hhh, &h, &hh);
+    FeMultiply(&v, &pointP->x, &hh);
     FeSquare(&added.x, &r);
-    FeSubtract(&added.x, &added.x, &j);
+    FeSubtract(&added.x, &added.x, &hhh);
     FeDouble(&temporary, &v);
     FeSubtract(&added.x, &added.x, &temporary);
     FeSubtract(&temporary, &v, &added.x);
     FeMultiply(&added.y, &r, &temporary);
-    FeMultiply(&temporary, &pointP->y, &j);
-    FeDouble(&temporary, &temporary);
+    FeMultiply(&temporary, &pointP->y, &hhh);
     FeSubtract(&added.y, &added.y, &temporary);
-    FeAdd(&temporary, &pointP->z, &h);
-    FeSquare(&added.z, &temporary);
-    FeSubtract(&added.z, &added.z, &zSquared);
-    FeSubtract(&added.z, &added.z, &hh);
+    FeMultiply(&added.z, &pointP->z, &h);
     PointCopy(resultP, &added);
 }
 
@@ -1583,21 +1573,20 @@ static u32 P256Map(const volatile u8 *inputP, volatile u8 *outputP)
     return P256WritePoint(&point, outputP, 1U);
 }
 
-/* Convert a public scalar to width-5 non-adjacent form. Nonzero digits are
- * odd and separated by at least four zero digits, reducing the average number
- * of additions from one per four bits to one per six bits. */
-static void ScalarWnaf5(s8 *digitsP, const volatile u8 *scalarP)
+/* Convert a public scalar to signed non-adjacent form. Use width seven for
+ * the precomputed generator and width five for a runtime point table. */
+static void ScalarWnaf(s8 *digitsP, const volatile u8 *scalarP, u32 width)
 {
     u32 words[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-    u32 index;
+    u32 index, radix = 1U << width;
     for (index = 0; index < 8U; index++)
         words[index] = ReadBigEndian32(scalarP + (7U - index) * 4U);
     for (index = 0; index < 257U; index++) {
         int digit = 0;
         u32 word;
         if ((words[0] & 1U) != 0U) {
-            u32 low = words[0] & 31U;
-            digit = low > 16U ? (int)low - 32 : (int)low;
+            u32 low = words[0] & (radix - 1U);
+            digit = low > radix / 2U ? (int)low - (int)radix : (int)low;
             if (digit > 0) {
                 u32 borrow = (u32)digit;
                 for (word = 0; word < 9U; word++) {
@@ -1621,55 +1610,63 @@ static void ScalarWnaf5(s8 *digitsP, const volatile u8 *scalarP)
     }
 }
 
-static void BuildOddPointTable(Point256 *tableP,
-                               const Fe256 *xP, const Fe256 *yP)
-{
-    Point256 twice;
-    u32 index;
-    FeCopy(&tableP[0].x, xP);
-    FeCopy(&tableP[0].y, yP);
-    FeCopy(&tableP[0].z, &kR);
-    PointDouble(&twice, &tableP[0]);
-    for (index = 1; index < 8U; index++)
-        PointAddPublic(&tableP[index], &tableP[index - 1U], &twice);
-}
+typedef struct PublicPointEntry {
+    Point256 point;
+    Fe256 zSquared, zCubed;
+} PublicPointEntry;
 
 typedef struct PublicPointTable {
-    Point256 jacobian[8];
+    PublicPointEntry jacobian[8];
     const Affine256 *affineP;
 } PublicPointTable;
 
 static void BuildPublicPointTable(PublicPointTable *tableP,
                                   const Fe256 *xP, const Fe256 *yP)
 {
-    tableP->affineP = 0;
     if (FeEqual(xP, &kGeneratorOdd[0].x) &&
-        FeEqual(yP, &kGeneratorOdd[0].y))
+        FeEqual(yP, &kGeneratorOdd[0].y)) {
         tableP->affineP = kGeneratorOdd;
-    else
-        BuildOddPointTable(tableP->jacobian, xP, yP);
+        return;
+    }
+    tableP->affineP = 0;
+    PublicPointEntry *firstP = &tableP->jacobian[0];
+    FeCopy(&firstP->point.x, xP);
+    FeCopy(&firstP->point.y, yP);
+    FeCopy(&firstP->point.z, &kR);
+    FeCopy(&firstP->zSquared, &kR);
+    FeCopy(&firstP->zCubed, &kR);
+    Point256 twice;
+    Fe256 twiceZ2, twiceZ3;
+    PointDouble(&twice, &firstP->point);
+    FeSquare(&twiceZ2, &twice.z);
+    FeMultiply(&twiceZ3, &twice.z, &twiceZ2);
+    for (u32 index = 1; index < 8U; index++) {
+        PublicPointEntry *entryP = &tableP->jacobian[index];
+        PointAddPublic(&entryP->point, &tableP->jacobian[index - 1U].point,
+            &twice, &twiceZ2, &twiceZ3, 0);
+        FeSquare(&entryP->zSquared, &entryP->point.z);
+        FeMultiply(&entryP->zCubed, &entryP->point.z, &entryP->zSquared);
+    }
 }
 
 static void AddWnafDigit(Point256 *resultP, const PublicPointTable *tableP,
                          int digit)
 {
-    Point256 selected;
-    Point256 added;
     u32 magnitude = digit < 0 ? (u32)(-digit) : (u32)digit;
     if (tableP->affineP != 0) {
         const Affine256 *affineP = &tableP->affineP[magnitude >> 1];
         Fe256 y;
-        if (digit < 0)
+        if (digit < 0) {
             FeSubtract(&y, &kZero, &affineP->y);
-        else
-            FeCopy(&y, &affineP->y);
-        PointAddMixedPublic(resultP, resultP, &affineP->x, &y);
+            PointAddMixedPublic(resultP, resultP, &affineP->x, &y);
+        } else {
+            PointAddMixedPublic(resultP, resultP, &affineP->x, &affineP->y);
+        }
     }
     else {
-        PointCopy(&selected, &tableP->jacobian[magnitude >> 1]);
-        if (digit < 0) FeSubtract(&selected.y, &kZero, &selected.y);
-        PointAddPublic(&added, resultP, &selected);
-        PointCopy(resultP, &added);
+        const PublicPointEntry *entryP = &tableP->jacobian[magnitude >> 1];
+        PointAddPublic(resultP, resultP, &entryP->point,
+            &entryP->zSquared, &entryP->zCubed, digit < 0);
     }
 }
 
@@ -1690,16 +1687,14 @@ static u32 P256Multiply2Add(const volatile u8 *scalarsP,
     FeReadBigEndian(&leftY, pointsP + 32);
     FeReadBigEndian(&rightX, pointsP + 64);
     FeReadBigEndian(&rightY, pointsP + 96);
-    ScalarWnaf5(leftDigits, scalarsP);
-    ScalarWnaf5(rightDigits, scalarsP + 32);
     BuildPublicPointTable(&leftTable, &leftX, &leftY);
     BuildPublicPointTable(&rightTable, &rightX, &rightY);
+    ScalarWnaf(leftDigits, scalarsP, leftTable.affineP ? 7U : 5U);
+    ScalarWnaf(rightDigits, scalarsP + 32, rightTable.affineP ? 7U : 5U);
     PointSetInfinity(&result);
     for (bit = 256; bit >= 0; bit--) {
-        Point256 doubled;
         int digit;
-        PointDouble(&doubled, &result);
-        PointCopy(&result, &doubled);
+        PointDouble(&result, &result);
         digit = leftDigits[bit];
         if (digit != 0) AddWnafDigit(&result, &leftTable, digit);
         digit = rightDigits[bit];

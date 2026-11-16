@@ -119,9 +119,10 @@ constant-time table selection. ECDHE key generation and shared-secret
 calculation therefore use native ARM P-256 math. Field squaring uses a
 shared integrated Montgomery multiplier with equal operands, preserving
 in-place aliases. ECDSA verification dispatches its complete
-`u1*G + u2*Q` operation as one native call. Its public scalars use an interleaved
-width-5 signed-digit representation, sharing one 257-doubling schedule and
-averaging about 86 additions. The ECDHE single-scalar paths remain constant-time;
+`u1*G + u2*Q` operation as one native call. Its public scalars share one
+257-doubling schedule. The generator uses width-7 signed digits and a
+precomputed affine table. Other points use width-5 digits and cache Z squared
+and Z cubed for each table entry. The ECDHE single-scalar paths remain constant-time;
 the variable-time verifier is safe here because the signature, digest, and
 public key are not secrets. Keeping the Jacobian additions and final affine
 conversion native avoids the generic 68K projective addition and inversion,

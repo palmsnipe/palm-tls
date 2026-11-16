@@ -360,9 +360,9 @@ def p256(backend, rng):
                 assert data[OUTPUT:OUTPUT + 64] == expected, ('P256 affine oracle', index)
     vectors = [(rng.randrange(1, N), rng.randrange(1, N), G, q)
                for _ in range(8)]
-    # Exercise every stored odd multiple and every negative width-5 digit,
+    # Exercise every stored odd multiple and every negative width-7 digit,
     # with the generator in either operand position. All values are public.
-    table_scalars = list(range(1, 16, 2)) + list(range(17, 32, 2))
+    table_scalars = list(range(1, 64, 2)) + list(range(65, 128, 2))
     for scalar in table_scalars:
         vectors += [(scalar, 0, G, q), (0, scalar, q, G)]
     minus_g = (G[0], -G[1] % P)

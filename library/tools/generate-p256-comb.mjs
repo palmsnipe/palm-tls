@@ -71,12 +71,12 @@ for (let digit = 1; digit < 256; digit++) {
     table.push(` {{{${limbs(point.x)}}},{{${limbs(point.y)}}}}`);
 }
 
-// Public width-5 wNAF digits select G, 3G, ... 15G. Unlike the private-scalar
+// Public width-7 wNAF digits select G, 3G, ... 63G. Unlike the private-scalar
 // comb table above, this small affine table can be indexed directly.
 const oddTable = [];
 const twiceGenerator = add(generator, generator);
 let oddPoint = generator;
-for (let index = 0; index < 8; index++) {
+for (let index = 0; index < 32; index++) {
     oddTable.push(` {{{${limbs(oddPoint.x)}}},{{${limbs(oddPoint.y)}}}}`);
     oddPoint = add(oddPoint, twiceGenerator);
 }
@@ -86,8 +86,8 @@ const source = [
     "static const Affine256 kGeneratorComb[255] = {",
     table.join(",\n"),
     "};",
-    "/* Public double-scalar width-5 wNAF table in Montgomery form. */",
-    "static const Affine256 kGeneratorOdd[8] = {",
+    "/* Public double-scalar width-7 wNAF table in Montgomery form. */",
+    "static const Affine256 kGeneratorOdd[32] = {",
     oddTable.join(",\n"),
     "};",
     ""
