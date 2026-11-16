@@ -35,6 +35,9 @@
 #define PALM_TLS_ARMLET_COMMAND_ED25519_FIELD 10
 #define PALM_TLS_ARMLET_COMMAND_RSA_MULTIPLY 11
 #define PALM_TLS_ARMLET_COMMAND_RSA_REDUCE 12
+/* Verify public P-256 scalars. Left = u1 || u2 || r, right = two affine
+ * points, as for MUL2ADD. On success output[0] is the signature match bit. */
+#define PALM_TLS_ARMLET_COMMAND_P256_VERIFY 13
 /* Public RSA-4096 arithmetic. The left operand stores big-endian 32-bit
  * addresses of the two inputs and output, followed by counts of 16-bit
  * digits. Read all input digits before changing the destination. */

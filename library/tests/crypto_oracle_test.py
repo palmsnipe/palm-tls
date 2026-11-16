@@ -425,6 +425,15 @@ def order_scalars(backend, rng):
 
 
 def ecdsa_math(backend, rng):
+    def projective(scalars, public, r, skew, expected):
+        data = request(13)
+        data[LEFT:LEFT + 96] = scalars + integer(r)
+        data[RIGHT:RIGHT + 128] = point(G) + point(public)
+        data[OUTPUT:OUTPUT + 64] = b'\xa5' * 64
+        assert backend.invoke(data, skew) == (ERROR if expected is None else SUCCESS)
+        output = b'\xa5' * 64 if expected is None else bytes([expected]) + b'\xa5' * 63
+        assert data[OUTPUT:OUTPUT + 64] == output, ('projective ECDSA result', r)
+
     for index in range(8):
         private, nonce = rng.randrange(1, N), rng.randrange(1, N)
         digest = rng.getrandbits(256)
@@ -444,7 +453,29 @@ def ecdsa_math(backend, rng):
             status = backend.invoke(data, index % 4)
             accepted = status == SUCCESS and int.from_bytes(data[OUTPUT:OUTPUT + 32], 'big') % N == changed_r
             assert accepted == valid, ('ECDSA math', index, valid)
-    return 24
+            projective(scalars, public, changed_r, index % 4,
+                       valid if status == SUCCESS else None)
+
+    # Find a point with x in (n, p) and arrange 3G + 7Q to reach it. This
+    # hits the rare r+n branch with a nontrivial projective denominator.
+    for x in range(N + 1, N + 100):
+        rhs = (x**3 - 3*x + int(
+            '5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b', 16)) % P
+        y = pow(rhs, (P + 1) // 4, P)
+        if y*y % P == rhs:
+            break
+    else:
+        raise AssertionError('missing r+n test point')
+    a = multiply(3, G)
+    public = multiply(pow(7, -1, N), add((x, y), (a[0], -a[1] % P)))
+    scalars = integer(3) + integer(7)
+    projective(scalars, public, x - N, 1, True)
+    projective(scalars, public, P - N, 2, False)  # r+n == p
+    projective(scalars, public, N - 1, 3, False)  # r+n overflows
+    projective(scalars, public, N, 0, None)
+    projective(scalars, public, 0, 1, None)
+    projective(bytes(64), public, 1, 2, None)     # point at infinity
+    return 30
 
 
 def chacha(backend, rng):

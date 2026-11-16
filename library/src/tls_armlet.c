@@ -920,21 +920,16 @@ int PalmTlsArmletP256OrderReduce(const mp_int *valueP, mp_int *resultP,
     return fp_sub((fp_int *)valueP, (fp_int *)orderP, resultP);
 }
 
-int PalmTlsArmletP256Multiply2Add(const ecc_point *leftPointP,
-                                 const mp_int *leftScalarP,
-                                 const ecc_point *rightPointP,
-                                 const mp_int *rightScalarP,
-                                 ecc_point *resultP, mp_int *modulusP)
+static Boolean PrepareP256Multiply2Add(const ecc_point *leftPointP,
+    const mp_int *leftScalarP, const ecc_point *rightPointP,
+    const mp_int *rightScalarP, const mp_int *modulusP)
 {
     PalmTlsArmletMultiplyRequest *requestP = gRequestP;
-    UInt32 nativeResult;
-    int result;
     if (!gArmletEnabled || gArmletEntryP == 0 || requestP == 0 ||
         leftPointP == 0 || leftScalarP == 0 || rightPointP == 0 ||
-        rightScalarP == 0 || resultP == 0 ||
+        rightScalarP == 0 ||
         leftPointP->x == 0 || leftPointP->y == 0 || leftPointP->z == 0 ||
         rightPointP->x == 0 || rightPointP->y == 0 || rightPointP->z == 0 ||
-        resultP->x == 0 || resultP->y == 0 || resultP->z == 0 ||
         !IsP256Modulus(modulusP) ||
         fp_cmp_d((fp_int *)leftPointP->z, 1) != FP_EQ ||
         fp_cmp_d((fp_int *)rightPointP->z, 1) != FP_EQ ||
@@ -944,16 +939,45 @@ int PalmTlsArmletP256Multiply2Add(const ecc_point *leftPointP,
         !WriteBigEndian256(requestP->right + 32, leftPointP->y) ||
         !WriteBigEndian256(requestP->right + 64, rightPointP->x) ||
         !WriteBigEndian256(requestP->right + 96, rightPointP->y))
-        return FP_VAL;
+        return false;
     requestP->version = PALM_TLS_ARMLET_VERSION;
     requestP->leftUsed = 0;
     requestP->rightUsed = 0;
+    return true;
+}
+
+int PalmTlsArmletP256Multiply2Add(const ecc_point *leftPointP,
+                                 const mp_int *leftScalarP,
+                                 const ecc_point *rightPointP,
+                                 const mp_int *rightScalarP,
+                                 ecc_point *resultP, mp_int *modulusP)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    if (resultP == 0 || resultP->x == 0 || resultP->y == 0 || resultP->z == 0 ||
+        !PrepareP256Multiply2Add(leftPointP, leftScalarP, rightPointP,
+            rightScalarP, modulusP)) return FP_VAL;
     requestP->command = PALM_TLS_ARMLET_COMMAND_P256_MUL2ADD;
-    nativeResult = PceNativeCall(gArmletEntryP, requestP);
-    if (nativeResult != PALM_TLS_ARMLET_P256_SUCCESS) return FP_VAL;
-    result = fp_read_unsigned_bin(resultP->x, requestP->output, 32);
+    if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_P256_SUCCESS)
+        return FP_VAL;
+    int result = fp_read_unsigned_bin(resultP->x, requestP->output, 32);
     if (result == FP_OKAY)
         result = fp_read_unsigned_bin(resultP->y, requestP->output + 32, 32);
     if (result == FP_OKAY) fp_set(resultP->z, 1);
     return result;
+}
+
+int PalmTlsArmletP256Verify(const ecc_point *leftPointP, const mp_int *leftScalarP,
+    const ecc_point *rightPointP, const mp_int *rightScalarP, const mp_int *rP,
+    const mp_int *modulusP, const mp_int *orderP, int *verifiedP)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    if (verifiedP == 0 || !IsP256Order(orderP) ||
+        !PrepareP256Multiply2Add(leftPointP, leftScalarP, rightPointP,
+            rightScalarP, modulusP) ||
+        !WriteBigEndian256(requestP->left + 64, rP)) return FP_VAL;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_P256_VERIFY;
+    if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_P256_SUCCESS ||
+        requestP->output[0] > 1) return FP_VAL;
+    *verifiedP = requestP->output[0];
+    return FP_OKAY;
 }

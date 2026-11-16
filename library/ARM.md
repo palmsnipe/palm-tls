@@ -144,11 +144,12 @@ All inputs and outputs retain the byte-safe big-endian request ABI. The bridge
 marshals every input before writing results, preserving wolfSSL's aliased
 `u1=e` and `u2=w` buffers.
 
-The final affine `x mod n` stays on 68K as one comparison and at most one
-subtraction: every nonnegative 256-bit value is below `2*n`. This avoids
-generic division without paying for another architecture crossing. Unsupported
-orders/input shapes retain the existing implementation. Builds enabling
-`WOLFSSL_CHECK_VER_FAULTS` retain the previous order-arithmetic path. Native
+For built-in P-256 verification, the ARMlet compares the public signature
+directly with the Jacobian result. It checks whether `X` equals `r*Z^2` or,
+when `r+n < p`, `(r+n)*Z^2` in the field. This avoids the final inversion
+and affine coordinate conversion. Unsupported inputs and the point at
+infinity retain the existing affine verification path. Builds enabling
+`WOLFSSL_CHECK_VER_FAULTS` retain the previous verification checks. Native
 execution errors propagate rather than falling back with partially written
 aliased outputs. DER parsing, signature range checks and final comparison
 remain in wolfSSL.

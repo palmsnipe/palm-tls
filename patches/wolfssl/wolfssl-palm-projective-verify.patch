@@ -1,0 +1,62 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -248,6 +248,10 @@
+     const mp_int* orderP);
+ extern int PalmTlsArmletP256OrderReduce(const mp_int* valueP, mp_int* resultP,
+     const mp_int* orderP);
++extern int PalmTlsArmletP256Verify(const ecc_point* leftPointP,
++    const mp_int* leftScalarP, const ecc_point* rightPointP,
++    const mp_int* rightScalarP, const mp_int* rP, const mp_int* modulusP,
++    const mp_int* orderP, int* verifiedP);
+ #endif
+ #endif
+
+@@ -9765,6 +9769,7 @@
+    mp_int*    u2 = NULL;     /* Will be w. */
+ #ifdef PALM_WOLFSSL_ARMLET_ORDER
+    int palmOrderReady = 0;
++   int palmVerifyDone = 0;
+ #endif
+
+    if (MP_BITS_OVER_MAX(ECC_KEY_MAX_BITS_NONULLCHECK(key), MAX_ECC_BITS_USE)) {
+@@ -10003,6 +10008,13 @@
+    if (err == MP_OKAY)
+        err = wc_ecc_point_add(mG, mQ, mG, curve->prime);
+ #else
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++    if (err == MP_OKAY && PalmTlsArmletP256Verify(mG, u1, mQ, u2,
++            r, curve->prime, curve->order, res) == MP_OKAY) {
++        palmVerifyDone = 1;
++    }
++    else
++#endif
+ #ifdef PALM_WOLFSSL_ARMLET_MATH
+     if (err == MP_OKAY && PalmTlsArmletP256Multiply2Add(mG, u1, mQ, u2,
+             mG, curve->prime) == MP_OKAY) {
+@@ -10098,7 +10110,11 @@
+    PalmTlsVerifyProfileEnter(palmTlsProfileFinal);
+ #endif
+    /* v = X_x1 mod n */
+-   if (err == MP_OKAY) {
++   if (err == MP_OKAY
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++       && !palmVerifyDone
++#endif
++   ) {
+ #ifdef PALM_WOLFSSL_ARMLET_ORDER
+        err = PalmTlsArmletP256OrderReduce(mG->x, v, curve->order);
+        if (err == MP_VAL)
+@@ -10107,7 +10123,11 @@
+    }
+
+    /* does v == r */
+-   if (err == MP_OKAY) {
++   if (err == MP_OKAY
++#ifdef PALM_WOLFSSL_ARMLET_ORDER
++       && !palmVerifyDone
++#endif
++   ) {
+        if (mp_cmp(v, r) == MP_EQ)
+            *res = 1;
+ #ifdef WOLFSSL_CHECK_VER_FAULTS

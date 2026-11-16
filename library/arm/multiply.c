@@ -1674,13 +1674,12 @@ static void AddWnafDigit(Point256 *resultP, const PublicPointTable *tableP,
  * their shared doubling schedule, the additions, and the final map inside one
  * native call avoids hundreds of 68K/ARM crossings. A generator operand uses
  * precomputed affine odd multiples and cheaper mixed-coordinate additions. */
-static u32 P256Multiply2Add(const volatile u8 *scalarsP,
-                            const volatile u8 *pointsP,
-                            volatile u8 *outputP)
+static void P256Multiply2AddPoint(Point256 *resultP,
+                                  const volatile u8 *scalarsP,
+                                  const volatile u8 *pointsP)
 {
     Fe256 leftX, leftY, rightX, rightY;
     PublicPointTable leftTable, rightTable;
-    Point256 result;
     s8 leftDigits[257], rightDigits[257];
     int bit;
     FeReadBigEndian(&leftX, pointsP);
@@ -1691,15 +1690,22 @@ static u32 P256Multiply2Add(const volatile u8 *scalarsP,
     BuildPublicPointTable(&rightTable, &rightX, &rightY);
     ScalarWnaf(leftDigits, scalarsP, leftTable.affineP ? 7U : 5U);
     ScalarWnaf(rightDigits, scalarsP + 32, rightTable.affineP ? 7U : 5U);
-    PointSetInfinity(&result);
+    PointSetInfinity(resultP);
     for (bit = 256; bit >= 0; bit--) {
         int digit;
-        PointDouble(&result, &result);
+        PointDouble(resultP, resultP);
         digit = leftDigits[bit];
-        if (digit != 0) AddWnafDigit(&result, &leftTable, digit);
+        if (digit != 0) AddWnafDigit(resultP, &leftTable, digit);
         digit = rightDigits[bit];
-        if (digit != 0) AddWnafDigit(&result, &rightTable, digit);
+        if (digit != 0) AddWnafDigit(resultP, &rightTable, digit);
     }
+}
+
+static u32 P256Multiply2Add(const volatile u8 *scalarsP,
+                            const volatile u8 *pointsP, volatile u8 *outputP)
+{
+    Point256 result;
+    P256Multiply2AddPoint(&result, scalarsP, pointsP);
     if (FeIsZero(&result.z)) return PALM_TLS_ARMLET_ERROR;
     return P256WritePoint(&result, outputP, 1U);
 }
@@ -1903,6 +1909,42 @@ static u32 FeIsCanonical(const Fe256 *valueP)
     return (u32)borrow;
 }
 
+static u32 P256Verify(const volatile u8 *scalarsP, const volatile u8 *pointsP,
+                      volatile u8 *outputP)
+{
+    Point256 result;
+    Order256 r;
+    Fe256 zSquared, candidate, expected;
+    OrderRead(&r, scalarsP + 64);
+    if (OrderIsValue(&r, 0) || OrderCompare(&r, &kOrder) >= 0)
+        return PALM_TLS_ARMLET_ERROR;
+    P256Multiply2AddPoint(&result, scalarsP, pointsP);
+    if (FeIsZero(&result.z)) return PALM_TLS_ARMLET_ERROR;
+
+    /* Affine x is X/Z^2. Because p < 2*n, only r and r+n can match x
+     * modulo n. Check r+n only if it is below p, before field reduction. */
+    FeSquare(&zSquared, &result.z);
+    for (u32 index = 0; index < 8U; index++) candidate.v[index] = r.v[index];
+    FeMultiply(&expected, &candidate, &kR2);
+    FeMultiply(&expected, &expected, &zSquared);
+    u32 match = FeEqual(&result.x, &expected);
+    if (!match) {
+        u64 carry = 0;
+        for (u32 index = 0; index < 8U; index++) {
+            u64 sum = (u64)r.v[index] + kOrder.v[index] + carry;
+            candidate.v[index] = (u32)sum;
+            carry = sum >> 32;
+        }
+        if (!carry && FeIsCanonical(&candidate)) {
+            FeMultiply(&expected, &candidate, &kR2);
+            FeMultiply(&expected, &expected, &zSquared);
+            match = FeEqual(&result.x, &expected);
+        }
+    }
+    outputP[0] = (u8)match;
+    return PALM_TLS_ARMLET_SUCCESS;
+}
+
 /* Public-key validation must reject noncanonical coordinates BEFORE converting
  * into Montgomery form: reducing x or y would accept forbidden encodings. */
 static u32 P256Validate(const volatile u8 *pointP, u32 reserved1, u32 reserved2)
@@ -1995,6 +2037,8 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
         return P256Multiply(leftP, rightP, outputP, requestP[1]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_MUL2ADD)
         return P256Multiply2Add(leftP, rightP, outputP);
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_VERIFY)
+        return P256Verify(leftP, rightP, outputP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_MAP)
         return P256Map(rightP, outputP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_ORDER)
