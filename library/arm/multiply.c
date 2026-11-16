@@ -1170,39 +1170,41 @@ static void PointDouble(Point256 *resultP, const Point256 *pointP)
     PointCopy(resultP, &result);
 }
 
+/* Unscaled mixed addition (madd-2004-hmv). The result uses separate storage
+ * from the inputs. When both inputs are finite, return 1 if they are equal.
+ * The callers select exceptional results with masks. */
+static u32 PointAddMixedUnscaled(Point256 *resultP, const Point256 *pointP,
+                                 const Fe256 *affineXP, const Fe256 *affineYP)
+{
+    Fe256 zSquared, u2, s2, h, hh, hhh, r, v, temporary;
+    FeSquare(&zSquared, &pointP->z);
+    FeMultiply(&u2, affineXP, &zSquared);
+    FeMultiply(&temporary, &pointP->z, &zSquared);
+    FeMultiply(&s2, affineYP, &temporary);
+    FeSubtract(&h, &u2, &pointP->x);
+    FeSubtract(&r, &s2, &pointP->y);
+    FeSquare(&hh, &h);
+    FeMultiply(&hhh, &h, &hh);
+    FeMultiply(&v, &pointP->x, &hh);
+    FeSquare(&resultP->x, &r);
+    FeSubtract(&resultP->x, &resultP->x, &hhh);
+    FeDouble(&temporary, &v);
+    FeSubtract(&resultP->x, &resultP->x, &temporary);
+    FeSubtract(&temporary, &v, &resultP->x);
+    FeMultiply(&resultP->y, &r, &temporary);
+    FeMultiply(&temporary, &pointP->y, &hhh);
+    FeSubtract(&resultP->y, &resultP->y, &temporary);
+    FeMultiply(&resultP->z, &pointP->z, &h);
+    return FeIsZero(&h) & FeIsZero(&r);
+}
+
 /* Add an affine point to a Jacobian point. */
 static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
                           const Fe256 *affineXP, const Fe256 *affineYP)
 {
-    Fe256 zSquared, u2, s2, h, hh, i, j, r, v;
-    Fe256 temporary1;
-    Point256 result;
-    Point256 affine;
+    Point256 result, affine;
     u32 wasInfinity = FeIsZero(&pointP->z);
-    FeSquare(&zSquared, &pointP->z);
-    FeMultiply(&u2, affineXP, &zSquared);
-    FeMultiply(&temporary1, &pointP->z, &zSquared);
-    FeMultiply(&s2, affineYP, &temporary1);
-    FeSubtract(&h, &u2, &pointP->x);
-    FeSquare(&hh, &h);
-    FeTimes4(&i, &hh);
-    FeMultiply(&j, &h, &i);
-    FeSubtract(&r, &s2, &pointP->y);
-    FeDouble(&r, &r);
-    FeMultiply(&v, &pointP->x, &i);
-    FeSquare(&result.x, &r);
-    FeSubtract(&result.x, &result.x, &j);
-    FeDouble(&temporary1, &v);
-    FeSubtract(&result.x, &result.x, &temporary1);
-    FeSubtract(&temporary1, &v, &result.x);
-    FeMultiply(&result.y, &r, &temporary1);
-    FeMultiply(&temporary1, &pointP->y, &j);
-    FeDouble(&temporary1, &temporary1);
-    FeSubtract(&result.y, &result.y, &temporary1);
-    FeAdd(&temporary1, &pointP->z, &h);
-    FeSquare(&result.z, &temporary1);
-    FeSubtract(&result.z, &result.z, &zSquared);
-    FeSubtract(&result.z, &result.z, &hh);
+    PointAddMixedUnscaled(&result, pointP, affineXP, affineYP);
     FeCopy(&affine.x, affineXP);
     FeCopy(&affine.y, affineYP);
     FeCopy(&affine.z, &kR);
@@ -1215,50 +1217,19 @@ static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
  * earlier windows are too small, 2*n > 2^256, and n mod 16 = 1. Thus equality
  * is possible only for digit=15 in the final window, at scalar n+30; its
  * result is 30*Q. Supply that public precomputed fallback. Zero digits use Q
- * as a dummy and discard the result. Opposite/infinity cases are still masked.
- * This is not a general-purpose complete mixed addition routine. */
+ * as a dummy and discard the result. The formula gives Z = 0 for opposite
+ * points, and a mask selects the affine point when the accumulator is infinity. */
 static void PointAddMixedWindow(Point256 *resultP, const Point256 *pointP,
-                          const Fe256 *affineXP, const Fe256 *affineYP,
-                          const Point256 *equalResultP)
+                                const Fe256 *affineXP, const Fe256 *affineYP,
+                                const Point256 *equalResultP)
 {
-    Fe256 zSquared, u2, s2, h, hh, i, j, r, v;
-    Fe256 temporary1;
-    Point256 result;
-    Point256 affine, infinity, selected;
-    u32 hZero, rZero;
+    Point256 result, affine, selected;
     u32 wasInfinity = FeIsZero(&pointP->z);
-    FeSquare(&zSquared, &pointP->z);
-    FeMultiply(&u2, affineXP, &zSquared);
-    FeMultiply(&temporary1, &pointP->z, &zSquared);
-    FeMultiply(&s2, affineYP, &temporary1);
-    FeSubtract(&h, &u2, &pointP->x);
-    FeSquare(&hh, &h);
-    FeTimes4(&i, &hh);
-    FeMultiply(&j, &h, &i);
-    FeSubtract(&r, &s2, &pointP->y);
-    hZero = FeIsZero(&h);
-    rZero = FeIsZero(&r);
-    FeDouble(&r, &r);
-    FeMultiply(&v, &pointP->x, &i);
-    FeSquare(&result.x, &r);
-    FeSubtract(&result.x, &result.x, &j);
-    FeDouble(&temporary1, &v);
-    FeSubtract(&result.x, &result.x, &temporary1);
-    FeSubtract(&temporary1, &v, &result.x);
-    FeMultiply(&result.y, &r, &temporary1);
-    FeMultiply(&temporary1, &pointP->y, &j);
-    FeDouble(&temporary1, &temporary1);
-    FeSubtract(&result.y, &result.y, &temporary1);
-    FeAdd(&temporary1, &pointP->z, &h);
-    FeSquare(&result.z, &temporary1);
-    FeSubtract(&result.z, &result.z, &zSquared);
-    FeSubtract(&result.z, &result.z, &hh);
+    u32 equal = PointAddMixedUnscaled(&result, pointP, affineXP, affineYP);
     FeCopy(&affine.x, affineXP);
     FeCopy(&affine.y, affineYP);
     FeCopy(&affine.z, &kR);
-    PointSetInfinity(&infinity);
-    PointSelect(&selected, &result, equalResultP, hZero & rZero);
-    PointSelect(&selected, &selected, &infinity, hZero & (rZero ^ 1U));
+    PointSelect(&selected, &result, equalResultP, equal);
     PointSelect(resultP, &selected, &affine, wasInfinity);
 }
 
@@ -1316,8 +1287,7 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
 }
 
 /* Complete mixed addition for public verification data. The affine operand
- * is finite. Handle equal/opposite points before the ordinary mixed formula;
- * the private-scalar PointAddMixed routine remains unchanged. */
+ * is finite. Handle equal and opposite points before the mixed formula. */
 static void PointAddMixedPublic(Point256 *resultP, const Point256 *pointP,
                                 const Fe256 *affineXP, const Fe256 *affineYP)
 {
