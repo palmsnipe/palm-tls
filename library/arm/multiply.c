@@ -950,12 +950,11 @@ static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
 static __inline__ u32 FeCancelP256Digit(const u32 *t, u32 *out)
 {
     u32 m = t[0];
-    u64 product = ((u64)m << 32) - m;
-    u64 value = product + t[1] + m;
-    out[0] = (u32)value;
-    value = product + t[2] + (value >> 32);
-    out[1] = (u32)value;
-    value = (u64)t[3] + (value >> 32);
+    /* The carry into limbs 1 and 2 is m. For both prime limbs B-1,
+     * m*(B-1) + m + t[i] is m*B + t[i]: copy the limb and keep the carry. */
+    out[0] = t[1];
+    out[1] = t[2];
+    u64 value = (u64)t[3] + m;
     out[2] = (u32)value;
     value = (u64)t[4] + (value >> 32);
     out[3] = (u32)value;
@@ -963,6 +962,7 @@ static __inline__ u32 FeCancelP256Digit(const u32 *t, u32 *out)
     out[4] = (u32)value;
     value = (u64)m + t[6] + (value >> 32);
     out[5] = (u32)value;
+    u64 product = ((u64)m << 32) - m;
     value = product + t[7] + (value >> 32);
     out[6] = (u32)value;
     return (u32)(value >> 32);
