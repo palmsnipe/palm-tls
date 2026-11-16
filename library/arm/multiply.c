@@ -891,36 +891,48 @@ static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
                        const Fe256 *rightP)
 {
     Fe256 difference;
-    Fe256 corrected;
-    u64 borrow = 0;
-    u64 carry = 0;
+    u32 borrow = 0;
+    u32 carry = 0;
     u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++) {
         u64 right = (u64)rightP->v[index] + borrow;
         difference.v[index] = leftP->v[index] - (u32)right;
         borrow = ((u64)leftP->v[index] < right);
     }
+    /* The difference is complete, so writing the correction directly
+     * remains safe if the result aliases either input. */
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++) {
         u64 value = (u64)difference.v[index] +
             (kP.v[index] & (0U - (u32)borrow)) + carry;
-        corrected.v[index] = (u32)value;
-        carry = value >> 32;
+        resultP->v[index] = (u32)value;
+        carry = (u32)(value >> 32);
     }
-    FeCopy(resultP, &corrected);
 }
 
 static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
 {
     Fe256 sum;
     Fe256 reduced;
-    u64 carry = 0;
-    u64 borrow = 0;
+    u32 carry = 0;
+    u32 borrow = 0;
     u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++) {
         u64 value = (u64)leftP->v[index] + rightP->v[index] + carry;
         sum.v[index] = (u32)value;
-        carry = value >> 32;
+        carry = (u32)(value >> 32);
     }
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++) {
         u64 right = (u64)kP.v[index] + borrow;
         reduced.v[index] = sum.v[index] - (u32)right;
