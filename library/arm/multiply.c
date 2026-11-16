@@ -1522,6 +1522,25 @@ static void SelectGeneratorComb(Affine256 *resultP, u32 digit)
     SelectGeneratorCoordinate(&resultP->y, digit, 1U);
 }
 
+/* Scan the same rows regardless of the secret digit. Keep one coordinate
+ * in registers at a time and use volatile loads to read every row. */
+static void SelectWindowCoordinate(Fe256 *resultP,
+                                   const volatile Point256 *tableP,
+                                   u32 digit, u32 y)
+{
+    Fe256 selected = {{0}};
+    for (u32 index = 1; index < 16U; index++) {
+        u32 mask = 0U - EqualSmall(index, digit);
+        const volatile Fe256 *coordP = y ? &tableP[index].y : &tableP[index].x;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+        for (u32 limb = 0; limb < 8U; limb++)
+            selected.v[limb] |= coordP->v[limb] & mask;
+    }
+    FeCopy(resultP, &selected);
+}
+
 static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                             const volatile u8 *inputP, Point256 *resultP)
 {
@@ -1573,19 +1592,12 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
             Point256 added;
             u32 byte = scalarP[31U - ((u32)window >> 1)];
             u32 digit = ((u32)window & 1U) != 0 ? byte >> 4 : byte & 0x0fU;
-            for (index = 0; index < 4; index++) {
-                Point256 doubled;
-                PointDouble(&doubled, &result);
-                PointCopy(&result, &doubled);
-            }
-            FeCopy(&selected.x, &table[1].x);
-            FeCopy(&selected.y, &table[1].y);
-            for (index = 2; index < 16; index++) {
-                FeSelect(&selected.x, &selected.x, &table[index].x,
-                         EqualSmall(index, digit));
-                FeSelect(&selected.y, &selected.y, &table[index].y,
-                         EqualSmall(index, digit));
-            }
+            /* Use row one for a zero digit, then discard its addition. */
+            u32 selectionDigit = digit | EqualSmall(digit, 0);
+            for (index = 0; index < 4; index++)
+                PointDouble(&result, &result);
+            SelectWindowCoordinate(&selected.x, table, selectionDigit, 0U);
+            SelectWindowCoordinate(&selected.y, table, selectionDigit, 1U);
             PointAddMixedWindow(&added, &result, &selected.x, &selected.y,
                                 &table[0]);
             PointSelect(&result, &result, &added, EqualSmall(digit, 0) ^ 1U);
