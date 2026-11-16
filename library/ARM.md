@@ -113,9 +113,9 @@ digit capacity.
 
 The ARM variant moves each complete P-256 operation across the architecture
 boundary as one call. General points use a constant-time 4-bit window. Standard
-generator multiplication uses a generated fixed-base 8-way comb table,
-reducing public-key generation from 256 to 32 point doublings while keeping
-constant-time table selection. ECDHE key generation and shared-secret
+generator multiplication uses a generated six-way comb table with 43 point
+doublings. Table selection scans all 63 entries in order and masks the
+matching coordinates into the result. ECDHE key generation and shared-secret
 calculation therefore use native ARM P-256 math. Field squaring uses a
 shared integrated Montgomery multiplier with equal operands, preserving
 in-place aliases. ECDSA verification dispatches its complete

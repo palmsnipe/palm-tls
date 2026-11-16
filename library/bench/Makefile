@@ -30,11 +30,11 @@ $(BUILD)/host-config: FORCE | $(BUILD)
 	@printf '%s\n' '$(HOST_CC) $(HOST_OPT_FLAGS)' > $@.tmp
 	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
 $(BUILD)/host: host.c bench.c bench.h $(ROOT)/arm/multiply.c $(ROOT)/arm/armlet_abi.h \
-        $(ROOT)/build/generated/p256_comb8.inc $(BUILD)/bench_vectors.inc $(BUILD)/host-config Makefile
+        $(ROOT)/build/generated/p256_comb.inc $(BUILD)/bench_vectors.inc $(BUILD)/host-config Makefile
 	$(HOST_CC) -std=c99 $(HOST_OPT_FLAGS) -Wall -Wextra -Werror \
 		-DPALM_ARMLET_HOST_TEST -I$(BUILD) -I$(ROOT)/build/generated \
 		host.c bench.c $(ROOT)/arm/multiply.c -o $@
-$(ROOT)/build/generated/p256_comb8.inc:
+$(ROOT)/build/generated/p256_comb.inc:
 	$(MAKE) -C $(ROOT) $@
 $(BUILD)/%.o: %.c bench.h $(ROOT)/arm/armlet_abi.h $(ROOT)/src/tls_arm_compat.h $(ROOT)/include/palm_tls.h $(BUILD)/bench_vectors.inc
 	$(CC) $(CFLAGS) -c $< -o $@

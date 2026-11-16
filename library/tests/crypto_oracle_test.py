@@ -243,7 +243,7 @@ def field_traces(backend):
 
 
 def secret_scalar_traces(backend):
-    """Compare complete general-point control/data-address traces for valid keys."""
+    """Compare fixed-base and general-point traces across private scalars."""
     import hashlib
     import unicorn as uc
     digest = None
@@ -259,17 +259,18 @@ def secret_scalar_traces(backend):
            machine.hook_add(uc.UC_HOOK_MEM_READ | uc.UC_HOOK_MEM_WRITE,memory)]
     machine.ctl_remove_cache(backend.CODE,backend.CODE+0x10000)
     try:
-        reference=None
-        for scalar in (1, N-1, int('10'*32,16), N+30):
-            digest=hashlib.sha256();events[:]=[0,0]
-            data=request(1)
-            data[LEFT:LEFT+32]=integer(scalar)
-            data[RIGHT:RIGHT+64]=point(multiply(7,G))
-            assert backend.invoke(data)==SUCCESS
-            assert all(events), 'secret trace hooks did not execute'
-            current=digest.digest()
-            if reference is None: reference=current
-            assert current==reference, 'secret scalar control/address trace varies'
+        for name, base in (('fixed base', G), ('general point', multiply(7, G))):
+            reference=None
+            for scalar in (1, N-1, int('10'*32,16), N+30):
+                digest=hashlib.sha256();events[:]=[0,0]
+                data=request(1)
+                data[LEFT:LEFT+32]=integer(scalar)
+                data[RIGHT:RIGHT+64]=point(base)
+                assert backend.invoke(data)==SUCCESS
+                assert all(events), 'secret trace hooks did not execute'
+                current=digest.digest()
+                if reference is None: reference=current
+                assert current==reference, ('secret scalar control/address trace varies', name)
     finally:
         for hook in hooks: machine.hook_del(hook)
         machine.ctl_remove_cache(backend.CODE,backend.CODE+0x10000)

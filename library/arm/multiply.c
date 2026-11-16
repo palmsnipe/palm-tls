@@ -62,10 +62,8 @@ static const Fe256 kR2 = {{
 }};
 static const Fe256 kOne = {{1U, 0, 0, 0, 0, 0, 0, 0}};
 static const Fe256 kZero = {{0, 0, 0, 0, 0, 0, 0, 0}};
-/* P-256 comb table: sums of G, 2^32G, ... 2^224G in Montgomery form.
- * The generated table halves fixed-base doublings and additions while table
- * selection remains constant-time with respect to the private scalar. */
-#include "p256_comb8.inc"
+/* The generated P-256 comb table contains affine sums in Montgomery form. */
+#include "p256_comb.inc"
 
 static __inline__ u32 ReadDigit(const volatile u8 *bytesP, u32 index)
 {
@@ -1496,6 +1494,34 @@ static void NormalizePointTable(Point256 *tableP)
     }
 }
 
+/* Every table row is read in order. Mask and OR the unique matching
+ * coordinate into the accumulator. Volatile loads make non-matching rows
+ * observable too. The coordinate selector is public. */
+static void SelectGeneratorCoordinate(Fe256 *resultP, u32 digit, u32 y)
+{
+    const volatile Affine256 *tableP = kGeneratorComb;
+    Fe256 selected = {{0}};
+    for (u32 index = 1; index <= P256_COMB_DIGITS; index++) {
+        u32 mask = 0U - EqualSmall(index, digit);
+        const volatile Fe256 *coordP = y ? &tableP[index - 1U].y :
+            &tableP[index - 1U].x;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+        for (u32 limb = 0; limb < 8U; limb++)
+            selected.v[limb] |= coordP->v[limb] & mask;
+    }
+    FeCopy(resultP, &selected);
+}
+
+static void SelectGeneratorComb(Affine256 *resultP, u32 digit)
+{
+    /* For digit zero use G as a dummy operand and discard the addition. */
+    digit |= EqualSmall(digit, 0);
+    SelectGeneratorCoordinate(&resultP->x, digit, 0U);
+    SelectGeneratorCoordinate(&resultP->y, digit, 1U);
+}
+
 static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                             const volatile u8 *inputP, Point256 *resultP)
 {
@@ -1512,25 +1538,19 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
         PalmTlsArmletFixedBaseCalls++;
 #endif
         PointSetInfinity(&result);
-        for (window = 31; window >= 0; window--) {
+        for (window = P256_COMB_WINDOWS - 1; window >= 0; window--) {
             Affine256 selected;
             Point256 doubled, added;
             u32 digit = 0;
             PointDouble(&doubled, &result);
             PointCopy(&result, &doubled);
-            for (index = 0; index < 8; index++) {
-                u32 bit = (u32)window + index * 32U;
-                digit |= ((scalarP[31U - (bit >> 3)] >> (bit & 7U)) & 1U)
-                    << index;
+            for (index = 0; index < P256_COMB_WIDTH; index++) {
+                u32 bit = (u32)window + index * P256_COMB_WINDOWS;
+                if (bit < 256U)
+                    digit |= ((scalarP[31U - (bit >> 3)] >> (bit & 7U)) & 1U)
+                        << index;
             }
-            FeCopy(&selected.x, &kGeneratorComb[0].x);
-            FeCopy(&selected.y, &kGeneratorComb[0].y);
-            for (index = 2; index < 256; index++) {
-                FeSelect(&selected.x, &selected.x,
-                    &kGeneratorComb[index - 1].x, EqualSmall(index, digit));
-                FeSelect(&selected.y, &selected.y,
-                    &kGeneratorComb[index - 1].y, EqualSmall(index, digit));
-            }
+            SelectGeneratorComb(&selected, digit);
             PointAddMixed(&added, &result, &selected.x, &selected.y);
             PointSelect(&result, &result, &added, EqualSmall(digit, 0) ^ 1U);
         }
