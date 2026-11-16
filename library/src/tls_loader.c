@@ -204,6 +204,14 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
         resultP->status = palmTlsStatusResourceMissing;
         goto cleanup;
     }
+    if (protocol == palmTlsProtocolModern ||
+        ((protocol == palmTlsProtocolTls12 || protocol == palmTlsProtocolTls13) &&
+         DmFindResource(libraryDbP, PALM_TLS_SEGMENT_TYPE,
+            firstSegmentId, 0) == dmMaxRecordIndex)) {
+        firstSegmentId = PALM_TLS_BROWSER_SEGMENT_FIRST_ID;
+        relocId = PALM_TLS_BROWSER_RELOC_ID;
+        segmentCount = PALM_TLS_SEGMENT_COUNT;
+    }
 
     engineP->workDbID = DmFindDatabase(0, PALM_TLS_WORK_DB_NAME);
     if (engineP->workDbID != 0) DmDeleteDatabase(0, engineP->workDbID);
@@ -409,7 +417,6 @@ UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
         loadedHere = true;
     }
     CopyEngineParams(&params, paramsP);
-    params.drbgP = &stateP->drbg;
     switch (params.command) {
         case palmTlsEngineExchange:
         case palmTlsEngineSessionOpen:
@@ -458,6 +465,12 @@ UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,
         default:
             break;
     }
+    if (params.protocol == palmTlsProtocolModern) {
+        Boolean stylus = params.command == palmTlsEngineSessionOpen ?
+            (params.options & PALM_TLS_SESSION_REQUIRE_STYLUS_RANDOM) != 0 :
+            (params.controlP && params.controlP->browserStylusRandom);
+        params.drbgP = stylus ? &stateP->browserStylusDrbg : &stateP->hostDrbg;
+    } else params.drbgP = &stateP->drbg;
     ((PalmTlsEntryProc)stateP->engine.segments[0])(&params, resultP);
     resultP->loadTicks = loadTicks;
     return resultP->status;

@@ -42,6 +42,7 @@ ELF_13_68K := $(PALM_68K_BUILD)/library-tls13.elf
 ELF_11_ARM := $(PALM_ARM_BUILD)/library-tls11.elf
 ELF_12_ARM := $(PALM_ARM_BUILD)/library.elf
 ELF_13_ARM := $(PALM_ARM_BUILD)/library-tls13.elf
+ELF_browser_ARM := $(PALM_ARM_BUILD)/library-browser.elf
 LIBRARY_CODE := $(PALM_BUILD)/library.bin
 BASE_RO := $(PALM_BUILD)/$(LIB_ID)-base.ro
 RESOURCE_RCP := $(GENERATED)/library.rcp
@@ -62,6 +63,8 @@ OBJECTS_11_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engin
 OBJECTS_12_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o
 OBJECTS_13_ARM := $(COMMON_OBJECTS_ARM) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o
 OBJECTS_11_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
+OBJECTS_browser_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_browser.o $(PALM_BUILD)/tls_palm_browser.o \
+	$(PALM_BUILD)/tls_drbg_browser.o $(PALM_BUILD)/tls_engine_browser.o
 SDK_INCLUDES := -isystem$(SDK) -isystem$(SDK)/Core -isystem$(SDK)/Core/Hardware \
 	-isystem$(SDK)/Core/System -isystem$(SDK)/Core/UI -isystem$(SDK)/Dynamic \
 	-isystem$(SDK)/Libraries -isystem$(SDK)/Libraries/PalmOSGlue
@@ -84,6 +87,7 @@ TLS11_ARCHIVE_FILE_68K := $(DEPS_PREFIX)/lib/libwolfssl-tls11.a
 TLS12_ARCHIVE_FILE_ARM := $(DEPS_PREFIX)/lib/libwolfssl-armlet.a
 TLS13_ARCHIVE_FILE_ARM := $(DEPS_PREFIX)/lib/libwolfssl-tls13-armlet.a
 TLS11_ARCHIVE_FILE_ARM := $(DEPS_PREFIX)/lib/libwolfssl-tls11-armlet.a
+TLS_BROWSER_ARCHIVE_FILE_ARM := $(DEPS_PREFIX)/lib/libwolfssl-browser-armlet.a
 
 TLS_PROFILE ?= full
 ifeq ($(TLS_PROFILE),tls13)
@@ -95,8 +99,11 @@ PROFILE_PROTOCOLS := 12 13
 else ifeq ($(TLS_PROFILE),full)
 PROFILE_SUFFIX :=
 PROFILE_PROTOCOLS := 11 12 13
+else ifeq ($(TLS_PROFILE),browser)
+PROFILE_SUFFIX := -Browser
+PROFILE_PROTOCOLS := browser
 else
-$(error Unknown TLS_PROFILE '$(TLS_PROFILE)'; choose tls13, modern, or full)
+$(error Unknown TLS_PROFILE '$(TLS_PROFILE)'; choose tls13, modern, full, or browser)
 endif
 
 TLS11_RESOURCES_68K := $(addprefix $(PALM_68K_BUILD)/,TlsC0015.bin TlsC0016.bin TlsC0017.bin TlsC0018.bin TlsR0003.bin)
@@ -105,16 +112,20 @@ TLS13_RESOURCES_68K := $(addprefix $(PALM_68K_BUILD)/,TlsC000b.bin TlsC000c.bin 
 TLS11_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC0015.bin TlsC0016.bin TlsC0017.bin TlsC0018.bin TlsR0003.bin)
 TLS12_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC0001.bin TlsC0002.bin TlsC0003.bin TlsC0004.bin TlsR0001.bin)
 TLS13_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC000b.bin TlsC000c.bin TlsC000d.bin TlsC000e.bin TlsC000f.bin TlsR0002.bin)
+TLSbrowser_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC001f.bin TlsC0020.bin TlsC0021.bin TlsC0022.bin TlsC0023.bin TlsR0004.bin)
 PROFILE_RESOURCES_68K := $(foreach protocol,$(PROFILE_PROTOCOLS),$(TLS$(protocol)_RESOURCES_68K))
 PROFILE_RESOURCES_ARM := $(foreach protocol,$(PROFILE_PROTOCOLS),$(TLS$(protocol)_RESOURCES_ARM))
 PROFILE_ELFS_68K := $(foreach protocol,$(PROFILE_PROTOCOLS),$(ELF_$(protocol)_68K))
 PROFILE_ELFS_ARM := $(foreach protocol,$(PROFILE_PROTOCOLS),$(ELF_$(protocol)_ARM))
 BASE_ELF_68K := $(firstword $(PROFILE_ELFS_68K))
+ifeq ($(TLS_PROFILE),browser)
+BASE_ELF_68K := $(ELF_13_68K)
+endif
 PRC_68K := $(PALM_BUILD)/$(LIB_ID)68K$(PROFILE_SUFFIX).prc
 PRC_ARM := $(PALM_BUILD)/$(LIB_ID)Arm$(PROFILE_SUFFIX).prc
 ARMLET_PAD := $(PALM_BUILD)/PadR0001-$(TLS_PROFILE).bin
 
-.PHONY: all test test-arm test-prc profiles profile-tls13 profile-modern profile-full clean benchmark benchmark-palm FORCE
+.PHONY: all test test-arm test-prc profiles profile-tls13 profile-modern profile-full profile-browser clean benchmark benchmark-palm FORCE
 
 all: test
 
@@ -138,6 +149,9 @@ $(PALM_BUILD)/tls_engine_12.o: src/tls_engine.c include/palm_tls.h src/tls_palm.
 $(PALM_BUILD)/tls_engine_13.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=13 \
 		-DWOLFSSL_NO_TLS12 -c $< -o $@
+$(PALM_BUILD)/tls_engine_browser.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=13 \
+		-DPALM_WOLFSSL_BROWSER -c $< -o $@
 $(PALM_BUILD)/tls_engine_11.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=11 \
 		-DPALM_WOLFSSL_TLS11_ONLY -c $< -o $@
@@ -145,8 +159,12 @@ $(PALM_BUILD)/tls_palm.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(PALM_BUILD)/tls_palm_13.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DWOLFSSL_NO_TLS12 -c $< -o $@
+$(PALM_BUILD)/tls_palm_browser.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_WOLFSSL_BROWSER -c $< -o $@
 $(PALM_BUILD)/tls_drbg.o: src/tls_drbg.c src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DWOLFSSL_NO_TLS12 -c $< -o $@
+$(PALM_BUILD)/tls_drbg_browser.o: src/tls_drbg.c src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_WOLFSSL_BROWSER -c $< -o $@
 $(PALM_BUILD)/tRng0001.bin: Makefile | $(PALM_BUILD)
 	python3 -c 'import sys; sys.stdout.buffer.write(bytes(range(48)))' > $@
 $(PALM_BUILD)/tls_verify_profile.o: src/tls_verify_profile.c src/tls_verify_profile.h include/palm_tls.h | $(PALM_BUILD)
@@ -155,6 +173,8 @@ $(PALM_BUILD)/tls_handshake_profile.o: src/tls_handshake_profile.c src/tls_hands
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(PALM_BUILD)/tls_armlet.o: src/tls_armlet.c src/tls_armlet.h src/tls_arm_compat.h arm/armlet_abi.h include/palm_tls.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
+$(PALM_BUILD)/tls_armlet_browser.o: src/tls_armlet.c src/tls_armlet.h src/tls_arm_compat.h arm/armlet_abi.h include/palm_tls.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_WOLFSSL_BROWSER -c $< -o $@
 $(PALM_BUILD)/tls_armlet_68k.o: src/tls_armlet_68k.c include/palm_tls.h | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(PALM_BUILD)/dispatch.o: $(DISPATCH) | $(PALM_BUILD)
@@ -179,6 +199,9 @@ $(ELF_11_ARM): $(OBJECTS_11_ARM) toolchain/linker.lkr $(TLS11_ARCHIVE_FILE_ARM) 
 $(ELF_13_ARM): $(OBJECTS_13_ARM) toolchain/linker.lkr $(TLS13_ARCHIVE_FILE_ARM) | $(PALM_ARM_BUILD)
 	$(CC) -o $@ $(LDFLAGS) -Wl,-Map,$(PALM_ARM_BUILD)/$(LIB_ID)-tls13.map \
 		-Wl,--emit-relocs $(OBJECTS_13_ARM) $(TLS13_ARCHIVE_ARM)
+$(ELF_browser_ARM): $(OBJECTS_browser_ARM) toolchain/linker.lkr $(TLS_BROWSER_ARCHIVE_FILE_ARM) | $(PALM_ARM_BUILD)
+	$(CC) -o $@ $(LDFLAGS) -Wl,-Map,$(PALM_ARM_BUILD)/$(LIB_ID)-browser.map \
+		-Wl,--emit-relocs $(OBJECTS_browser_ARM) -Wl,-l:libwolfssl-browser-armlet.a
 
 $(LIBRARY_CODE): $(BASE_ELF_68K)
 	$(OBJCOPY) -O binary $< $@ -j .text
@@ -203,10 +226,13 @@ $(eval $(call ENGINE_RESOURCES,$(ELF_11_68K),$(PALM_68K_BUILD),0015,0016,0017,00
 $(eval $(call ENGINE_RESOURCES,$(ELF_12_ARM),$(PALM_ARM_BUILD),0001,0002,0003,0004,0001))
 $(eval $(call ENGINE_RESOURCES,$(ELF_13_ARM),$(PALM_ARM_BUILD),000b,000c,000d,000e,0002))
 $(eval $(call ENGINE_RESOURCES,$(ELF_11_ARM),$(PALM_ARM_BUILD),0015,0016,0017,0018,0003))
+$(eval $(call ENGINE_RESOURCES,$(ELF_browser_ARM),$(PALM_ARM_BUILD),001f,0020,0021,0022,0004))
 
 $(PALM_68K_BUILD)/TlsC000f.bin: $(ELF_13_68K)
 	$(OBJCOPY) -O binary $< $@ -j .tls6
 $(PALM_ARM_BUILD)/TlsC000f.bin: $(ELF_13_ARM)
+	$(OBJCOPY) -O binary $< $@ -j .tls6
+$(PALM_ARM_BUILD)/TlsC0023.bin: $(ELF_browser_ARM)
 	$(OBJCOPY) -O binary $< $@ -j .tls6
 
 $(P256_COMB): tools/generate-p256-comb.mjs | $(GENERATED)
@@ -251,8 +277,12 @@ $(PRC_ARM): $(LIBRARY_CODE) $(PROFILE_RESOURCES_ARM) resources/library.rcp app.m
 		$(BASE_RO) $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE) $(ARMLET_PAD) $(ARMLET_CODE)
 	@echo "Built $@"
 
+ifeq ($(TLS_PROFILE),browser)
+test-prc: $(PRC_ARM)
+else
 test-prc: $(PRC_68K) $(PRC_ARM)
 	node tools/validate_library.mjs $(PRC_68K) 68k $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION) $(if $(TEST_RANDOM_RESOURCE),test-seed,no-test-seed)
+endif
 	node tools/validate_library.mjs $(PRC_ARM) arm $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION) $(if $(TEST_RANDOM_RESOURCE),test-seed,no-test-seed)
 	$(SIZE) $(PROFILE_ELFS_68K) $(PROFILE_ELFS_ARM)
 
@@ -283,9 +313,10 @@ benchmark-palm:
 profiles:
 	$(MAKE) TLS_PROFILE=tls13 test-prc
 	$(MAKE) TLS_PROFILE=modern test-prc
+	$(MAKE) TLS_PROFILE=browser test-prc
 	$(MAKE) TLS_PROFILE=full test-prc
 
-profile-tls13 profile-modern profile-full:
+profile-tls13 profile-modern profile-full profile-browser:
 	$(MAKE) TLS_PROFILE=$(patsubst profile-%,%,$@) test-prc
 
 clean:

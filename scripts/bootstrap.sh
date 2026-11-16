@@ -38,6 +38,11 @@ patches=(
   wolfssl-palm-client-auth.patch
   wolfssl-palm-armlet-ed25519.patch
   wolfssl-palm-plaintext-copy.patch
+  wolfssl-palm-tls12-client-ecc-sign.patch
+  wolfssl-palm-rsa-reduce.patch
+  wolfssl-palm-p384-verify.patch
+  wolfssl-palm-armlet-shamir.patch
+  wolfssl-palm-ipv4-san.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
@@ -58,7 +63,8 @@ fingerprint="$({
 } | sha256_stdin)"
 stamp="$DEPS_PREFIX/.wolfssl-build.sha256"
 archives=(libwolfssl.a libwolfssl-armlet.a libwolfssl-tls11.a \
-  libwolfssl-tls11-armlet.a libwolfssl-tls13.a libwolfssl-tls13-armlet.a)
+  libwolfssl-tls11-armlet.a libwolfssl-tls13.a libwolfssl-tls13-armlet.a \
+  libwolfssl-browser-armlet.a)
 
 complete=true
 for archive in "${archives[@]}"; do
@@ -78,8 +84,12 @@ build_variant() {
   local name="$1" defines="$2" oldtls="$3" destination="$4" install_mode="$5"
   local build_dir="$BUILD/$name"
   local sha512=--disable-sha512
-  if [[ "$defines" == *-DWOLFSSL_NO_TLS12* ]]; then
+  local sha384=--disable-sha384
+  if [[ "$defines" == *-DWOLFSSL_NO_TLS12* || "$defines" == *-DPALM_WOLFSSL_BROWSER* ]]; then
     sha512=--enable-sha512
+  fi
+  if [[ "$defines" == *-DPALM_WOLFSSL_BROWSER* ]]; then
+    sha384=--enable-sha384
   fi
   rm -rf "$build_dir"
   mkdir -p "$build_dir"
@@ -97,7 +107,7 @@ build_variant() {
         --disable-filesystem --disable-tls13 "$oldtls" \
         --disable-sp-math --disable-sp-math-all --enable-fastmath \
         --disable-rsa --disable-rsapub --enable-ecc --disable-dh --disable-mlkem \
-        --disable-sha3 "$sha512" --disable-sha384 --disable-sha224 \
+        --disable-sha3 "$sha512" "$sha384" --disable-sha224 \
         --disable-shake128 --disable-shake256 --disable-chacha \
         --disable-poly1305 --disable-pkcs8 --disable-pkcs12
     make -j"$JOBS" src/libwolfssl.la
@@ -109,6 +119,9 @@ build_variant() {
   )
 }
 
+build_variant wolfssl-palm-browser-armlet \
+  '-DWOLFSSL_USER_SETTINGS -DPALM_WOLFSSL_BROWSER -DPALM_WOLFSSL_ENABLE_ARMLET_MATH' \
+  --disable-oldtls libwolfssl-browser-armlet.a copy
 build_variant wolfssl-palm \
   '-DWOLFSSL_USER_SETTINGS -DPALM_WOLFSSL_TLS12_ONLY' \
   --disable-oldtls libwolfssl.a install

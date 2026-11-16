@@ -34,6 +34,9 @@ extern void *WolfPalmMalloc(unsigned long size);
 extern void WolfPalmFree(void *pointer);
 extern void *WolfPalmRealloc(void *pointer, unsigned long size);
 extern int WolfPalmRandomBlock(unsigned char *output, unsigned long size);
+#ifdef PALM_WOLFSSL_BROWSER
+extern int PalmTlsParseIpv4(const char *text, unsigned char *address);
+#endif
 extern void PalmTlsVerifyProfileEnter(unsigned short phase);
 extern void PalmTlsVerifyProfileLeave(void);
 extern void PalmTlsHandshakeProfileEnter(unsigned short phase);
@@ -57,7 +60,7 @@ extern void PalmTlsTrustProfileLeave(void);
 
 /* Client-only TLS. The toolchain builds compact per-protocol archives. */
 #define NO_WOLFSSL_SERVER
-#ifndef WOLFSSL_NO_TLS12
+#if !defined(WOLFSSL_NO_TLS12) && !defined(PALM_WOLFSSL_BROWSER)
 #define WOLFSSL_NO_CLIENT_AUTH
 #else
 #define HAVE_ALPN
@@ -116,10 +119,15 @@ extern void PalmTlsTrustProfileLeave(void);
 #define ECC_USER_CURVES
 #undef NO_ECC256
 #define TFM_ECC256
-/* ECDSA verification uses two complete scalar multiplications. On Palm OS 5
- * those are dispatched as two native P-256 ARMlet calls; keeping Shamir's
- * combined 68K loop would bypass the high-level accelerator. */
-#ifndef PALM_WOLFSSL_ENABLE_ARMLET_MATH
+#ifdef PALM_WOLFSSL_BROWSER
+#define HAVE_ECC384
+#define TFM_ECC384
+#define WOLFSSL_SHA384
+/* TFM requires space for products twice the modulus size. */
+#define FP_MAX_BITS 8192
+#endif
+/* The native P-256 bridge precedes the Browser's Shamir fallback for P-384. */
+#if !defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) || defined(PALM_WOLFSSL_BROWSER)
 #define ECC_SHAMIR
 #endif
 #define ECC_TIMING_RESISTANT
@@ -131,7 +139,8 @@ extern void PalmTlsTrustProfileLeave(void);
 #define HAVE_AESGCM
 /* The ARM TLS 1.3 engine also offers ChaCha20-Poly1305, run by the ARMlet,
  * when the ARMlet's own test passes. */
-#if defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) && defined(WOLFSSL_NO_TLS12)
+#if defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) && \
+    (defined(WOLFSSL_NO_TLS12) || defined(PALM_WOLFSSL_BROWSER))
 #define HAVE_CHACHA
 #define HAVE_POLY1305
 #endif
@@ -154,7 +163,7 @@ extern void PalmTlsTrustProfileLeave(void);
 #ifndef PALM_WOLFSSL_TLS11_ONLY
 #define NO_SHA
 #endif
-#ifndef WOLFSSL_NO_TLS12
+#if !defined(WOLFSSL_NO_TLS12) && !defined(PALM_WOLFSSL_BROWSER)
 #define NO_SHA512
 #endif
 #define NO_DSA

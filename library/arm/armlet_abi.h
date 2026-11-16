@@ -33,6 +33,17 @@
 /* Ed25519 ref10 field elements: ten signed, big-endian 32-bit limbs.
  * Header byte 1 selects the operation. Byte 2 is reserved and must be zero. */
 #define PALM_TLS_ARMLET_COMMAND_ED25519_FIELD 10
+#define PALM_TLS_ARMLET_COMMAND_RSA_MULTIPLY 11
+#define PALM_TLS_ARMLET_COMMAND_RSA_REDUCE 12
+/* Public RSA-4096 arithmetic. The left operand stores big-endian 32-bit
+ * addresses of the two inputs and output, followed by counts of 16-bit
+ * digits. Read all input digits before changing the destination. */
+#define PALM_TLS_ARMLET_RSA_INPUT_A 0
+#define PALM_TLS_ARMLET_RSA_INPUT_B 4
+#define PALM_TLS_ARMLET_RSA_OUTPUT 8
+#define PALM_TLS_ARMLET_RSA_USED_A 12
+#define PALM_TLS_ARMLET_RSA_USED_B 16
+#define PALM_TLS_ARMLET_RSA_MAX_DIGITS 256
 #define PALM_TLS_ARMLET_ED25519_MUL 0
 #define PALM_TLS_ARMLET_ED25519_SQUARE 1
 #define PALM_TLS_ARMLET_ED25519_SQUARE_DOUBLE 2

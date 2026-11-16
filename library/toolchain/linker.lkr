@@ -46,9 +46,21 @@ SECTIONS
         *libwolfssl*.a:src_libwolfssl_la-aes.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-tfm.o(.text.fp_montgomery_calc_normalization*)
         *libwolfssl*.a:src_libwolfssl_la-tfm.o(.text.fp_mul_2d*)
+        /* Keep the combined engine's five resources below Palm's limit. */
+        *libwolfssl-browser-armlet.a:src_libwolfssl_la-tfm.o(.text.fp_mul_comba8 .text.fp_mul_comba12 .text.fp_sqr_comba12)
+        *tls_palm_browser.o(.text.PalmTlsParseIpv4)
         *libwolfssl*.a:libwolfssl_la-ssl.o(.text.*Session*)
         *libwolfssl*.a:libwolfssl_la-ssl.o(.text.*session*)
     } > tls4
+
+    .tls6 : {
+        /* Ref10's fixed-base Ed25519 table is read-only. Keep its group
+         * routines and table out of the always-writable data segment. */
+        *libwolfssl*.a:src_libwolfssl_la-ge_operations.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl-browser-armlet.a:src_libwolfssl_la-sha512.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl-browser-armlet.a:src_libwolfssl_la-tfm.o(.text.fp_montgomery_reduce_ex)
+        *libwolfssl-browser-armlet.a:src_libwolfssl_la-ecc.o(.text.ecc_mul2add*)
+    } > tls6
 
     .tls2 : {
         KEEP(*tls_engine_*.o(.tlsentry))
@@ -67,7 +79,7 @@ SECTIONS
 
     .tls3 : {
         *tls_palm*.o(.text .text.* .rodata .rodata.*)
-        *tls_drbg.o(.text .text.* .rodata .rodata.*)
+        *tls_drbg*.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-coding.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-hmac.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-kdf.o(.text .text.* .rodata .rodata.*)
@@ -78,12 +90,6 @@ SECTIONS
         *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-sp_c32.o(.text .text.* .rodata .rodata.*)
     } > tls3
-
-    .tls6 : {
-        /* Ref10's fixed-base Ed25519 table is read-only. Keep its group
-         * routines and table out of the always-writable data segment. */
-        *libwolfssl*.a:src_libwolfssl_la-ge_operations.o(.text .text.* .rodata .rodata.*)
-    } > tls6
 
     .tls5 : {
         *libwolfssl*.a:*(.text .text.* .rodata .rodata.*)

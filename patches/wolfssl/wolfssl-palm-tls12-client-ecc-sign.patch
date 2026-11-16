@@ -1,0 +1,22 @@
+diff --git a/src/internal.c b/src/internal.c
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -38588,6 +38588,7 @@
+         case TLS_ASYNC_DO:
+         {
+         #ifdef HAVE_ECC
+             if (ssl->hsType == DYNAMIC_TYPE_ECC) {
++            #ifdef HAVE_ECC_SIGN
+                 ecc_key* key = (ecc_key*)ssl->hsKey;
+ 
+             #if defined(WOLFSSL_SM2) && defined(WOLFSSL_SM3)
+@@ -38624,6 +38625,9 @@
+                 #endif
+                     );
+                 }
++            #else
++                ret = NOT_COMPILED_IN;
++            #endif
+             }
+         #endif /* HAVE_ECC */
+         #if defined(HAVE_ED25519) && !defined(NO_ED25519_CLIENT_AUTH)

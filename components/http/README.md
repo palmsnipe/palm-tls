@@ -10,7 +10,7 @@ component provides:
 
 - HTTP and HTTPS URL parsing;
 - absolute and relative redirect resolution;
-- GET and resumable Range request construction;
+- GET, resumable Range, and fixed-length POST header construction;
 - safe filename derivation;
 - incremental response parsing with fixed-length, chunked, and
   connection-delimited bodies;
@@ -31,8 +31,21 @@ HttpParserFinish(&parser);
 ```
 
 The parser removes response headers and chunk framing before invoking the body
-callback. Only identity content encoding is supported. Redirect and resume
-validation decisions remain the application's responsibility.
+callback. Identity encoding is the default. Applications that decompress gzip themselves
+can set `parser.acceptGzip = true` after initialization and check `parser.gzip`
+in the body callback. The parser removes HTTP framing and passes the encoded
+body to that callback. Redirect and resume validation remain application policy.
+
+Applications using long enclosure URLs can set `HTTP_PATH_CAPACITY` and
+`HTTP_LOCATION_CAPACITY` when compiling both the component and its caller.
+`HttpBuildGetRequest` checks that the base request fits before writing the
+buffer and includes the port in `Host` for non-default HTTP or HTTPS ports.
+
+`HttpBuildGetRequestEx` can set the user agent and advertise gzip. Set the
+response parser's `acceptGzip` flag independently if the caller can decode it.
+`HttpBuildPostRequest` returns the header length. `HttpBuildPostRequestEx`
+also accepts a keep-alive option. Send the body as a separate binary buffer
+with the exact declared length.
 
 Run the host fixtures and Palm cross-compilation check with:
 

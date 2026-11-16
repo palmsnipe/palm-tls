@@ -4,13 +4,14 @@ const [file, variant = '68k', profile = 'full', expectedVersion,
   expectedDbVersion, seedMode = 'no-test-seed'] = process.argv.slice(2);
 if (!file || !expectedVersion || !expectedDbVersion) {
   throw new Error(
-    'usage: validate_library.mjs FILE [68k|arm] [tls13|modern|full] VERSION DB_VERSION [test-seed|no-test-seed]',
+    'usage: validate_library.mjs FILE [68k|arm] [tls13|modern|full|browser] VERSION DB_VERSION [test-seed|no-test-seed]',
   );
 }
 const selectedProtocols = {
   tls13: [13],
   modern: [12, 13],
   full: [11, 12, 13],
+  browser: [14],
 }[profile];
 if (!selectedProtocols) throw new Error(`unknown profile ${profile}`);
 const data = readFileSync(file);
@@ -46,6 +47,7 @@ const protocolResources = {
   11: [['TlsC', 21], ['TlsC', 22], ['TlsC', 23], ['TlsC', 24], ['TlsR', 3]],
   12: [['TlsC', 1], ['TlsC', 2], ['TlsC', 3], ['TlsC', 4], ['TlsR', 1]],
   13: [['TlsC', 11], ['TlsC', 12], ['TlsC', 13], ['TlsC', 14], ['TlsC', 15], ['TlsR', 2]],
+  14: [['TlsC', 31], ['TlsC', 32], ['TlsC', 33], ['TlsC', 34], ['TlsC', 35], ['TlsR', 4]],
 };
 const requiredResources = [['libr', 0], ['tver', 1],
   ...selectedProtocols.flatMap((protocol) => protocolResources[protocol])];
@@ -55,7 +57,7 @@ for (const required of requiredResources) {
     throw new Error(`missing resource ${required[0]}:${required[1]}`);
   }
 }
-for (const protocol of [11, 12, 13].filter((item) =>
+for (const protocol of [11, 12, 13, 14].filter((item) =>
   !selectedProtocols.includes(item))) {
   for (const forbidden of protocolResources[protocol]) {
     if (resources.some(({ type: resourceType, id }) =>
@@ -115,6 +117,7 @@ for (const engine of [
   { protocol: 12, reloc: 1, segments: [1, 2, 3, 4] },
   { protocol: 13, reloc: 2, segments: [11, 12, 13, 14, 15] },
   { protocol: 11, reloc: 3, segments: [21, 22, 23, 24] },
+  { protocol: 14, reloc: 4, segments: [31, 32, 33, 34, 35] },
 ].filter(({ protocol }) => selectedProtocols.includes(protocol))) {
   const reloc = resource('TlsR', engine.reloc);
   const body = data.subarray(reloc.offset, reloc.offset + reloc.size);

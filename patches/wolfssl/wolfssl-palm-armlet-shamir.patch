@@ -1,0 +1,19 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -10003,7 +10003,6 @@
+    if (err == MP_OKAY)
+        err = wc_ecc_point_add(mG, mQ, mG, curve->prime);
+ #else
+-#ifndef ECC_SHAMIR
+ #ifdef PALM_WOLFSSL_ARMLET_MATH
+     if (err == MP_OKAY && PalmTlsArmletP256Multiply2Add(mG, u1, mQ, u2,
+             mG, curve->prime) == MP_OKAY) {
+@@ -10011,6 +10010,7 @@
+     }
+     else
+ #endif
++#ifndef ECC_SHAMIR
+     if (err == MP_OKAY)
+     {
+         mp_digit mp = 0;

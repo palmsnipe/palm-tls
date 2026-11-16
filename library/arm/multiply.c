@@ -94,6 +94,126 @@ static __inline__ void WriteBigEndian32(volatile u8 *bytesP, u32 value)
     bytesP[3] = (u8)value;
 }
 
+/* Use 32-bit limbs for ARM's long multiply while keeping packed 16-bit
+ * digits in the 68K interface. These paths operate on public RSA values. */
+enum { rsaWords = PALM_TLS_ARMLET_RSA_MAX_DIGITS / 2 };
+
+static void ReadRsaLimbs(u32 *words, const volatile u8 *source,
+                        u32 used, u32 capacity)
+{
+    u32 i;
+    for (i = 0; i < used / 2; i++)
+        words[i] = ReadDigit(source, i * 2) | (ReadDigit(source, i * 2 + 1) << 16);
+    if ((used & 1U) != 0) {
+        words[i] = ReadDigit(source, i * 2);
+        i++;
+    }
+    for (; i < capacity; i++) words[i] = 0;
+}
+
+static u32 WriteRsaLimbs(volatile u8 *destination, const u32 *words, u32 used)
+{
+    while (used != 0 && words[used - 1] == 0) used--;
+    for (u32 i = 0; i + 1 < used; i++) {
+        WriteDigit(destination, i * 2, words[i]);
+        WriteDigit(destination, i * 2 + 1, words[i] >> 16);
+    }
+    if (used == 0) return 0;
+    u32 last = words[used - 1];
+    WriteDigit(destination, (used - 1) * 2, last);
+    if (last >> 16) {
+        WriteDigit(destination, (used - 1) * 2 + 1, last >> 16);
+        return used * 2;
+    }
+    return used * 2 - 1;
+}
+
+#ifdef PALM_ARMLET_HOST_TEST
+#define RSA_SCOPE
+#else
+#define RSA_SCOPE static
+#endif
+
+RSA_SCOPE u32 PalmTlsArmletRsaMultiply(const volatile u8 *left, u32 leftUsed,
+    const volatile u8 *right, u32 rightUsed, volatile u8 *output)
+{
+    u32 a[rsaWords], b[rsaWords], c[2 * rsaWords];
+    if (!left || !right || !output ||
+        leftUsed > 2 * rsaWords || rightUsed > 2 * rsaWords)
+        return PALM_TLS_ARMLET_ERROR;
+    u32 na = (leftUsed + 1) / 2;
+    u32 nb = (rightUsed + 1) / 2;
+    ReadRsaLimbs(a, left, leftUsed, na);
+    ReadRsaLimbs(b, right, rightUsed, nb);
+    for (u32 i = 0; i < na + nb; i++) c[i] = 0;
+    for (u32 i = 0; i < na; i++) {
+        u32 carry = 0;
+        for (u32 j = 0; j < nb; j++) {
+            u64 product = (u64)a[i] * b[j] + c[i + j] + carry;
+            c[i + j] = (u32)product;
+            carry = (u32)(product >> 32);
+        }
+        c[i + nb] = carry;
+    }
+    return WriteRsaLimbs(output, c, na + nb);
+}
+
+RSA_SCOPE u32 PalmTlsArmletRsaReduce(const volatile u8 *value, u32 valueUsed,
+    const volatile u8 *modulus, u32 modulusUsed, volatile u8 *output)
+{
+    u32 m[rsaWords], c[2 * rsaWords + 1];
+    u32 words = modulusUsed / 2;
+    if (!value || !modulus || !output || valueUsed > 2 * modulusUsed ||
+        (modulusUsed != 24 && modulusUsed != 128 && modulusUsed != 256))
+        return PALM_TLS_ARMLET_ERROR;
+    ReadRsaLimbs(m, modulus, modulusUsed, words);
+    ReadRsaLimbs(c, value, valueUsed, 2 * words + 1);
+    if ((m[0] & 1U) == 0 || m[words - 1] < 0x80000000U)
+        return PALM_TLS_ARMLET_ERROR;
+
+    /* A single final subtraction is sufficient for inputs below m * R. */
+    u32 i = words;
+    while (i && c[words + i - 1] == m[i - 1]) i--;
+    if (!i || c[words + i - 1] > m[i - 1])
+        return PALM_TLS_ARMLET_ERROR;
+
+    /* Newton iteration gives -m[0]^-1 mod 2^32. Two 16-bit TFM steps
+     * and one 32-bit step use the same radix at this modulus width. */
+    u32 inverse = 1;
+    for (i = 0; i < 5; i++) inverse *= 2U - m[0] * inverse;
+    inverse = 0U - inverse;
+    for (i = 0; i < words; i++) {
+        u32 multiple = c[i] * inverse;
+        u32 carry = 0;
+        u32 j;
+        for (j = 0; j < words; j++) {
+            u64 product = (u64)multiple * m[j] + c[i + j] + carry;
+            c[i + j] = (u32)product;
+            carry = (u32)(product >> 32);
+        }
+        for (j += i; carry && j <= 2 * words; j++) {
+            u64 sum = (u64)c[j] + carry;
+            c[j] = (u32)sum;
+            carry = (u32)(sum >> 32);
+        }
+        if (carry) return PALM_TLS_ARMLET_ERROR;
+    }
+
+    u32 *result = c + words;
+    i = words;
+    while (i && result[i - 1] == m[i - 1]) i--;
+    if (result[words] || !i || result[i - 1] > m[i - 1]) {
+        u32 borrow = 0;
+        for (i = 0; i < words; i++) {
+            u64 difference = (u64)result[i] - m[i] - borrow;
+            result[i] = (u32)difference;
+            borrow = (u32)(difference >> 63);
+        }
+        if (result[words] != borrow) return PALM_TLS_ARMLET_ERROR;
+    }
+    return WriteRsaLimbs(output, result, words);
+}
+
 static __inline__ u32 RotateRight(u32 value, u32 count)
 {
     return (value >> count) | (value << (32U - count));
@@ -1890,6 +2010,19 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
         return Ed25519Field(leftP, rightP, outputP, requestP[1], requestP[2]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_FIELD)
         return P256Field(leftP, rightP, outputP, requestP[1], requestP[2]);
+#ifndef PALM_ARMLET_HOST_TEST
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_RSA_MULTIPLY ||
+        requestP[3] == PALM_TLS_ARMLET_COMMAND_RSA_REDUCE) {
+        const volatile u8 *a = (const volatile u8 *)ReadBigEndian32(leftP + PALM_TLS_ARMLET_RSA_INPUT_A);
+        const volatile u8 *b = (const volatile u8 *)ReadBigEndian32(leftP + PALM_TLS_ARMLET_RSA_INPUT_B);
+        volatile u8 *out = (volatile u8 *)ReadBigEndian32(leftP + PALM_TLS_ARMLET_RSA_OUTPUT);
+        u32 aUsed = ReadBigEndian32(leftP + PALM_TLS_ARMLET_RSA_USED_A);
+        u32 bUsed = ReadBigEndian32(leftP + PALM_TLS_ARMLET_RSA_USED_B);
+        if (requestP[3] == PALM_TLS_ARMLET_COMMAND_RSA_MULTIPLY)
+            return PalmTlsArmletRsaMultiply(a, aUsed, b, bUsed, out);
+        return PalmTlsArmletRsaReduce(a, aUsed, b, bUsed, out);
+    }
+#endif
     if (requestP[3] != PALM_TLS_ARMLET_COMMAND_MULTIPLY)
         return PALM_TLS_ARMLET_ERROR;
     leftUsed = requestP[1];

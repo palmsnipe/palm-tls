@@ -3,6 +3,25 @@
 
 #include "tls_palm.h"
 
+#ifdef PALM_WOLFSSL_BROWSER
+int PalmTlsParseIpv4(const char *text, unsigned char *address)
+{
+    for (UInt16 i = 0; i < 4; i++) {
+        UInt16 value = 0;
+        const char *part = text;
+        while (*text >= '0' && *text <= '9') {
+            value = value * 10 + (UInt16)(*text++ - '0');
+            if (value > 255 || (*part == '0' && text != part + 1))
+                return 0;
+        }
+        if (text == part || *text != (i == 3 ? '\0' : '.')) return 0;
+        address[i] = (UInt8)value;
+        ++text;
+    }
+    return 1;
+}
+#endif
+
 #define PALM_UNIX_EPOCH_OFFSET 2082844800UL
 
 time_t WolfPalmTime(time_t *timerP)
@@ -76,23 +95,22 @@ void *WolfPalmRealloc(void *pointerP, unsigned long size)
     return newPointerP;
 }
 
-#ifdef WOLFSSL_NO_TLS12
-/* Each engine has its own relocated data. Its entry point sets this only
- * during serialized pinned operations, including cooperative continuation. */
-static Boolean PinnedRandom;
-static PalmTlsDrbg *PinnedDrbg;
+#if defined(WOLFSSL_NO_TLS12) || defined(PALM_WOLFSSL_BROWSER)
+/* Each engine binds its random source for one serialized library call. */
+static Boolean SecureRandom;
+static PalmTlsDrbg *SecureDrbg;
 
-void PalmTlsSetPinnedRandom(Boolean pinned, PalmTlsDrbg *drbgP)
+void PalmTlsSetSecureRandom(Boolean required, PalmTlsDrbg *drbgP)
 {
-    PinnedRandom = pinned;
-    PinnedDrbg = drbgP;
+    SecureRandom = required;
+    SecureDrbg = drbgP;
 }
 #endif
 
 int WolfPalmRandomBlock(unsigned char *outputP, unsigned long size)
 {
-#ifdef WOLFSSL_NO_TLS12
-    if (PinnedRandom) return PalmTlsDrbgGenerate(PinnedDrbg, outputP, size);
+#if defined(WOLFSSL_NO_TLS12) || defined(PALM_WOLFSSL_BROWSER)
+    if (SecureRandom) return PalmTlsDrbgGenerate(SecureDrbg, outputP, size);
 #endif
 
     UInt32 offset;

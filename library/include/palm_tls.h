@@ -59,6 +59,12 @@
 #define PALM_TLS_CAP_TEST_RANDOM 0x00400000UL
 #define PALM_TLS_CAP_STYLUS_SEED 0x00800000UL
 #define PALM_TLS_CAP_STYLUS_RANDOM 0x01000000UL
+#define PALM_TLS_CAP_MODERN 0x02000000UL
+#define PALM_TLS_CAP_HOST_SEED 0x04000000UL
+#define PALM_TLS_CAP_HOST_RANDOM 0x08000000UL
+#define PALM_TLS_CAP_BROWSER_STYLUS_SEED 0x10000000UL
+#define PALM_TLS_CAP_BROWSER_STYLUS_RANDOM 0x20000000UL
+#define PALM_TLS_HOST_SEED_SIZE 48
 #define PALM_TLS_STYLUS_POINTS 256
 #define PALM_TLS_STYLUS_MAX_POINTS 1024
 
@@ -78,12 +84,16 @@ typedef struct PalmTlsStylusSample {
 #define PALM_TLS_SESSION_PROFILE 0x00000004UL
 /* Diagnostic comparison: recreate the configured context on each request. */
 #define PALM_TLS_SESSION_NO_CONTEXT_REUSE 0x00000008UL
+#define PALM_TLS_SESSION_REQUIRE_HOST_RANDOM 0x00000010UL
+/* Explicit experimental stylus source for modern, CA-verified HTTPS. */
+#define PALM_TLS_SESSION_REQUIRE_STYLUS_RANDOM 0x00000020UL
 #define PALM_TLS_IO_COOPERATIVE 0x00000001UL
 
 typedef enum PalmTlsProtocol {
     palmTlsProtocolTls12 = 0,
     palmTlsProtocolTls13 = 1,
-    palmTlsProtocolTls11 = 2
+    palmTlsProtocolTls11 = 2,
+    palmTlsProtocolModern = 3
 } PalmTlsProtocol;
 
 typedef enum PalmTlsVerifyMode {
@@ -419,7 +429,9 @@ enum PalmTlsLibTrap {
     palmTlsLibTrapGetSessionProfile,
     palmTlsLibTrapSessionOpenEx,
     palmTlsLibTrapGenerateIdentity,
-    palmTlsLibTrapSeedFromStylus
+    palmTlsLibTrapSeedFromStylus,
+    palmTlsLibTrapSeedFromHost,
+    palmTlsLibTrapGetSessionProtocol
 };
 
 #if defined(PALM_TLS_LIB_BUILD)
@@ -476,6 +488,10 @@ Err PalmTlsLibGenerateIdentity(UInt16 refNum,
 
 Err PalmTlsLibSeedFromStylus(UInt16 refNum, const PalmTlsStylusSample *samplesP,
     UInt16 count, UInt16 *statusP) PALM_TLS_TRAP(palmTlsLibTrapSeedFromStylus);
+Err PalmTlsLibSeedFromHost(UInt16 refNum, const UInt8 *seedP, UInt16 length,
+    UInt16 *statusP) PALM_TLS_TRAP(palmTlsLibTrapSeedFromHost);
+Err PalmTlsLibGetSessionProtocol(UInt16 refNum, UInt32 sessionId,
+    UInt16 *protocolP) PALM_TLS_TRAP(palmTlsLibTrapGetSessionProtocol);
 
 #undef PALM_TLS_TRAP
 #endif

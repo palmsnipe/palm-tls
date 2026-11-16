@@ -81,6 +81,42 @@ int main(void)
         "build resumable request");
     failed += Check(strstr(request, "Connection: keep-alive") != 0,
         "build persistent request");
+    failed += Check(strstr(request, "Host: example.com:8443\r\n") != 0,
+        "include a non-default port in the Host header");
+    char tooSmall[128];
+    memset(tooSmall, 'x', sizeof(tooSmall));
+    memset(url.path, 'a', sizeof(url.path) - 1);
+    url.path[0] = '/';
+    url.path[sizeof(url.path) - 1] = '\0';
+    failed += Check(HttpBuildGetRequest(&url, 0, NULL, false, tooSmall,
+        sizeof(tooSmall)) == 0 && tooSmall[0] == 'x' && tooSmall[127] == 'x',
+        "reject an oversized request before writing the output");
+    failed += Check(HttpParseUrl("https://example.com/files/a.bin", false, &url) &&
+        HttpBuildGetRequest(&url, 0, NULL, false, request, sizeof(request)) != 0 &&
+        strstr(request, "Host: example.com\r\n") != 0,
+        "omit the default port from the Host header");
+    UInt16 configuredRequest = HttpBuildGetRequestEx(&url, 0, NULL, false,
+        "Test Browser/1", true, request, sizeof(request));
+    failed += Check(configuredRequest == strlen(request) &&
+        strstr(request, "User-Agent: Test Browser/1\r\n") &&
+        strstr(request, "Accept-Encoding: gzip\r\n"), "configure GET negotiation");
+    UInt16 postRequest = HttpBuildPostRequest(&url, NULL, "application/x-protobuf",
+        65538, request, sizeof(request));
+    failed += Check(postRequest == strlen(request) &&
+        !strncmp(request, "POST /files/a.bin HTTP/1.1\r\n", 28) &&
+        strstr(request, "Connection: close\r\n") &&
+        strstr(request, "Content-Type: application/x-protobuf\r\nContent-Length: 65538\r\n\r\n"),
+        "build headers for a binary POST");
+    postRequest = HttpBuildPostRequestEx(&url, NULL, "application/x-protobuf",
+        65538, true, request, sizeof(request));
+    failed += Check(postRequest == strlen(request) && strstr(request, "Connection: keep-alive\r\n"),
+        "build persistent POST headers");
+    failed += Check(HttpBuildPostRequest(&url, NULL, "text/plain", 1,
+        tooSmall, sizeof(tooSmall)) == 0, "reject oversized POST headers");
+    failed += Check(!HttpBuildPostRequest(&url, NULL, "x\r\ny", 1,
+        request, sizeof(request)) &&
+        !HttpBuildGetRequestEx(&url, 0, NULL, false, "x\r\ny", false,
+            request, sizeof(request)), "reject header injection");
     HttpFilenameFromUrl(&url, redirected.path,
         sizeof(redirected.path));
     failed += Check(strcmp(redirected.path, "a.bin") == 0,

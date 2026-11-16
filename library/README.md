@@ -1,14 +1,17 @@
 # Palm TLS shared library
 
 PalmTLS is distributed as mutually exclusive Palm OS system-library PRCs for
-68K and ARM devices. Each architecture can package one of three protocol
-profiles from the same source:
+68K and ARM devices:
 
 - `PalmTLS68K.prc` supports Palm OS 4+ and runs entirely as 68K code.
 - `PalmTLSArm.prc` supports ARM-based Palm OS 5+ devices. Its shared-library
   traps remain 68K-compatible while multiprecision multiply/square, complete
   P-256 scalar multiplication, and SHA-256 compression execute as a native
   ARMlet through `PceNativeCall`.
+- `PalmTLSArm-Browser.prc` adds a single engine that negotiates TLS 1.2 or 1.3
+  for a CA-verified client provisioned with host randomness. Its broader
+  certificate support includes SHA-384, P-384 and RSA-4096. The ARMlet
+  accelerates public RSA-4096 multiplication and Montgomery reduction.
 
 The ARMlet uses a shared ARMv4T integer baseline for older TI925/ARM925T and
 newer ARM926/XScale cores. CPU models are checked before native execution;
@@ -122,22 +125,23 @@ Build and validate with:
 make -C library test
 ```
 
-The `test` target rebuilds and validates all three profiles sequentially, so a
+The `test` target rebuilds and validates the profiles sequentially, so a
 compact PRC cannot remain stale after shared PalmTLS code changes. The Full
 profile is built last to leave the default intermediate resources selected.
 
-The default `full` build and the two compact profiles produce:
+The available profiles produce:
 
 ```text
 PalmTLS68K.prc / PalmTLSArm.prc                 TLS 1.1 + 1.2 + 1.3
 PalmTLS68K-Modern.prc / PalmTLSArm-Modern.prc   TLS 1.2 + 1.3
 PalmTLS68K-TLS13.prc / PalmTLSArm-TLS13.prc     TLS 1.3 only
+PalmTLSArm-Browser.prc                        TLS 1.2 / 1.3 negotiation
 ```
 
-Build one profile directly with `TLS_PROFILE=tls13`, `modern`, or `full` and
+Build one profile directly with `TLS_PROFILE=tls13`, `modern`, `browser`, or `full` and
 the `test-prc` target.
-Current ARM sizes are approximately 237 KiB, 427 KiB, and 608 KiB
-respectively. Applications discover the protocols actually packaged through
+The ARM PRCs range from approximately 347 KiB for TLS13 to 684 KiB for
+Full. Applications discover the protocols actually packaged through
 `PalmTlsLibGetCapabilities`; requesting an omitted protocol is rejected as a
 bad parameter. Because every profile has the same Palm database identity,
 install exactly one.

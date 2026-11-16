@@ -15,13 +15,14 @@ typedef struct PalmTlsArmletMultiplyRequest {
     UInt8 leftUsed;
     UInt8 rightUsed;
     UInt8 command;
-    UInt8 left[FP_SIZE * sizeof(fp_digit)];
-    UInt8 right[FP_SIZE * sizeof(fp_digit)];
-    UInt8 output[FP_SIZE * sizeof(fp_digit)];
+    UInt8 left[PALM_TLS_ARMLET_DIGIT_BYTES];
+    UInt8 right[PALM_TLS_ARMLET_DIGIT_BYTES];
+    UInt8 output[PALM_TLS_ARMLET_DIGIT_BYTES];
 } PalmTlsArmletMultiplyRequest;
 
 typedef char PalmTlsArmletDigitSizeAssert[sizeof(fp_digit) == 2 ? 1 : -1];
-typedef char PalmTlsArmletDigitCountAssert[FP_SIZE == 264 ? 1 : -1];
+_Static_assert(FP_SIZE >= PALM_TLS_ARMLET_MAX_DIGITS,
+    "wolfSSL digit capacity must cover the ARMlet request");
 
 static DmOpenRef gArmletDatabaseP;
 static MemHandle gArmletHandle;
@@ -606,6 +607,51 @@ void PalmTlsArmletDisable(void)
     gRawP256PointP = 0;
 }
 
+#if defined(PALM_WOLFSSL_BROWSER) && defined(WOLFSSL_RSA_VERIFY_ONLY)
+/* The variable-width reduction is used only for public verification. */
+static Boolean gVerifyP384;
+
+void PalmTlsArmletVerifyP384(int enabled)
+{
+    gVerifyP384 = enabled != 0;
+}
+
+static UInt32 CallRsaArithmetic(fp_int *leftP, fp_int *rightP,
+    fp_int *outputP, UInt8 command)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->leftUsed = 0;
+    requestP->rightUsed = 0;
+    requestP->command = command;
+    PutRequest32(requestP->left + PALM_TLS_ARMLET_RSA_INPUT_A, (UInt32)leftP->dp);
+    PutRequest32(requestP->left + PALM_TLS_ARMLET_RSA_INPUT_B, (UInt32)rightP->dp);
+    PutRequest32(requestP->left + PALM_TLS_ARMLET_RSA_OUTPUT, (UInt32)outputP->dp);
+    PutRequest32(requestP->left + PALM_TLS_ARMLET_RSA_USED_A, leftP->used);
+    PutRequest32(requestP->left + PALM_TLS_ARMLET_RSA_USED_B, rightP->used);
+    return PceNativeCall(gArmletEntryP, requestP);
+}
+
+int PalmTlsArmletRsaReduce(fp_int *valueP, fp_int *modulusP)
+{
+    if (!gArmletEnabled || !gArmletEntryP || !gRequestP ||
+        !valueP || !modulusP || valueP == modulusP ||
+        valueP->sign != FP_ZPOS || modulusP->sign != FP_ZPOS)
+        return FP_VAL;
+    Int16 digits = modulusP->used;
+    if ((digits != PALM_TLS_ARMLET_RSA_MAX_DIGITS && digits != 128 &&
+            !(digits == 24 && gVerifyP384)) ||
+        valueP->used < 0 || valueP->used > 2 * digits)
+        return FP_VAL;
+    UInt32 used = CallRsaArithmetic(valueP, modulusP, valueP,
+        PALM_TLS_ARMLET_COMMAND_RSA_REDUCE);
+    if (used > (UInt16)digits) return FP_VAL;
+    for (UInt16 i = (UInt16)used; i < valueP->used; i++) valueP->dp[i] = 0;
+    valueP->used = (Int16)used;
+    return FP_OKAY;
+}
+#endif
+
 int PalmTlsArmletMultiply(fp_int *leftP, fp_int *rightP, fp_int *outputP)
 {
     PalmTlsArmletMultiplyRequest *requestP = gRequestP;
@@ -615,9 +661,24 @@ int PalmTlsArmletMultiply(fp_int *leftP, fp_int *rightP, fp_int *outputP)
     if (!gArmletEnabled || gArmletEntryP == 0 || requestP == 0 ||
         leftP == 0 || rightP == 0 ||
         outputP == 0 ||
-        leftP->used < 0 || rightP->used < 0 ||
-        leftP->used > 255 || rightP->used > 255)
+        leftP->used < 0 || rightP->used < 0)
         return FP_VAL;
+#if defined(PALM_WOLFSSL_BROWSER) && defined(WOLFSSL_RSA_VERIFY_ONLY)
+    if (((UInt32)leftP->used + rightP->used >= PALM_TLS_ARMLET_MAX_DIGITS ||
+         (gVerifyP384 && leftP->used >= 12 && rightP->used >= 12)) &&
+        leftP->used <= PALM_TLS_ARMLET_RSA_MAX_DIGITS &&
+        rightP->used <= PALM_TLS_ARMLET_RSA_MAX_DIGITS) {
+        used = CallRsaArithmetic(leftP, rightP, outputP,
+            PALM_TLS_ARMLET_COMMAND_RSA_MULTIPLY);
+        if (used >= FP_SIZE) return FP_VAL;
+        for (index = (UInt16)used; index < (UInt16)outputP->used; index++)
+            outputP->dp[index] = 0;
+        outputP->used = (Int16)used;
+        outputP->sign = used && leftP->sign != rightP->sign ? FP_NEG : FP_ZPOS;
+        return FP_OKAY;
+    }
+#endif
+    if (leftP->used > 255 || rightP->used > 255) return FP_VAL;
     requestP->version = PALM_TLS_ARMLET_VERSION;
     requestP->leftUsed = (UInt8)leftP->used;
     requestP->rightUsed = (UInt8)rightP->used;

@@ -89,11 +89,16 @@ Install exactly one PalmTLS variant appropriate for the device:
 ```text
 library/build/palm/PalmTLS68K.prc
 library/build/palm/PalmTLSArm.prc
+library/build/palm/PalmTLSArm-Browser.prc
 ```
 
 PalmTLS also produces smaller `Modern` and `TLS13` profiles. Every variant has
 the same Palm database identity, so they cannot coexist on one device. See
 `library/README.md` and `library/API.md` for selection and integration details.
+
+Use `make -C library TLS_PROFILE=browser test-prc` for the Browser profile. It
+negotiates TLS 1.2 and 1.3 in one engine, requires host-provisioned randomness
+for browser sessions, and supports P-384, SHA-384, and RSA-4096 certificates.
 
 Applications compile `components/http/src/http.c` directly when they need the
 included HTTP helpers. No separate HTTP PRC is installed or distributed.

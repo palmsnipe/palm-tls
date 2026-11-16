@@ -64,6 +64,8 @@ typedef struct PalmTlsEngineControl {
     Char alpn[256];
     Boolean pinned;
     Boolean pinMatched;
+    Boolean browserStylusRandom;
+    UInt16 negotiatedProtocol;
 } PalmTlsEngineControl;
 
 typedef struct PalmTlsEngineParams {
@@ -130,8 +132,12 @@ typedef struct PalmTlsLibraryState {
     UInt16 armStatus;
     PalmTlsLoadedEngine engine;
     PalmTlsDrbg drbg;
+    PalmTlsDrbg hostDrbg, browserStylusDrbg;
     Boolean stylusSeed;
     Boolean triedSavedSeed;
+    Boolean triedHostSeed;
+    Boolean hostSeedActive;
+    Boolean triedBrowserStylusSeed, browserStylusSeedActive;
 } PalmTlsLibraryState;
 
 UInt16 PalmTlsExecute(PalmTlsLibraryState *stateP,

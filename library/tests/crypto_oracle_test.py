@@ -543,6 +543,73 @@ def ed25519_field(backend, rng):
     return len(pairs) * 3 + 1
 
 
+def public_arithmetic(backend, rng):
+    radix = 1 << 4096
+    sentinel = b'\xa5' * 1024
+
+    def limbs(value):
+        return b''.join(((value >> i) & 65535).to_bytes(2, 'big')
+                        for i in range(0, value.bit_length(), 16))
+
+    def check(command, left, right, expected, skew=0, alias=False):
+        a, b = limbs(left), limbs(right)
+        out = a.ljust(len(sentinel), b'\xa5') if alias else sentinel
+        if isinstance(backend, Host):
+            symbol = 'PalmTlsArmletRsaMultiply' if command == 11 else 'PalmTlsArmletRsaReduce'
+            fn = getattr(backend.library, symbol)
+            fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32] * 2 + [ctypes.c_void_p]
+            fn.restype = ctypes.c_uint32
+            x = ctypes.create_string_buffer(bytes(skew) + (out if alias else a))
+            y = ctypes.create_string_buffer(bytes(skew) + b)
+            z = x if alias else ctypes.create_string_buffer(bytes(skew) + out)
+            used = fn(ctypes.addressof(x) + skew, len(a) // 2,
+                      ctypes.addressof(y) + skew, len(b) // 2,
+                      ctypes.addressof(z) + skew)
+            output = z.raw[skew:skew + len(sentinel)]
+        else:
+            p, q, r = REQUEST_SIZE + 1, 3001, 4101
+            if alias: r = p
+            data = request(command) + bytearray(5200 - REQUEST_SIZE)
+            address = backend.DATA + skew
+            fields = (address + p, address + q, address + r, len(a) // 2, len(b) // 2)
+            data[LEFT:LEFT+20] = b''.join(value.to_bytes(4, 'big') for value in fields)
+            data[p:p+len(a)] = a
+            data[q:q+len(b)] = b
+            data[r:r+len(out)] = out
+            used = backend.invoke(data, skew)
+            output = data[r:r+len(sentinel)]
+        if expected is None:
+            assert used == ERROR and output == out
+        else:
+            encoded = limbs(expected)
+            assert used == len(encoded) // 2
+            assert output == encoded + out[len(encoded):]
+
+    for i in range(24):
+        n = rng.getrandbits(4095) | (radix >> 1) | 1
+        a, b = rng.randrange(n), rng.randrange(n)
+        if i == 0: a, b = radix - 1, radix - 1
+        if i == 1: b = 0
+        if i == 2: b = 65535
+        check(11, a, b, a * b, i % 4, i % 2 == 1)
+        value = rng.randrange(n * radix) if i > 2 else (n * radix - 1, n, 0)[i]
+        check(12, value, n, value * pow(radix, -1, n) % n, i % 4, i % 2 == 1)
+    check(12, n * radix, n, None)
+    check(12, n, n ^ 1, None)
+    check(11, radix, 1, None)
+    count = 51
+    for bits in (384, 2048):
+        radix = 1 << bits
+        for i in range(12):
+            n = rng.getrandbits(bits - 1) | (radix >> 1) | 1
+            value = rng.randrange(n * radix) if i > 1 else (0, n * radix - 1)[i]
+            check(12, value, n, value * pow(radix, -1, n) % n, i % 4, i % 2 == 1)
+        check(12, n * radix, n, None)
+        check(12, n, n ^ 1, None)
+        count += 14
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
@@ -556,6 +623,7 @@ def main():
     records = aes(backend, rng)
     fields = field_arithmetic(backend)
     ed_fields = ed25519_field(backend, rng)
+    public_cases = public_arithmetic(backend, random.Random(4096))
     inverses, multiplies, verifies = p256(backend, rng)
     validations = p256_validation(backend, rng)
     orders = order_scalars(backend, rng)
@@ -565,7 +633,8 @@ def main():
           f'{chacha_records} ChaCha records, {records} AES-GCM records, {fields} raw-field chains, {inverses} inversions/maps, '
           f'{multiplies} scalar products, {verifies} double-scalar cases, '
           f'{orders} order preparations, {validations} point validations, '
-          f'{signatures} ECDSA valid/tampered cases, {ed_fields} Ed25519 field cases; '
+          f'{signatures} ECDSA valid/tampered cases, {ed_fields} Ed25519 field cases, '
+          f'{public_cases} public-key arithmetic cases; '
           'alignment offsets 0..3')
 
 

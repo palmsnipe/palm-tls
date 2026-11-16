@@ -1,0 +1,18 @@
+diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
+--- a/wolfcrypt/src/tfm.c
++++ b/wolfcrypt/src/tfm.c
+@@ -3721,6 +3721,14 @@
+    fp_digit *_c, *tmpm, mu = 0;
+    int      oldused, x, y, pa, err = 0;
+ 
++#if defined(PALM_WOLFSSL_BROWSER) && defined(PALM_WOLFSSL_ARMLET_MATH) && \
++    defined(WOLFSSL_RSA_VERIFY_ONLY)
++   if (m->used == 256) {
++      extern int PalmTlsArmletRsaReduce(fp_int* value, fp_int* modulus);
++      if (PalmTlsArmletRsaReduce(a, m) == FP_OKAY) return FP_OKAY;
++   }
++#endif
++
+    IF_HAVE_INTEL_MULX(err=fp_montgomery_reduce_mulx(a, m, mp, ct), return err) ;
+    (void)err;
+ 

@@ -1,0 +1,30 @@
+diff --git a/src/internal.c b/src/internal.c
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -15011,9 +15011,25 @@
+ 
+ int CheckIPAddr(DecodedCert* dCert, const char* ipasc, size_t ipascLen)
+ {
++    #ifdef PALM_WOLFSSL_BROWSER
++    byte expected[4];
++    /* The compact Palm build retains raw iPAddress SANs. Compare the
++     * address directly and require an iPAddress entry, regardless of CN
++     * and other GeneralName alternatives. */
++    if (dCert == NULL || ipasc == NULL || ipascLen > 15 ||
++            !PalmTlsParseIpv4(ipasc, expected)) {
++        return DOMAIN_NAME_MISMATCH;
++    }
++    for (const DNS_entry* alt = dCert->altNames; alt != NULL; alt = alt->next) {
++        if (alt->type == ASN_IP_TYPE && alt->len == sizeof(expected) &&
++                XMEMCMP(alt->name, expected, sizeof(expected)) == 0)
++            return 0;
++    }
++    return DOMAIN_NAME_MISMATCH;
++    #else
+     WOLFSSL_MSG("Checking IPAddr");
+ 
+     return CheckHostName(dCert, ipasc, ipascLen, 0, 1);
++    #endif
+ }
+ 
+ 

@@ -8,7 +8,7 @@ void *WolfPalmMalloc(unsigned long size);
 void WolfPalmFree(void *pointerP);
 void *WolfPalmRealloc(void *pointerP, unsigned long size);
 int WolfPalmRandomBlock(unsigned char *outputP, unsigned long size);
-void PalmTlsSetPinnedRandom(Boolean pinned, PalmTlsDrbg *drbgP);
+void PalmTlsSetSecureRandom(Boolean required, PalmTlsDrbg *drbgP);
 void WolfPalmCopyPlaintext(void *outputP, const void *inputP, UInt32 length);
 Int32 PalmTlsReceive(UInt32 netRefNum, Int32 socket, void *bufferP,
                      UInt32 length, Int32 timeout, Err *errorP);

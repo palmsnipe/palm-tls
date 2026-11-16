@@ -1,4 +1,18 @@
 #include "http.h"
+#if defined(PALM_HTTP_PORTABLE)
+#include <stdio.h>
+#include <string.h>
+enum { false, true, errNone = 0 };
+#define MemSet(ptr, size, value) memset((ptr), (value), (size))
+#define MemMove memmove
+#define MemCmp memcmp
+#define StrLen strlen
+#define StrNCompare strncmp
+#define StrCopy strcpy
+#define StrNCopy strncpy
+#define StrCat strcat
+#define StrPrintF sprintf
+#endif
 
 enum {
     chunkStateSize = 0,
@@ -22,16 +36,18 @@ static Boolean StartsWithNoCase(const Char *valueP, const Char *prefixP)
     return true;
 }
 
-static void CopyTrimmed(Char *targetP, UInt16 capacity, const Char *startP,
-                        const Char *endP)
+static Boolean CopyTrimmed(Char *targetP, UInt16 capacity, const Char *startP,
+                           const Char *endP)
 {
     UInt16 length;
     while (startP < endP && (*startP == ' ' || *startP == '\t')) startP++;
     while (endP > startP && (endP[-1] == ' ' || endP[-1] == '\t')) endP--;
     length = (UInt16)(endP - startP);
-    if (length >= capacity) length = capacity - 1;
+    Boolean fits = length < capacity;
+    if (!fits) length = capacity - 1;
     if (length != 0) MemMove(targetP, startP, length);
     targetP[length] = '\0';
+    return fits;
 }
 
 static Boolean ParseUInt32(const Char *startP, const Char *endP,
@@ -41,14 +57,23 @@ static Boolean ParseUInt32(const Char *startP, const Char *endP,
     Boolean found = false;
     while (startP < endP && (*startP == ' ' || *startP == '\t')) startP++;
     while (startP < endP && *startP >= '0' && *startP <= '9') {
-        UInt32 next = value * 10UL + (UInt16)(*startP++ - '0');
-        if (next < value) return false;
-        value = next;
+        UInt16 digit = (UInt16)(*startP++ - '0');
+        if (value > (0xffffffffUL - digit) / 10UL) return false;
+        value = value * 10UL + digit;
         found = true;
     }
     if (!found) return false;
     *valueP = value;
     return true;
+}
+
+static Boolean MatchHeaderValue(const Char *startP, const Char *endP,
+                                const Char *valueP)
+{
+    while (startP < endP && (*startP == ' ' || *startP == '\t')) startP++;
+    while (endP > startP && (endP[-1] == ' ' || endP[-1] == '\t')) endP--;
+    return (UInt16)(endP - startP) == StrLen(valueP) &&
+        StartsWithNoCase(startP, valueP);
 }
 
 static const Char *FindLineEnd(const Char *startP, const Char *endP)
@@ -86,6 +111,7 @@ static void CopyFilenameParameter(Char *targetP, UInt16 capacity,
 
 static UInt16 ParseHeaders(HttpParser *parserP)
 {
+    Boolean locationFits = true;
     const Char *cursorP = parserP->headers;
     const Char *endP = parserP->headers + parserP->headerLength;
     const Char *lineEndP = FindLineEnd(cursorP, endP);
@@ -112,22 +138,22 @@ static UInt16 ParseHeaders(HttpParser *parserP)
         if (colonP == lineEndP) return httpMalformed;
         if ((UInt16)(colonP - cursorP) == 14 &&
             StartsWithNoCase(cursorP, "Content-Length")) {
-            if (!ParseUInt32(colonP + 1, lineEndP,
-                    &parserP->contentLength))
+            UInt32 length;
+            if (!ParseUInt32(colonP + 1, lineEndP, &length) ||
+                (parserP->hasContentLength && parserP->contentLength != length))
                 return httpMalformed;
+            parserP->contentLength = length;
             parserP->hasContentLength = true;
         } else if ((UInt16)(colonP - cursorP) == 17 &&
                    StartsWithNoCase(cursorP, "Transfer-Encoding")) {
-            const Char *valueP = colonP + 1;
-            while (valueP < lineEndP && (*valueP == ' ' || *valueP == '\t'))
-                valueP++;
-            if (!StartsWithNoCase(valueP, "chunked"))
+            if (!MatchHeaderValue(colonP + 1, lineEndP, "chunked"))
                 return httpUnsupportedEncoding;
+            if (parserP->chunked) return httpMalformed;
             parserP->chunked = true;
         } else if ((UInt16)(colonP - cursorP) == 8 &&
                    StartsWithNoCase(cursorP, "Location")) {
-            CopyTrimmed(parserP->location, sizeof(parserP->location),
-                colonP + 1, lineEndP);
+            locationFits = CopyTrimmed(parserP->location,
+                sizeof(parserP->location), colonP + 1, lineEndP) && locationFits;
         } else if ((UInt16)(colonP - cursorP) == 4 &&
                    StartsWithNoCase(cursorP, "ETag")) {
             CopyTrimmed(parserP->etag, sizeof(parserP->etag), colonP + 1,
@@ -182,10 +208,10 @@ static UInt16 ParseHeaders(HttpParser *parserP)
             parserP->hasContentRange = true;
         } else if ((UInt16)(colonP - cursorP) == 16 &&
                    StartsWithNoCase(cursorP, "Content-Encoding")) {
-            const Char *valueP = colonP + 1;
-            while (valueP < lineEndP && (*valueP == ' ' || *valueP == '\t'))
-                valueP++;
-            if (!StartsWithNoCase(valueP, "identity"))
+            if (parserP->gzip) return httpUnsupportedEncoding;
+            if (parserP->acceptGzip && MatchHeaderValue(colonP + 1, lineEndP, "gzip"))
+                parserP->gzip = true;
+            else if (!MatchHeaderValue(colonP + 1, lineEndP, "identity"))
                 return httpUnsupportedEncoding;
         } else if ((UInt16)(colonP - cursorP) == 10 &&
                    StartsWithNoCase(cursorP, "Connection")) {
@@ -200,7 +226,8 @@ static UInt16 ParseHeaders(HttpParser *parserP)
     parserP->redirect = parserP->statusCode == 301 ||
         parserP->statusCode == 302 || parserP->statusCode == 303 ||
         parserP->statusCode == 307 || parserP->statusCode == 308;
-    if (parserP->redirect && parserP->location[0] == '\0')
+    if (parserP->chunked && parserP->hasContentLength) return httpMalformed;
+    if (parserP->redirect && (!locationFits || parserP->location[0] == '\0'))
         return httpMalformed;
     if (parserP->statusCode == 206 && (!parserP->hasContentRange ||
         parserP->contentRangeStart != parserP->resumeOffset ||
@@ -278,33 +305,95 @@ Boolean HttpResolveRedirect(const HttpUrl *baseP,
     return true;
 }
 
-UInt16 HttpBuildGetRequest(const HttpUrl *urlP,
-                                UInt32 resumeOffset, const Char *validatorP,
-                                Boolean keepAlive, Char *bufferP,
-                                UInt16 capacity)
+static Boolean HeaderValue(const Char *valueP)
 {
-    Char number[12];
-    if (urlP == 0 || bufferP == 0 || capacity < 128) return 0;
-    StrPrintF(bufferP, "GET %s HTTP/1.1\r\nHost: %s\r\n"
-        "User-Agent: Palm-TLS-Downloader/0.1\r\n"
-        "Accept-Encoding: identity\r\nConnection: %s\r\n",
-        urlP->path, urlP->host, keepAlive ? "keep-alive" : "close");
+    if (!valueP || !*valueP) return false;
+    for (; *valueP; ++valueP)
+        if ((unsigned char)*valueP < 32 || *valueP == 127) return false;
+    return true;
+}
+
+static UInt16 BuildRequest(const HttpUrl *urlP, const Char *methodP,
+                          const Char *userAgentP, Boolean acceptGzip,
+                          Boolean keepAlive, Char *bufferP, UInt16 capacity)
+{
+    Char portSuffix[8];
+    if (!urlP || !bufferP || !capacity) return 0;
+    if (!userAgentP) userAgentP = "Palm-TLS-Downloader/0.1";
+    if (!HeaderValue(userAgentP)) return 0;
+    const Char *connectionP = keepAlive ? "keep-alive" : "close";
+    const Char *encodingP = acceptGzip ? "gzip" : "identity";
+    portSuffix[0] = '\0';
+    if (urlP->port != 0 && urlP->port != (urlP->secure ? 443 : 80))
+        StrPrintF(portSuffix, ":%u", (unsigned int)urlP->port);
+    static const Char format[] = "%s %s HTTP/1.1\r\nHost: %s%s\r\n"
+        "User-Agent: %s\r\nAccept-Encoding: %s\r\nConnection: %s\r\n";
+    UInt32 required = sizeof(format) - 14UL + StrLen(methodP) + StrLen(urlP->path) +
+        StrLen(urlP->host) + StrLen(portSuffix) + StrLen(userAgentP) +
+        StrLen(encodingP) + StrLen(connectionP);
+    if (required > capacity) return 0;
+    StrPrintF(bufferP, format, methodP, urlP->path, urlP->host, portSuffix,
+        userAgentP, encodingP, connectionP);
+    return (UInt16)(required - 1);
+}
+
+UInt16 HttpBuildGetRequestEx(const HttpUrl *urlP, UInt32 resumeOffset,
+                            const Char *validatorP, Boolean keepAlive,
+                            const Char *userAgentP, Boolean acceptGzip,
+                            Char *bufferP, UInt16 capacity)
+{
+    UInt16 length = BuildRequest(urlP, "GET", userAgentP, acceptGzip, keepAlive, bufferP, capacity);
+    if (!length) return 0;
     if (resumeOffset != 0) {
+        Char number[12];
         StrPrintF(number, "%lu", (unsigned long)resumeOffset);
-        if (StrLen(bufferP) + StrLen(number) + 20 >= capacity) return 0;
+        if ((UInt32)length + StrLen(number) + 20UL >= capacity) return 0;
         StrCat(bufferP, "Range: bytes=");
         StrCat(bufferP, number);
         StrCat(bufferP, "-\r\n");
-        if (validatorP != 0 && validatorP[0] != '\0') {
-            if (StrLen(bufferP) + StrLen(validatorP) + 14 >= capacity) return 0;
+        length = StrLen(bufferP);
+        if (validatorP && *validatorP) {
+            if (!HeaderValue(validatorP) ||
+                (UInt32)length + StrLen(validatorP) + 14UL >= capacity) return 0;
             StrCat(bufferP, "If-Range: ");
             StrCat(bufferP, validatorP);
             StrCat(bufferP, "\r\n");
+            length = StrLen(bufferP);
         }
     }
-    if (StrLen(bufferP) + 3 >= capacity) return 0;
+    if ((UInt32)length + 3UL > capacity) return 0;
     StrCat(bufferP, "\r\n");
-    return StrLen(bufferP);
+    return length + 2;
+}
+
+UInt16 HttpBuildGetRequest(const HttpUrl *urlP, UInt32 resumeOffset,
+                           const Char *validatorP, Boolean keepAlive,
+                           Char *bufferP, UInt16 capacity)
+{
+    return HttpBuildGetRequestEx(urlP, resumeOffset, validatorP, keepAlive, 0, false, bufferP, capacity);
+}
+
+UInt16 HttpBuildPostRequestEx(const HttpUrl *urlP, const Char *userAgentP,
+                              const Char *contentTypeP, UInt32 bodyLength,
+                              Boolean keepAlive, Char *bufferP, UInt16 capacity)
+{
+    UInt16 length = BuildRequest(urlP, "POST", userAgentP, false, keepAlive, bufferP, capacity);
+    if (!length || !HeaderValue(contentTypeP)) return 0;
+    static const Char format[] = "Content-Type: %s\r\nContent-Length: %s\r\n\r\n";
+    Char number[12];
+    StrPrintF(number, "%lu", (unsigned long)bodyLength);
+    UInt32 required = (UInt32)length + sizeof(format) - 4UL +
+        StrLen(contentTypeP) + StrLen(number);
+    if (required > capacity) return 0;
+    StrPrintF(bufferP + length, format, contentTypeP, number);
+    return (UInt16)(required - 1);
+}
+
+UInt16 HttpBuildPostRequest(const HttpUrl *urlP, const Char *userAgentP,
+                            const Char *contentTypeP, UInt32 bodyLength,
+                            Char *bufferP, UInt16 capacity)
+{
+    return HttpBuildPostRequestEx(urlP, userAgentP, contentTypeP, bodyLength, false, bufferP, capacity);
 }
 
 void HttpFilenameFromUrl(const HttpUrl *urlP, Char *bufferP,

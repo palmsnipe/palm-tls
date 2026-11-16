@@ -22,6 +22,8 @@
 #ifndef __ASSEMBLER__
 #include "../library/include/palm_tls.h"
 #include <time.h>
+#ifdef PALM_WOLFSSL_BROWSER
+#endif
 #endif
 #define XMALLOC(size, heap, type) WolfPalmMalloc((unsigned long)(size))
 #define XFREE(pointer, heap, type) WolfPalmFree(pointer)
@@ -34,7 +36,7 @@
 #define XTIME WolfPalmTime
 #define XGMTIME WolfPalmGmtime
 #define NO_WOLFSSL_SERVER
-#ifndef WOLFSSL_NO_TLS12
+#if !defined(WOLFSSL_NO_TLS12) && !defined(PALM_WOLFSSL_BROWSER)
 #define WOLFSSL_NO_CLIENT_AUTH
 #else
 #define HAVE_ALPN
@@ -85,7 +87,13 @@
 #define ECC_USER_CURVES
 #undef NO_ECC256
 #define TFM_ECC256
-#ifndef PALM_WOLFSSL_ENABLE_ARMLET_MATH
+#ifdef PALM_WOLFSSL_BROWSER
+#define HAVE_ECC384
+#define TFM_ECC384
+#define WOLFSSL_SHA384
+#define FP_MAX_BITS 8192
+#endif
+#if !defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) || defined(PALM_WOLFSSL_BROWSER)
 #define ECC_SHAMIR
 #endif
 #define ECC_TIMING_RESISTANT
@@ -95,7 +103,7 @@
 #endif
 #define WOLFSSL_NO_ASM
 #define HAVE_AESGCM
-#if defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) && defined(WOLFSSL_NO_TLS12)
+#if defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) &&      (defined(WOLFSSL_NO_TLS12) || defined(PALM_WOLFSSL_BROWSER))
 #define HAVE_CHACHA
 #define HAVE_POLY1305
 #endif
@@ -114,7 +122,7 @@
 #ifndef PALM_WOLFSSL_TLS11_ONLY
 #define NO_SHA
 #endif
-#ifndef WOLFSSL_NO_TLS12
+#if !defined(WOLFSSL_NO_TLS12) && !defined(PALM_WOLFSSL_BROWSER)
 #define NO_SHA512
 #endif
 #define NO_DSA
