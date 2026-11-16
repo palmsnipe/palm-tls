@@ -964,14 +964,19 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
     u32 t[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     u32 outer;
     for (outer = 0; outer < 8; outer++) {
-        u64 carry = 0;
+        /* A limb product plus two limb addends fits in 64 bits. Only its
+         * high word carries to the next digit. */
+        u32 carry = 0;
         u64 top;
         u32 inner;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
         for (inner = 0; inner < 8; inner++) {
             u64 value = (u64)leftP->v[inner] * rightP->v[outer] +
                         t[inner] + carry;
             t[inner] = (u32)value;
-            carry = value >> 32;
+            carry = (u32)(value >> 32);
         }
         top = (u64)t[8] + carry;
         t[8] = (u32)top;
@@ -983,18 +988,25 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
         }
     }
     {
-        Fe256 value;
         Fe256 reduced;
         u64 borrow = 0;
         u32 index;
-        for (index = 0; index < 8; index++) value.v[index] = t[index];
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
         for (index = 0; index < 8; index++) {
             u64 right = (u64)kP.v[index] + borrow;
-            reduced.v[index] = value.v[index] - (u32)right;
-            borrow = ((u64)value.v[index] < right);
+            reduced.v[index] = t[index] - (u32)right;
+            borrow = ((u64)t[index] < right);
         }
-        FeSelect(resultP, &value, &reduced,
-                 (t[8] != 0U) | ((u32)borrow ^ 1U));
+        /* Select directly from the accumulator. Make both reads observable
+         * so Clang cannot use a secret-dependent address. */
+        u32 mask = 0U - ((t[8] != 0U) | ((u32)borrow ^ 1U));
+        const volatile u32 *originalP = t;
+        const volatile u32 *reducedP = reduced.v;
+        for (index = 0; index < 8; index++)
+            resultP->v[index] = (originalP[index] & ~mask) |
+                (reducedP[index] & mask);
     }
 }
 
