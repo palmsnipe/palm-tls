@@ -1065,9 +1065,30 @@ static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
     FeMultiply(resultP, valueP, valueP);
 }
 
+/* Shift a canonical field element left once and retain the overflow bit.
+ * One conditional subtraction suffices because 2*value is below 2*p. */
 static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
 {
-    FeAdd(resultP, valueP, valueP);
+    Fe256 doubled, reduced;
+    u32 high = valueP->v[7] >> 31;
+    u32 previous = 0, borrow = 0;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 i = 0; i < 8; i++) {
+        u32 limb = valueP->v[i];
+        doubled.v[i] = (limb << 1) | previous;
+        previous = limb >> 31;
+    }
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 i = 0; i < 8; i++) {
+        u64 right = (u64)kP.v[i] + borrow;
+        reduced.v[i] = doubled.v[i] - (u32)right;
+        borrow = (u64)doubled.v[i] < right;
+    }
+    FeSelect(resultP, &doubled, &reduced, high | (borrow ^ 1U));
 }
 
 static void FeTimes4(Fe256 *resultP, const Fe256 *valueP)
@@ -1136,14 +1157,14 @@ static void PointDouble(Point256 *resultP, const Point256 *pointP)
     FeDouble(&temporary1, &alpha);
     FeAdd(&alpha, &temporary1, &alpha);
     FeSquare(&result.x, &alpha);
-    FeTimes8(&temporary1, &beta);
+    /* Reuse 4*beta in the formulas for X' and Y'. */
+    FeTimes4(&beta, &beta);
+    FeDouble(&temporary1, &beta);
     FeSubtract(&result.x, &result.x, &temporary1);
-    FeAdd(&temporary1, &pointP->y, &pointP->z);
-    FeSquare(&result.z, &temporary1);
-    FeSubtract(&result.z, &result.z, &gamma);
-    FeSubtract(&result.z, &result.z, &delta);
-    FeTimes4(&temporary1, &beta);
-    FeSubtract(&temporary1, &temporary1, &result.x);
+    /* Z' = 2*Y*Z directly, with fewer field additions. */
+    FeMultiply(&temporary1, &pointP->y, &pointP->z);
+    FeDouble(&result.z, &temporary1);
+    FeSubtract(&temporary1, &beta, &result.x);
     FeMultiply(&result.y, &alpha, &temporary1);
     FeSquare(&temporary1, &gamma);
     FeTimes8(&temporary2, &temporary1);
