@@ -37,7 +37,7 @@ static UInt16 gArmletStatus = palmTlsArmUnavailable;
 
 typedef struct PalmTlsArmletAesKey {
     Aes *aesP;
-    UInt8 key[16];
+    UInt8 key[32], length;
 } PalmTlsArmletAesKey;
 
 #define PALM_TLS_ARMLET_AES_KEY_SLOTS \
@@ -173,20 +173,21 @@ static Boolean RunSha256KnownAnswer(void)
     return true;
 }
 
-static Boolean RunAesGcmKnownAnswer(void)
+static Boolean RunAesGcmKnownAnswer(Boolean wide)
 {
-    static const UInt8 cipher[16] = {
-        0x03,0x88,0xda,0xce,0x60,0xb6,0xa3,0x92,
-        0xf3,0x28,0xc2,0xb9,0x71,0xb2,0xfe,0x78
+    static const UInt8 cipher[2][16] = {
+        {0x03,0x88,0xda,0xce,0x60,0xb6,0xa3,0x92,0xf3,0x28,0xc2,0xb9,0x71,0xb2,0xfe,0x78},
+        {0xce,0xa7,0x40,0x3d,0x4d,0x60,0x6b,0x6e,0x07,0x4e,0xc5,0xd3,0xba,0xf3,0x9d,0x18}
     };
-    static const UInt8 tag[16] = {
-        0xab,0x6e,0x47,0xd4,0x2c,0xec,0x13,0xbd,
-        0xf5,0x3a,0x67,0xb2,0x12,0x57,0xbd,0xdf
+    static const UInt8 tag[2][16] = {
+        {0xab,0x6e,0x47,0xd4,0x2c,0xec,0x13,0xbd,0xf5,0x3a,0x67,0xb2,0x12,0x57,0xbd,0xdf},
+        {0xd0,0xd1,0xc8,0xa7,0x99,0x99,0x6b,0xf0,0x26,0x5b,0x98,0xb5,0xd4,0x8a,0xb9,0x19}
     };
     PalmTlsArmletMultiplyRequest *requestP = gRequestP;
     UInt16 index;
     MemSet(requestP, sizeof(*requestP), 0);
     requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->leftUsed = wide ? 32 : 16;
     requestP->command = PALM_TLS_ARMLET_COMMAND_AES_GCM;
     requestP->left[0] = PALM_TLS_ARMLET_AES_GCM_START;
     if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_SUCCESS)
@@ -196,13 +197,13 @@ static Boolean RunAesGcmKnownAnswer(void)
     if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_SUCCESS)
         return false;
     for (index = 0; index < 16; index++)
-        if (requestP->output[index] != cipher[index]) return false;
+        if (requestP->output[index] != cipher[wide][index]) return false;
     requestP->left[0] = PALM_TLS_ARMLET_AES_GCM_FINAL;
     requestP->left[2] = 0;
     if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_SUCCESS)
         return false;
     for (index = 0; index < 16; index++)
-        if (requestP->output[index] != tag[index]) return false;
+        if (requestP->output[index] != tag[wide][index]) return false;
     return true;
 }
 
@@ -373,7 +374,8 @@ void PalmTlsArmletInitialize(void)
         if (gRequestP != 0) {
             gArmletEnabled = RunMultiplyKnownAnswer() &&
                 RunP256KnownAnswer() && RunSha256KnownAnswer() &&
-                RunAesGcmKnownAnswer() && RunOrderKnownAnswer();
+                RunAesGcmKnownAnswer(false) && RunAesGcmKnownAnswer(true) &&
+                RunOrderKnownAnswer();
             gChaChaPolyEnabled = gArmletEnabled && RunChaChaPolyKnownAnswer();
             gEd25519FieldEnabled = gArmletEnabled;
             gEd25519FieldEnabled = gEd25519FieldEnabled && RunEd25519FieldKnownAnswer();
@@ -462,18 +464,24 @@ void PalmTlsArmletAesGcmSetKey(Aes *aesP, const byte *keyP, word32 length)
 {
     UInt16 index;
     Int16 freeSlot = -1;
-    if (aesP == 0 || keyP == 0 || length != 16) return;
+    if (aesP == 0 || keyP == 0) return;
+    if (length != 16 && length != 32) {
+        PalmTlsArmletAesGcmFree(aesP);
+        return;
+    }
     for (index = 0; index < PALM_TLS_ARMLET_AES_KEY_SLOTS; index++) {
         if (gAesKeys[index].aesP == aesP) {
-            MemMove(gAesKeys[index].key, keyP, 16);
-            return;
+            freeSlot = (Int16)index;
+            break;
         }
         if (freeSlot < 0 && gAesKeys[index].aesP == 0)
             freeSlot = (Int16)index;
     }
     if (freeSlot < 0) return;
     gAesKeys[freeSlot].aesP = aesP;
-    MemMove(gAesKeys[freeSlot].key, keyP, 16);
+    gAesKeys[freeSlot].length = (UInt8)length;
+    MemSet(gAesKeys[freeSlot].key, sizeof(gAesKeys[freeSlot].key), 0);
+    MemMove(gAesKeys[freeSlot].key, keyP, length);
 }
 
 void PalmTlsArmletAesGcmFree(Aes *aesP)
@@ -488,11 +496,11 @@ void PalmTlsArmletAesGcmFree(Aes *aesP)
     }
 }
 
-static const UInt8 *FindAesKey(Aes *aesP)
+static const PalmTlsArmletAesKey *FindAesKey(Aes *aesP)
 {
     UInt16 index;
     for (index = 0; index < PALM_TLS_ARMLET_AES_KEY_SLOTS; index++)
-        if (gAesKeys[index].aesP == aesP) return gAesKeys[index].key;
+        if (gAesKeys[index].aesP == aesP) return &gAesKeys[index];
     return 0;
 }
 
@@ -502,7 +510,7 @@ int PalmTlsArmletAesGcmCrypt(Aes *aesP, byte *outputP, const byte *inputP,
                             word32 aadLength, int decrypt, int *resultP)
 {
     PalmTlsArmletMultiplyRequest *requestP = gRequestP;
-    const UInt8 *keyP = FindAesKey(aesP);
+    const PalmTlsArmletAesKey *keyP = FindAesKey(aesP);
     word32 offset = 0;
     UInt16 index;
     UInt8 difference = 0;
@@ -514,12 +522,13 @@ int PalmTlsArmletAesGcmCrypt(Aes *aesP, byte *outputP, const byte *inputP,
 
     MemSet(requestP, sizeof(*requestP), 0);
     requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->leftUsed = keyP->length;
     requestP->command = PALM_TLS_ARMLET_COMMAND_AES_GCM;
     requestP->left[0] = PALM_TLS_ARMLET_AES_GCM_START;
     requestP->left[1] = (UInt8)(aadLength >> 8);
     requestP->left[2] = (UInt8)aadLength;
     requestP->left[3] = decrypt ? 1 : 0;
-    MemMove(requestP->left + 4, keyP, 16);
+    MemMove(requestP->left + 4, keyP->key, keyP->length);
     MemMove(requestP->right, ivP, 12);
     if (aadLength != 0) MemMove(requestP->right + 12, aadP, aadLength);
     if (PceNativeCall(gArmletEntryP, requestP) != PALM_TLS_ARMLET_SUCCESS) {

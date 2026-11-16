@@ -1,5 +1,5 @@
 /* Palm OS 5 ARMlet for 16-bit bignum multiplication, SHA-256 compression,
- * AES-128-GCM, ChaCha20-Poly1305, and complete P-256 scalar multiplication.
+ * AES-GCM, ChaCha20-Poly1305, and complete P-256 scalar multiplication.
  * Palm memory is big-endian while native ARM is little-endian, so request
  * fields are always accessed byte-by-byte. */
 
@@ -194,40 +194,43 @@ static u8 AesXtime(u8 value)
     return (u8)((value << 1) ^ ((value >> 7) * 0x1bU));
 }
 
-static void AesExpand128(const volatile u8 *keyP,
-                         volatile u8 *roundKeyP)
+static void AesExpand(const volatile u8 *keyP, volatile u8 *roundKeyP,
+                      u32 keyLength, u32 rounds)
 {
     static const u8 rcon[10] = {1,2,4,8,16,32,64,128,27,54};
-    u32 index;
-    for (index = 0; index < 16; index++) roundKeyP[index] = keyP[index];
-    for (index = 16; index < 176; index += 4) {
+    u32 index, roundConstant = 0;
+    for (index = 0; index < keyLength; index++) roundKeyP[index] = keyP[index];
+    for (index = keyLength; index < 16 * (rounds + 1); index += 4) {
         u8 a = roundKeyP[index - 4], b = roundKeyP[index - 3];
         u8 c = roundKeyP[index - 2], d = roundKeyP[index - 1];
-        if ((index & 15U) == 0U) {
+        u32 position = index & (keyLength - 1);
+        if (position == 0) {
             u8 old = a;
-            a = (u8)(kAesSbox[b] ^ rcon[index / 16U - 1U]);
+            a = (u8)(kAesSbox[b] ^ rcon[roundConstant++]);
             b = kAesSbox[c]; c = kAesSbox[d]; d = kAesSbox[old];
+        } else if (position == 16) {
+            a = kAesSbox[a]; b = kAesSbox[b]; c = kAesSbox[c]; d = kAesSbox[d];
         }
-        roundKeyP[index] = (u8)(roundKeyP[index - 16] ^ a);
-        roundKeyP[index + 1] = (u8)(roundKeyP[index - 15] ^ b);
-        roundKeyP[index + 2] = (u8)(roundKeyP[index - 14] ^ c);
-        roundKeyP[index + 3] = (u8)(roundKeyP[index - 13] ^ d);
+        roundKeyP[index] = (u8)(roundKeyP[index - keyLength] ^ a);
+        roundKeyP[index + 1] = (u8)(roundKeyP[index + 1 - keyLength] ^ b);
+        roundKeyP[index + 2] = (u8)(roundKeyP[index + 2 - keyLength] ^ c);
+        roundKeyP[index + 3] = (u8)(roundKeyP[index + 3 - keyLength] ^ d);
     }
 }
 
-static void AesEncrypt128(const volatile u8 *roundKeyP,
-                          const u8 *inputP, u8 *outputP)
+static void AesEncrypt(const volatile u8 *roundKeyP, const u8 *inputP,
+                       u8 *outputP, u32 rounds)
 {
     u8 state[16], shifted[16];
     u32 index, round;
     for (index = 0; index < 16; index++) state[index] = inputP[index] ^ roundKeyP[index];
-    for (round = 1; round <= 10; round++) {
+    for (round = 1; round <= rounds; round++) {
         for (index = 0; index < 16; index++) state[index] = kAesSbox[state[index]];
         shifted[0]=state[0]; shifted[1]=state[5]; shifted[2]=state[10]; shifted[3]=state[15];
         shifted[4]=state[4]; shifted[5]=state[9]; shifted[6]=state[14]; shifted[7]=state[3];
         shifted[8]=state[8]; shifted[9]=state[13]; shifted[10]=state[2]; shifted[11]=state[7];
         shifted[12]=state[12]; shifted[13]=state[1]; shifted[14]=state[6]; shifted[15]=state[11];
-        if (round != 10) {
+        if (round != rounds) {
             for (index = 0; index < 16; index += 4) {
                 u8 a=shifted[index], b=shifted[index+1], c=shifted[index+2], d=shifted[index+3];
                 u8 all = a ^ b ^ c ^ d;
@@ -254,9 +257,8 @@ static void GhashShiftRight(u8 *valueP)
     valueP[0] ^= (u8)(0xe1U & (u8)(0U - lsb));
 }
 
-/* Table entry d is the XOR of H, H*x, H*x^2, and H*x^3 selected by the
- * corresponding four bits of d. The table lives in the persistent request
- * state so every record block can use it without rebuilding it. */
+/* Store only the first eight GHASH entries. The upper half differs by H,
+ * leaving room for the AES-256 schedule in the existing request size. */
 static void GhashBuildTable(volatile u8 *tableP, const u8 *hP)
 {
     u8 powers[4][16];
@@ -269,7 +271,7 @@ static void GhashBuildTable(volatile u8 *tableP, const u8 *hP)
             powers[power][index] = powers[power - 1U][index];
         GhashShiftRight(powers[power]);
     }
-    for (digit = 0; digit < 16; digit++) {
+    for (digit = 0; digit < 8; digit++) {
         for (index = 0; index < 16; index++) {
             u8 value = 0;
             for (power = 0; power < 4; power++)
@@ -283,12 +285,16 @@ static void GhashBuildTable(volatile u8 *tableP, const u8 *hP)
 /* Decode once per native call, rather than performing sixteen volatile byte
  * loads on every nibble. Shared request storage remains byte-addressed: Palm
  * callers need not provide a word-aligned request or native-endian state. */
-static void GhashLoadTable(u32 table[16][4], const volatile u8 *bytesP)
+static void GhashLoadTable(u32 table[16][4], const volatile u8 *bytesP, const u8 *hP)
 {
     u32 digit, word;
-    for (digit = 0; digit < 16; digit++)
-        for (word = 0; word < 4; word++)
+    for (word = 0; word < 4; word++) {
+        u32 h = ReadBigEndian32(hP + word * 4U);
+        for (digit = 0; digit < 8; digit++) {
             table[digit][word] = ReadBigEndian32(bytesP + digit * 16U + word * 4U);
+            table[digit + 8][word] = table[digit][word] ^ h;
+        }
+    }
 }
 
 static void GhashBlock(u8 *xP, const u32 table[16][4],
@@ -325,18 +331,18 @@ static void GhashBlock(u8 *xP, const u32 table[16][4],
 }
 
 #define GCM_KEY_OFFSET 4
-#define GCM_COUNTER_OFFSET 20
-#define GCM_INITIAL_OFFSET 36
-#define GCM_H_OFFSET 52
-#define GCM_X_OFFSET 68
-#define GCM_AAD_LENGTH_OFFSET 84
-#define GCM_DATA_LENGTH_OFFSET 88
-#define GCM_ROUND_KEY_OFFSET 92
-#define GCM_ROUND_KEY_SIZE 176
+#define GCM_COUNTER_OFFSET 36
+#define GCM_INITIAL_OFFSET 52
+#define GCM_H_OFFSET 68
+#define GCM_X_OFFSET 84
+#define GCM_AAD_LENGTH_OFFSET 100
+#define GCM_DATA_LENGTH_OFFSET 104
+#define GCM_ROUND_KEY_OFFSET 108
+#define GCM_ROUND_KEY_SIZE 240
 #define GCM_GHASH_TABLE_OFFSET \
     (GCM_ROUND_KEY_OFFSET + GCM_ROUND_KEY_SIZE)
 typedef char GcmPersistentStateFits[
-    GCM_GHASH_TABLE_OFFSET + 16 * 16 <= PALM_TLS_ARMLET_DIGIT_BYTES
+    GCM_GHASH_TABLE_OFFSET + 8 * 16 <= PALM_TLS_ARMLET_DIGIT_BYTES
         ? 1 : -1];
 
 static void Store32(volatile u8 *bytesP, u32 value)
@@ -364,7 +370,7 @@ static void GcmHashBytes(u8 *xP, const u32 table[16][4],
 }
 
 static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
-                  volatile u8 *outputP)
+                  volatile u8 *outputP, u32 keyLength)
 {
     volatile u8 *roundKeyP = stateP + GCM_ROUND_KEY_OFFSET;
     volatile u8 *ghashTableP = stateP + GCM_GHASH_TABLE_OFFSET;
@@ -372,16 +378,19 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
     u32 table[16][4];
     u32 operation = stateP[0], length = ((u32)stateP[1] << 8) | stateP[2];
     u32 decrypt = stateP[3], offset, index, aadLength, dataLength;
+    if (keyLength == 0) keyLength = 16;
+    if (keyLength != 16 && keyLength != 32) return PALM_TLS_ARMLET_ERROR;
+    u32 rounds = keyLength == 32 ? 14 : 10;
     if (operation == PALM_TLS_ARMLET_AES_GCM_START) {
         if (length > PALM_TLS_ARMLET_DIGIT_BYTES - 12U) return PALM_TLS_ARMLET_ERROR;
-        AesExpand128(stateP + GCM_KEY_OFFSET, roundKeyP);
+        AesExpand(stateP + GCM_KEY_OFFSET, roundKeyP, keyLength, rounds);
         for (index=0; index<12; index++) counter[index]=inputP[index];
         counter[12]=0; counter[13]=0; counter[14]=0; counter[15]=1;
         for (index=0; index<16; index++) { block[index]=0; x[index]=0; }
-        AesEncrypt128(roundKeyP, block, h);
+        AesEncrypt(roundKeyP, block, h, rounds);
         GhashBuildTable(ghashTableP, h);
         if (length != 0) {
-            GhashLoadTable(table, ghashTableP);
+            GhashLoadTable(table, ghashTableP, h);
             GcmHashBytes(x, table, inputP + 12, length);
         }
         for (index=0; index<16; index++) {
@@ -400,13 +409,13 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
     }
     aadLength=Load32(stateP+GCM_AAD_LENGTH_OFFSET);
     dataLength=Load32(stateP+GCM_DATA_LENGTH_OFFSET);
-    GhashLoadTable(table, ghashTableP);
+    GhashLoadTable(table, ghashTableP, h);
     if (operation == PALM_TLS_ARMLET_AES_GCM_UPDATE) {
         if (length > PALM_TLS_ARMLET_AES_GCM_CHUNK) return PALM_TLS_ARMLET_ERROR;
         for (offset=0; offset<length; offset+=16) {
             u32 count=length-offset; if (count>16) count=16;
             for (index=16; index>12; index--) if (++counter[index-1] != 0) break;
-            AesEncrypt128(roundKeyP, counter, stream);
+            AesEncrypt(roundKeyP, counter, stream, rounds);
             for (index=0; index<16; index++) block[index]=0;
             for (index=0; index<count; index++) {
                 u8 source=inputP[offset+index];
@@ -426,7 +435,7 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
     for (index=0; index<16; index++) block[index]=0;
     Store32(block+4,aadLength*8U); Store32(block+12,dataLength*8U);
     GhashBlock(x,table,block);
-    AesEncrypt128(roundKeyP,initial,stream);
+    AesEncrypt(roundKeyP, initial, stream, rounds);
     for (index=0; index<16; index++) outputP[index]=(u8)(x[index]^stream[index]);
     return PALM_TLS_ARMLET_SUCCESS;
 }
@@ -1864,7 +1873,7 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_SHA256_TRANSFORM)
         return Sha256Transform(leftP, rightP, outputP, requestP[2]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_AES_GCM)
-        return AesGcm(leftP, rightP, outputP);
+        return AesGcm(leftP, rightP, outputP, requestP[1]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_CHACHA_POLY)
         return ChaChaPoly(leftP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_P256_MUL)

@@ -120,7 +120,8 @@ def aes(backend, rng):
     for aad_size in (0, 1, 13, 16, 20, 31, 516):
         for size in (0, 1, 15, 16, 17, 31, 32, 511, 512, 513, 4096, 16384):
             make = lambda length: bytes(rng.getrandbits(8) for _ in range(length)).hex()
-            vectors.append(dict(key=make(16), nonce=make(12), aad=make(aad_size), plaintext=make(size)))
+            for key_size in (16, 32):
+                vectors.append(dict(key=make(key_size), nonce=make(12), aad=make(aad_size), plaintext=make(size)))
     expected = json.loads(subprocess.check_output(['node', str(Path(__file__).with_name('aes_oracle.mjs'))],
                                                  input=json.dumps(vectors).encode()))
     for index, vector in enumerate(expected):
@@ -128,8 +129,10 @@ def aes(backend, rng):
             data = bytearray([0xa5]) * REQUEST_SIZE
             data[0], data[3] = 1, 3
             aad = bytes.fromhex(vector['aad'])
+            key = bytes.fromhex(vector['key'])
+            data[1] = len(key)
             data[LEFT:LEFT + 4] = bytes([0, len(aad) >> 8, len(aad) & 255, decrypt])
-            data[LEFT + 4:LEFT + 20] = bytes.fromhex(vector['key'])
+            data[LEFT + 4:LEFT + 4 + len(key)] = key
             nonce = bytes.fromhex(vector['nonce'])
             data[RIGHT:RIGHT + len(nonce + aad)] = nonce + aad
             skew = index % 4
@@ -137,7 +140,7 @@ def aes(backend, rng):
             source = bytes.fromhex(vector['ciphertext' if decrypt else 'plaintext'])
             output = bytearray()
             # Non-final updates must end at a block boundary, as in the bridge.
-            chunk = (16, 32, 128, 512)[index % 4]
+            chunk = (16, 32, 128, 512)[index // 2 % 4]
             for offset in range(0, len(source), chunk):
                 part = source[offset:offset + chunk]
                 data[LEFT:LEFT + 3] = bytes([1, len(part) >> 8, len(part) & 255])

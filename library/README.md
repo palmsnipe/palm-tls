@@ -144,7 +144,7 @@ install exactly one.
 
 The ARM variant accelerates common big-integer multiplication/squaring, the
 complete P-256 scalar multiplication used by TLS 1.2 and TLS 1.3 ECDHE/ECDSA,
-ECDSA double-scalar verification, SHA-256 compression, and AES-128-GCM and
+ECDSA double-scalar verification, SHA-256 compression, AES-128/256-GCM, and
 ChaCha20-Poly1305 record protection. TLS protocol
 control, parsing, networking, and memory management still execute in PACE as
 68K code, so this remains a hybrid rather than a fully native wolfSSL port. See
