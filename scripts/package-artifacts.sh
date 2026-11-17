@@ -15,7 +15,6 @@ required=(
   "$repo/library/build/palm/PalmTLSArm.prc"
   "$repo/library/build/palm/PalmTLSArm-Modern.prc"
   "$repo/library/build/palm/PalmTLSArm-TLS13.prc"
-  "$repo/library/build/palm/PalmTLSArm-Browser.prc"
 )
 tester="$repo/apps/tls-tester/build/release/TlsTester.prc"
 

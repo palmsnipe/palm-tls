@@ -31,7 +31,6 @@ required=(
   "$dist/library/PalmTLSArm.prc"
   "$dist/library/PalmTLSArm-Modern.prc"
   "$dist/library/PalmTLSArm-TLS13.prc"
-  "$dist/library/PalmTLSArm-Browser.prc"
   "$dist/tls-tester/TlsTester.prc"
 )
 for file in "${required[@]}"; do
@@ -40,6 +39,17 @@ for file in "${required[@]}"; do
     exit 1
   fi
 done
+
+# A reused dist directory can contain PRCs from an older package.
+prc_filters=()
+for file in "${required[@]:1}"; do
+  prc_filters+=('!' -path "./${file#"$dist/"}")
+done
+unexpected_prc="$(cd "$dist" && find . -iname '*.prc' "${prc_filters[@]}" -print -quit)"
+if [[ -n "$unexpected_prc" ]]; then
+  echo "Unexpected release PRC ($unexpected_prc). Regenerate dist with scripts/package-artifacts.sh." >&2
+  exit 1
+fi
 
 temporary="$(mktemp -d)"
 trap 'rm -rf -- "$temporary"' EXIT

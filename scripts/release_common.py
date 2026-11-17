@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = '.github/workflows/build-artifacts.yml'
 PRCS = ('PalmTLS68K.prc', 'PalmTLS68K-Modern.prc', 'PalmTLS68K-TLS13.prc',
         'PalmTLSArm.prc', 'PalmTLSArm-Modern.prc', 'PalmTLSArm-TLS13.prc',
-        'PalmTLSArm-Browser.prc', 'TlsTester.prc')
+        'TlsTester.prc')
 
 
 def require(condition, message):
@@ -161,7 +161,11 @@ def verify_candidate(root):
     require(bool(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', manifest['repository'])), 'invalid repository')
     require(type(manifest['run_id']) is int and manifest['run_id'] > 0 and
             type(manifest['run_attempt']) is int and manifest['run_attempt'] > 0, 'invalid workflow run')
-    expected_names = {f'assets/{name}' for name in PRCS + (f'PalmTLS-{selected}.zip',)}
+    prcs = PRCS
+    # Preserve verification of the original 0.1.8 CI candidate and its evidence.
+    if selected == '0.1.8' and manifest['commit'] == 'b9fab3c321cd2a9bb9a6b56ff2bc89515ef293f8':
+        prcs += ('PalmTLSArm-Browser.prc',)
+    expected_names = {f'assets/{name}' for name in prcs + (f'PalmTLS-{selected}.zip',)}
     expected_names |= {'notes.md', 'validation/ti925t.log', 'validation/pxa270.log'}
     require(set(manifest['files']) == expected_names, 'unexpected candidate file list')
     verify_files(root, manifest['files'], 'candidate.json')
@@ -174,10 +178,13 @@ def verify_candidate(root):
     require(f'Toolchain image: {manifest["toolchain_image"]}\n' in contents['SOURCE.txt'].decode(), 'wrong toolchain image')
     require(bool(re.fullmatch('[a-f0-9]{40}', manifest['wolfssl_commit'])), 'invalid wolfSSL commit')
     require(f'WOLFSSL_COMMIT="{manifest["wolfssl_commit"]}"' in contents['SOURCE.txt'].decode(), 'wrong wolfSSL source')
+    packaged_prcs = {name: ('tls-tester/' if name == 'TlsTester.prc' else 'library/') + name
+                     for name in prcs}
+    require({name for name in contents if name.lower().endswith('.prc')} == set(packaged_prcs.values()),
+            'unexpected PRC file list in binary ZIP')
     images = []
-    for name in PRCS:
+    for name, packaged in packaged_prcs.items():
         data = (root / 'assets' / name).read_bytes()
-        packaged = ('tls-tester/' if name == 'TlsTester.prc' else 'library/') + name
         require(data == contents[packaged], f'{name} differs from binary ZIP')
         require(prc_version(data) == selected, f'{name} version differs from candidate')
         if name.startswith('PalmTLSArm'):

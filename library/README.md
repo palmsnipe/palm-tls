@@ -8,7 +8,7 @@ PalmTLS is distributed as mutually exclusive Palm OS system-library PRCs for
   traps remain 68K-compatible while multiprecision multiply/square, complete
   P-256 scalar multiplication, and SHA-256 compression execute as a native
   ARMlet through `PceNativeCall`.
-- `PalmTLSArm-Browser.prc` adds a single engine that negotiates TLS 1.2 or 1.3
+- The Browser profile is available as a source build. It negotiates TLS 1.2 or 1.3
   for a CA-verified client provisioned with host randomness. Its broader
   certificate support includes SHA-384, P-384 and RSA-4096. The ARMlet
   accelerates public RSA-4096 multiplication and Montgomery reduction.
@@ -129,13 +129,12 @@ The `test` target rebuilds and validates the profiles sequentially, so a
 compact PRC cannot remain stale after shared PalmTLS code changes. The Full
 profile is built last to leave the default intermediate resources selected.
 
-The available profiles produce:
+Release packages contain these profiles:
 
 ```text
 PalmTLS68K.prc / PalmTLSArm.prc                 TLS 1.1 + 1.2 + 1.3
 PalmTLS68K-Modern.prc / PalmTLSArm-Modern.prc   TLS 1.2 + 1.3
 PalmTLS68K-TLS13.prc / PalmTLSArm-TLS13.prc     TLS 1.3 only
-PalmTLSArm-Browser.prc                        TLS 1.2 / 1.3 negotiation
 ```
 
 Build one profile directly with `TLS_PROFILE=tls13`, `modern`, `browser`, or `full` and

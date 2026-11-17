@@ -138,6 +138,19 @@ class CandidateTests(Fixture):
         write_json(self.candidate / 'candidate.json',value)
         with self.assertRaises(ValueError):verify_candidate(self.candidate)
 
+    def test_unlisted_prc_in_zip_even_with_updated_checksums(self):
+        archive = self.candidate / 'assets/PalmTLS-0.1.5.zip'
+        contents = verify_zip(archive.read_bytes(), '0.1.5')
+        extra = 'library/PalmTLSArm-Browser.prc'
+        contents[extra] = prc(arm=True)
+        contents['SHA256SUMS'] += f'{sha(contents[extra])}  ./{extra}\n'.encode()
+        deterministic_zip(archive, {f'PalmTLS-0.1.5/{name}': data
+                                    for name, data in contents.items()})
+        self.manifest['files']['assets/PalmTLS-0.1.5.zip'] = digest(archive)
+        write_json(self.candidate / 'candidate.json', self.manifest)
+        with self.assertRaisesRegex(ValueError, 'unexpected PRC file list in binary ZIP'):
+            verify_candidate(self.candidate)
+
     def test_zip_traversal_duplicate_and_corruption(self):
         archive = self.root / 'bad.zip'
         for name in ('PalmTLS-0.1.5/../secret.key','outside.txt'):

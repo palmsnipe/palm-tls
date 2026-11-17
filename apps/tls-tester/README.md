@@ -75,8 +75,8 @@ version, and tap **Test**. PalmTLS reports only the protocols included in the
 installed profile, so the selector adapts to smaller builds. The **Get** button
 downloads a URL, while **Files** opens the saved-download catalog.
 
-To try stylus seeding, install `library/build/palm/PalmTLSArm-Browser.prc`
-and use a Tungsten E2, Palm TX, or Zire 72. Select **HTTPS / Stylus**, tap
+To try stylus seeding, build the Browser profile from source and install it on
+a Tungsten E2, Palm TX, or Zire 72. Select **HTTPS / Stylus**, tap
 **Seed**, and draw in the box. Keep drawing and changing direction until the
 bar fills. Lift the stylus and tap **Use seed**, then use **Test** or **Get**
 with the matching trust profile.

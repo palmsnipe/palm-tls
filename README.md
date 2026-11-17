@@ -118,12 +118,14 @@ For an optimized application build, run:
 make -C apps/tls-tester release
 ```
 
-Create a distributable directory containing all seven library PRCs, the public
-header and documentation, and the release TLS Tester with:
+Create a distributable directory containing the six release library PRCs, the
+public header and documentation, and the release TLS Tester with:
 
 ```sh
 scripts/package-artifacts.sh
 ```
+
+The Browser profile is available through a source build.
 
 The same packaging command is used by the manually triggered GitHub Actions
 release-candidate workflow. That trusted workflow runs inside a private SDK-enabled

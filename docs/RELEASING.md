@@ -58,7 +58,7 @@ fails the job, even though its output is also collected with `tee`.
 
 The candidate contains:
 
-- The eight PRCs and complete binary ZIP.
+- Six library PRCs, the TLS Tester PRC, and the complete binary ZIP.
 - Checked-in release notes plus exact source/patch links.
 - The two CPU validation logs.
 - `candidate.json`, binding file hashes to the source commit, wolfSSL commit,
