@@ -1063,30 +1063,34 @@ static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
     FeMultiply(resultP, valueP, valueP);
 }
 
-/* Shift a canonical field element left once and retain the overflow bit.
- * One conditional subtraction suffices because 2*value is below 2*p. */
+/* For a canonical x, 2*x needs one subtraction exactly when x >= (p+1)/2.
+ * Compare the high limbs against that threshold, whose low 95 bits are zero.
+ * Keeping only the chosen subtraction lets the shift and borrow share one
+ * pass. Read each input limb before storing so in-place doubling works. */
 static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
 {
-    Fe256 doubled, reduced;
-    u32 high = valueP->v[7] >> 31;
+    const u32 highBit = 0x80000000U;
+    u32 top = valueP->v[7];
+    u32 next = valueP->v[6];
+    u32 middle = valueP->v[5];
+    u32 lower = valueP->v[4] | valueP->v[3];
+    u32 middleAtLeast = (middle >> 31) &
+        ((middle != highBit) | (lower != 0U) | (valueP->v[2] >> 31));
+    u32 subtract = (top >> 31) | ((top == highBit - 1U) &
+        ((next > highBit) | ((next == highBit) & middleAtLeast)));
+    u32 mask = 0U - subtract;
     u32 previous = 0, borrow = 0;
 #if defined(__clang__)
 #pragma clang loop unroll(full)
 #endif
     for (u32 i = 0; i < 8; i++) {
         u32 limb = valueP->v[i];
-        doubled.v[i] = (limb << 1) | previous;
+        u32 word = (limb << 1) | previous;
+        u64 difference = (u64)word - (kP.v[i] & mask) - borrow;
+        resultP->v[i] = (u32)difference;
+        borrow = (u32)(difference >> 63);
         previous = limb >> 31;
     }
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-    for (u32 i = 0; i < 8; i++) {
-        u64 right = (u64)kP.v[i] + borrow;
-        reduced.v[i] = doubled.v[i] - (u32)right;
-        borrow = (u64)doubled.v[i] < right;
-    }
-    FeSelect(resultP, &doubled, &reduced, high | (borrow ^ 1U));
 }
 
 static void FeTimes4(Fe256 *resultP, const Fe256 *valueP)
@@ -1438,6 +1442,18 @@ static void FeWriteRawBigEndian(volatile u8 *bytesP, const Fe256 *valueP)
         bytesP[offset + 3] = (u8)value;
     }
 }
+
+#ifdef PALM_ARMLET_HOST_TEST
+/* Preserve the raw input so tests can hit the exact reduction threshold. */
+void PalmTlsArmletTestDouble(const u8 *inputP, u8 *outputP, u32 inPlace)
+{
+    Fe256 value, doubled;
+    Fe256 *resultP = inPlace ? &value : &doubled;
+    FeReadRawBigEndian(&value, inputP);
+    FeDouble(resultP, &value);
+    FeWriteRawBigEndian(outputP, resultP);
+}
+#endif
 
 /* Normalize the 15 nonzero multiples of a validated public P-256 point.
  * All Z values are nonzero (the prime order exceeds 15). Montgomery's batch

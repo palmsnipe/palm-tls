@@ -25,6 +25,9 @@ class Host:
         self.inverse = self.library.PalmTlsArmletTestInverse
         self.inverse.argtypes = [ctypes.c_void_p] * 2
         self.inverse.restype = None
+        self.double = self.library.PalmTlsArmletTestDouble
+        self.double.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32]
+        self.double.restype = None
 
     def invoke(self, request, skew=0):
         storage = bytearray(skew) + request
@@ -198,6 +201,17 @@ def field_arithmetic(backend):
         assert data[OUTPUT:OUTPUT + 32] == b'\xa5' * 32, 'field error modified output'
     if isinstance(backend, Arm):
         field_traces(backend)
+    else:
+        # Random products almost never reach the limb ties in ceil(p/2).
+        half = (P + 1) // 2
+        doubles = [0, P - 1, 2**255 - 1, 2**255, half]
+        for bit in (0, 95, 96, 128, 159, 160, 191, 192, 223, 224):
+            doubles.extend((half - (1 << bit), half + (1 << bit)))
+        for value in doubles:
+            for in_place in (False, True):
+                output = ctypes.create_string_buffer(32)
+                backend.double(integer(value), output, in_place)
+                assert output.raw == integer(2 * value % P), ('field double', value, in_place)
     return cases
 
 
