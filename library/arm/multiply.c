@@ -1455,28 +1455,28 @@ void PalmTlsArmletTestDouble(const u8 *inputP, u8 *outputP, u32 inPlace)
 }
 #endif
 
-/* Normalize the 15 nonzero multiples of a validated public P-256 point.
- * All Z values are nonzero (the prime order exceeds 15). Montgomery's batch
- * trick uses one inversion and a fixed reverse pass; scalar bits are untouched. */
-static void NormalizePointTable(Point256 *tableP)
+/* Row one is already affine. Batch-normalize X and Y for rows 2 through
+ * 15, whose Z values are nonzero for a validated point of prime order.
+ * The window only reads X and Y from these rows. */
+static void NormalizeWindowCoordinates(Point256 *tableP)
 {
-    Fe256 products[15], inverse, zInverse, squared, cubed;
-    int index;
-    FeCopy(&products[0], &tableP[1].z);
-    for (index = 2; index < 16; index++)
-        FeMultiply(&products[index - 1], &products[index - 2], &tableP[index].z);
-    FeInverse(&inverse, &products[14]);
-    for (index = 15; index > 0; index--) {
-        if (index > 1)
-            FeMultiply(&zInverse, &inverse, &products[index - 2]);
-        else
-            FeCopy(&zInverse, &inverse);
-        FeMultiply(&inverse, &inverse, &tableP[index].z);
-        FeSquare(&squared, &zInverse);
-        FeMultiply(&cubed, &squared, &zInverse);
+    Fe256 products[14], inverse;
+    FeCopy(&products[0], &tableP[2].z);
+    for (int index = 3; index < 16; index++)
+        FeMultiply(&products[index - 2], &products[index - 3], &tableP[index].z);
+    FeInverse(&inverse, &products[13]);
+    for (int index = 15; index >= 2; index--) {
+        Fe256 zInverse, squared, cubed;
+        const Fe256 *zInverseP = &inverse;
+        if (index > 2) {
+            FeMultiply(&zInverse, &inverse, &products[index - 3]);
+            FeMultiply(&inverse, &inverse, &tableP[index].z);
+            zInverseP = &zInverse;
+        }
+        FeSquare(&squared, zInverseP);
+        FeMultiply(&cubed, &squared, zInverseP);
         FeMultiply(&tableP[index].x, &tableP[index].x, &squared);
         FeMultiply(&tableP[index].y, &tableP[index].y, &cubed);
-        FeCopy(&tableP[index].z, &kR);
     }
 }
 
@@ -1561,17 +1561,18 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
         }
     }
     else {
-        PointSetInfinity(&table[0]);
         FeCopy(&table[1].x, &affineX);
         FeCopy(&table[1].y, &affineY);
         FeCopy(&table[1].z, &kR);
-        PointDouble(&table[2], &table[1]);
-        for (index = 3; index < 16; index++)
-            PointAddMixed(&table[index], &table[index - 1], &affineX, &affineY);
-        /* table[0] is not selected by a scalar digit. Reuse it for the
-         * exceptional equal-point result, in Jacobian coordinates. */
+        /* Build even multiples by doubling, then add Q for the odd rows. */
+        for (index = 2; index < 16; index += 2) {
+            PointDouble(&table[index], &table[index / 2U]);
+            PointAddMixed(&table[index + 1U], &table[index], &affineX, &affineY);
+        }
+        /* Store the exceptional equal-point result in table[0], outside
+         * the window scan. Keep it in Jacobian coordinates. */
         PointDouble(&table[0], &table[15]);
-        NormalizePointTable(table);
+        NormalizeWindowCoordinates(table);
         PointSetInfinity(&result);
         for (window = 63; window >= 0; window--) {
             Affine256 selected;
