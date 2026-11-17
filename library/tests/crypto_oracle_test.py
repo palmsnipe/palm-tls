@@ -342,9 +342,9 @@ def p256(backend, rng):
         actual = ctypes.create_string_buffer(32)
         backend.inverse(integer(0), actual)
         assert actual.raw == integer(0), 'zero inverse convention'
-    # N+30 reaches an equal-point addition in the final radix-16 window.
-    # Sparse/dense digits exercise infinity and zero-window selection.
-    scalars = [1, 2, 3, N - 1, N + 1, N + 30, 2**256 - 1,
+    # N+30 used to reach an equal-point addition in the last radix-16 window.
+    # Above-order inputs must still work, including a zero digit after reduction.
+    scalars = [1, 2, 3, N - 1, N + 1, N + 16, N + 30, 2**256 - 1,
                2**252, int('10' * 32, 16)] + [rng.randrange(1, N) for _ in range(12)]
     q = multiply(7, G)
     for base in (G, q):

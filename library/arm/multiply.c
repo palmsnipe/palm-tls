@@ -17,6 +17,7 @@ typedef unsigned long long u64;
 #endif
 
 typedef struct Fe256 { u32 v[8]; } Fe256;
+typedef struct Order256 { u32 v[8]; } Order256;
 typedef struct Point256 { Fe256 x, y, z; } Point256;
 typedef struct Affine256 { Fe256 x, y; } Affine256;
 
@@ -564,7 +565,7 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
 typedef u32 __attribute__((may_alias)) AliasU32;
 
 /* Volatile stores keep secret-buffer clearing in optimized ARM builds. */
-static void ClearChaChaSecret(volatile void *pointerP, u32 length)
+static void ClearSecret(volatile void *pointerP, u32 length)
 {
     volatile u8 *bytesP = (volatile u8 *)pointerP;
     while (length != 0) {
@@ -663,7 +664,7 @@ static void ChaChaCrypt(u32 *stateP, const u8 *inputP, u8 *outputP,
             outputP[index] = (u8)(inputP[index] ^
                 (stream[index >> 2] >> (8U * (index & 3U))));
     }
-    ClearChaChaSecret(stream, sizeof(stream));
+    ClearSecret(stream, sizeof(stream));
 }
 
 /* Poly1305 in five 26-bit limbs, as in poly1305-donna-32. */
@@ -801,7 +802,7 @@ static void ChaChaPolyTag(const u32 *polyKeyP, const u8 *aadP,
     StoreLittle32(lengths + 12, 0);
     PolyPadded(&poly, lengths, 16);
     PolyFinish(&poly, tagP);
-    ClearChaChaSecret(&poly, sizeof(poly));
+    ClearSecret(&poly, sizeof(poly));
 }
 
 /* Seals or opens one record. Opening checks the tag before decrypting, as
@@ -823,13 +824,13 @@ static u32 ChaChaPoly(volatile u8 *fieldsP)
     u32 index, difference = 0, status = PALM_TLS_ARMLET_SUCCESS;
     if (length > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH ||
         aadLength > PALM_TLS_ARMLET_CHACHA_MAX_LENGTH) {
-        ClearChaChaSecret(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, 64);
+        ClearSecret(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, 64);
         return PALM_TLS_ARMLET_ERROR;
     }
     for (index = 0; index < 16; index++)
         state[index] = Load32(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET +
             index * 4U);
-    ClearChaChaSecret(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, 64);
+    ClearSecret(fieldsP + PALM_TLS_ARMLET_CHACHA_STATE_OFFSET, 64);
     state[12] = 0;
     ChaChaBlock(state, polyKey);
     if (decrypt) {
@@ -847,9 +848,9 @@ static u32 ChaChaPoly(volatile u8 *fieldsP)
         for (index = 0; index < 16; index++) tagFieldP[index] = tag[index];
     }
 cleanup:
-    ClearChaChaSecret(state, sizeof(state));
-    ClearChaChaSecret(polyKey, sizeof(polyKey));
-    ClearChaChaSecret(tag, sizeof(tag));
+    ClearSecret(state, sizeof(state));
+    ClearSecret(polyKey, sizeof(polyKey));
+    ClearSecret(tag, sizeof(tag));
     return status;
 }
 
@@ -1174,13 +1175,15 @@ static void PointDouble(Point256 *resultP, const Point256 *pointP)
     PointCopy(resultP, &result);
 }
 
-/* Unscaled mixed addition (madd-2004-hmv). The result uses separate storage
- * from the inputs. When both inputs are finite, return 1 if they are equal.
- * The callers select exceptional results with masks. */
-static u32 PointAddMixedUnscaled(Point256 *resultP, const Point256 *pointP,
-                                 const Fe256 *affineXP, const Fe256 *affineYP)
+/* Unscaled mixed addition (madd-2004-hmv). The caller supplies distinct
+ * points when the accumulator is finite. Select the affine operand with a
+ * mask when the accumulator is infinity. */
+static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
+                          const Fe256 *affineXP, const Fe256 *affineYP)
 {
     Fe256 zSquared, u2, s2, h, hh, hhh, r, v, temporary;
+    Point256 result, affine;
+    u32 wasInfinity = FeIsZero(&pointP->z);
     FeSquare(&zSquared, &pointP->z);
     FeMultiply(&u2, affineXP, &zSquared);
     FeMultiply(&temporary, &pointP->z, &zSquared);
@@ -1190,57 +1193,25 @@ static u32 PointAddMixedUnscaled(Point256 *resultP, const Point256 *pointP,
     FeSquare(&hh, &h);
     FeMultiply(&hhh, &h, &hh);
     FeMultiply(&v, &pointP->x, &hh);
-    FeSquare(&resultP->x, &r);
-    FeSubtract(&resultP->x, &resultP->x, &hhh);
+    FeSquare(&result.x, &r);
+    FeSubtract(&result.x, &result.x, &hhh);
     FeDouble(&temporary, &v);
-    FeSubtract(&resultP->x, &resultP->x, &temporary);
-    FeSubtract(&temporary, &v, &resultP->x);
-    FeMultiply(&resultP->y, &r, &temporary);
+    FeSubtract(&result.x, &result.x, &temporary);
+    FeSubtract(&temporary, &v, &result.x);
+    FeMultiply(&result.y, &r, &temporary);
     FeMultiply(&temporary, &pointP->y, &hhh);
-    FeSubtract(&resultP->y, &resultP->y, &temporary);
-    FeMultiply(&resultP->z, &pointP->z, &h);
-    return FeIsZero(&h) & FeIsZero(&r);
-}
-
-/* Add an affine point to a Jacobian point. */
-static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
-                          const Fe256 *affineXP, const Fe256 *affineYP)
-{
-    Point256 result, affine;
-    u32 wasInfinity = FeIsZero(&pointP->z);
-    PointAddMixedUnscaled(&result, pointP, affineXP, affineYP);
+    FeSubtract(&result.y, &result.y, &temporary);
+    FeMultiply(&result.z, &pointP->z, &h);
     FeCopy(&affine.x, affineXP);
     FeCopy(&affine.y, affineYP);
     FeCopy(&affine.z, &kR);
     PointSelect(resultP, &result, &affine, wasInfinity);
 }
 
-/* Mixed addition ONLY for the fixed 64-window radix-16 loop below. Before
- * an addition P = 16*prefix*Q and the selected point is digit*Q (1..15).
- * For a nonzero Q of prime order n, equality requires 16*prefix = n+digit:
- * earlier windows are too small, 2*n > 2^256, and n mod 16 = 1. Thus equality
- * is possible only for digit=15 in the final window, at scalar n+30; its
- * result is 30*Q. Supply that public precomputed fallback. Zero digits use Q
- * as a dummy and discard the result. The formula gives Z = 0 for opposite
- * points, and a mask selects the affine point when the accumulator is infinity. */
-static void PointAddMixedWindow(Point256 *resultP, const Point256 *pointP,
-                                const Fe256 *affineXP, const Fe256 *affineYP,
-                                const Point256 *equalResultP)
-{
-    Point256 result, affine, selected;
-    u32 wasInfinity = FeIsZero(&pointP->z);
-    u32 equal = PointAddMixedUnscaled(&result, pointP, affineXP, affineYP);
-    FeCopy(&affine.x, affineXP);
-    FeCopy(&affine.y, affineYP);
-    FeCopy(&affine.z, &kR);
-    PointSelect(&selected, &result, equalResultP, equal);
-    PointSelect(resultP, &selected, &affine, wasInfinity);
-}
-
 /* ECDSA verification points and scalars are public. This complete addition
  * can therefore branch on exceptional cases and avoids calculating a
  * Jacobian doubling during every ordinary table addition. Secret-scalar
- * multiplication uses the bounded fixed-window mixed addition above.
+ * multiplication uses the masked mixed addition above.
  * Reuse the table operand's precomputed Z powers for either sign of Y. */
 static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
                            const Point256 *rightP, const Fe256 *rightZ2P,
@@ -1455,21 +1426,21 @@ void PalmTlsArmletTestDouble(const u8 *inputP, u8 *outputP, u32 inPlace)
 }
 #endif
 
-/* Row one is already affine. Batch-normalize X and Y for rows 2 through
- * 15, whose Z values are nonzero for a validated point of prime order.
- * The window only reads X and Y from these rows. */
+/* Entry zero (Q) is already affine. Batch-normalize X and Y for the
+ * remaining entries, which have nonzero Z for a valid point of prime order.
+ * The window only reads X and Y from these entries. */
 static void NormalizeWindowCoordinates(Point256 *tableP)
 {
     Fe256 products[14], inverse;
-    FeCopy(&products[0], &tableP[2].z);
-    for (int index = 3; index < 16; index++)
-        FeMultiply(&products[index - 2], &products[index - 3], &tableP[index].z);
+    FeCopy(&products[0], &tableP[1].z);
+    for (int index = 2; index < 15; index++)
+        FeMultiply(&products[index - 1], &products[index - 2], &tableP[index].z);
     FeInverse(&inverse, &products[13]);
-    for (int index = 15; index >= 2; index--) {
+    for (int index = 14; index > 0; index--) {
         Fe256 zInverse, squared, cubed;
         const Fe256 *zInverseP = &inverse;
-        if (index > 2) {
-            FeMultiply(&zInverse, &inverse, &products[index - 3]);
+        if (index > 1) {
+            FeMultiply(&zInverse, &inverse, &products[index - 2]);
             FeMultiply(&inverse, &inverse, &tableP[index].z);
             zInverseP = &zInverse;
         }
@@ -1512,11 +1483,11 @@ static void SelectGeneratorComb(Affine256 *resultP, u32 digit)
  * in registers at a time and use volatile loads to read every row. */
 static void SelectWindowCoordinate(Fe256 *resultP,
                                    const volatile Point256 *tableP,
-                                   u32 digit, u32 y)
+                                   u32 selection, u32 y)
 {
     Fe256 selected = {{0}};
-    for (u32 index = 1; index < 16U; index++) {
-        u32 mask = 0U - EqualSmall(index, digit);
+    for (u32 index = 0; index < 15U; index++) {
+        u32 mask = 0U - EqualSmall(index, selection);
         const volatile Fe256 *coordP = y ? &tableP[index].y : &tableP[index].x;
 #if defined(__clang__)
 #pragma clang loop unroll(full)
@@ -1527,11 +1498,13 @@ static void SelectWindowCoordinate(Fe256 *resultP,
     FeCopy(resultP, &selected);
 }
 
+static void ReduceP256Scalar(Order256 *resultP, const volatile u8 *scalarP);
+
 static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                             const volatile u8 *inputP, Point256 *resultP)
 {
     Fe256 affineX, affineY;
-    Point256 table[16];
+    Point256 table[15];
     Point256 result;
     int window;
     u32 index;
@@ -1561,34 +1534,35 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
         }
     }
     else {
-        FeCopy(&table[1].x, &affineX);
-        FeCopy(&table[1].y, &affineY);
-        FeCopy(&table[1].z, &kR);
+        Order256 scalar;
+        ReduceP256Scalar(&scalar, scalarP);
+        FeCopy(&table[0].x, &affineX);
+        FeCopy(&table[0].y, &affineY);
+        FeCopy(&table[0].z, &kR);
         /* Build even multiples by doubling, then add Q for the odd rows. */
-        for (index = 2; index < 16; index += 2) {
+        for (index = 1; index < 15U; index += 2U) {
             PointDouble(&table[index], &table[index / 2U]);
             PointAddMixed(&table[index + 1U], &table[index], &affineX, &affineY);
         }
-        /* Store the exceptional equal-point result in table[0], outside
-         * the window scan. Keep it in Jacobian coordinates. */
-        PointDouble(&table[0], &table[15]);
         NormalizeWindowCoordinates(table);
         PointSetInfinity(&result);
+        /* The scalar is below n, so a nonzero accumulator coefficient is
+         * a multiple of 16 below n. It cannot equal a digit in 1..15. */
         for (window = 63; window >= 0; window--) {
             Affine256 selected;
             Point256 added;
-            u32 byte = scalarP[31U - ((u32)window >> 1)];
-            u32 digit = ((u32)window & 1U) != 0 ? byte >> 4 : byte & 0x0fU;
-            /* Use row one for a zero digit, then discard its addition. */
-            u32 selectionDigit = digit | EqualSmall(digit, 0);
+            u32 bit = (u32)window * 4U;
+            u32 digit = (scalar.v[bit >> 5] >> (bit & 31U)) & 0x0fU;
+            /* Use Q for a zero digit, then discard its addition. */
+            u32 selection = (digit | EqualSmall(digit, 0)) - 1U;
             for (index = 0; index < 4; index++)
                 PointDouble(&result, &result);
-            SelectWindowCoordinate(&selected.x, table, selectionDigit, 0U);
-            SelectWindowCoordinate(&selected.y, table, selectionDigit, 1U);
-            PointAddMixedWindow(&added, &result, &selected.x, &selected.y,
-                                &table[0]);
+            SelectWindowCoordinate(&selected.x, table, selection, 0U);
+            SelectWindowCoordinate(&selected.y, table, selection, 1U);
+            PointAddMixed(&added, &result, &selected.x, &selected.y);
             PointSelect(&result, &result, &added, EqualSmall(digit, 0) ^ 1U);
         }
+        ClearSecret(&scalar, sizeof(scalar));
     }
     if (FeIsZero(&result.z)) return PALM_TLS_ARMLET_ERROR;
     PointCopy(resultP, &result);
@@ -1776,9 +1750,8 @@ static u32 P256Multiply2Add(const volatile u8 *scalarsP,
 
 /* P-256 order arithmetic is deliberately separate from field arithmetic:
  * n != p, so neither the field reduction constant nor FeInverse applies.
- * These inputs are public signature/hash values. The binary inverse is
- * variable-time and must not be used for private scalars or signing nonces. */
-typedef struct Order256 { u32 v[8]; } Order256;
+ * The binary inverse is variable-time and operates on public signatures.
+ * The single-subtraction scalar reduction also accepts private input. */
 static const Order256 kOrder = {{
     0xfc632551U, 0xf3b9cac2U, 0xa7179e84U, 0xbce6faadU,
     0xffffffffU, 0xffffffffU, 0x00000000U, 0xffffffffU
@@ -1931,6 +1904,13 @@ static void OrderRead(Order256 *valueP, const volatile u8 *bytesP)
     u32 index;
     for (index = 0; index < 8; index++)
         valueP->v[index] = ReadBigEndian32(bytesP + (7U - index) * 4U);
+}
+
+/* Since n > 2^255, subtract n once and add it back on underflow. */
+static void ReduceP256Scalar(Order256 *resultP, const volatile u8 *scalarP)
+{
+    OrderRead(resultP, scalarP);
+    OrderSubtractMod(resultP, resultP, &kOrder);
 }
 
 static void OrderWrite(volatile u8 *bytesP, const Order256 *valueP)
