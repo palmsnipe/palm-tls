@@ -1,0 +1,170 @@
+diff --git a/library/arm/multiply.c b/library/arm/multiply.c
+index 229d669..7c7a9b0 100644
+--- a/library/arm/multiply.c
++++ b/library/arm/multiply.c
+@@ -1120,6 +1120,9 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
+         u32 mask = 0U - ((t[8] != 0U) | ((u32)borrow ^ 1U));
+         const volatile u32 *originalP = t;
+         const volatile u32 *reducedP = reduced.v;
++#if defined(__clang__)
++#pragma clang loop unroll(full)
++#endif
+         for (index = 0; index < 8; index++)
+             resultP->v[index] = (originalP[index] & ~mask) |
+                 (reducedP[index] & mask);
+@@ -2084,6 +2087,50 @@ static u32 P256Verify(const volatile u8 *scalarsP, const volatile u8 *pointsP,
+     return PALM_TLS_ARMLET_SUCCESS;
+ }
+ 
++/* Generic TFM multiplication arrives as packed 16-bit digits. Multiply two
++ * digits at a time in 32-bit words, then split the product back into the
++ * caller's 16-bit digit order. This quarters the inner-loop count and avoids
++ * per-digit byte reads and writes. The result is identical to the former
++ * base-2^16 schoolbook loop, including odd lengths and leading zeros. */
++static u32 ReadDigitPair(const volatile u8 *digitsP, u32 wordIndex, u32 used)
++{
++    u32 low = ReadDigit(digitsP, wordIndex * 2U);
++    u32 high = wordIndex * 2U + 1U < used ?
++        ReadDigit(digitsP, wordIndex * 2U + 1U) : 0U;
++    return low | (high << 16);
++}
++
++static u32 MultiplyDigits32(const volatile u8 *leftP, u32 leftUsed,
++                            const volatile u8 *rightP, u32 rightUsed,
++                            volatile u8 *outputP)
++{
++    u32 product[PALM_TLS_ARMLET_MAX_DIGITS];
++    u32 leftWords = (leftUsed + 1U) / 2U;
++    u32 rightWords = (rightUsed + 1U) / 2U;
++    u32 wordCount = leftWords + rightWords;
++    u32 outputUsed = leftUsed + rightUsed;
++    u32 index, inner;
++    for (index = 0; index < wordCount; index++) product[index] = 0;
++    for (index = 0; index < leftWords; index++) {
++        u32 left = ReadDigitPair(leftP, index, leftUsed);
++        u32 carry = 0;
++        for (inner = 0; inner < rightWords; inner++) {
++            u32 right = ReadDigitPair(rightP, inner, rightUsed);
++            u64 value = (u64)left * right + product[index + inner] + carry;
++            product[index + inner] = (u32)value;
++            carry = (u32)(value >> 32);
++        }
++        product[index + rightWords] = carry;
++    }
++    for (index = 0; index < outputUsed; index++) {
++        u32 digit = (product[index >> 1] >> ((index & 1U) * 16U)) & 0xffffU;
++        WriteDigit(outputP, index, digit);
++    }
++    while (outputUsed != 0 && ReadDigit(outputP, outputUsed - 1) == 0)
++        outputUsed--;
++    return outputUsed;
++}
++
+ /* Public-key validation must reject noncanonical coordinates BEFORE converting
+  * into Montgomery form: reducing x or y would accept forbidden encodings. */
+ static u32 P256Validate(const volatile u8 *pointP, u32 reserved1, u32 reserved2)
+@@ -2157,8 +2204,6 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
+     volatile u8 *outputP;
+     u32 leftUsed;
+     u32 rightUsed;
+-    u32 outputUsed;
+-    u32 index;
+     (void)emulStateP;
+     (void)call68KFuncP;
+     if (requestP == (void *)0 || requestP[0] != PALM_TLS_ARMLET_VERSION)
+@@ -2207,22 +2252,5 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
+     rightUsed = requestP[2];
+     if (leftUsed + rightUsed >= PALM_TLS_ARMLET_MAX_DIGITS)
+         return PALM_TLS_ARMLET_ERROR;
+-    outputUsed = leftUsed + rightUsed;
+-    for (index = 0; index < outputUsed; index++) WriteDigit(outputP, index, 0);
+-    for (index = 0; index < leftUsed; index++) {
+-        u32 left = ReadDigit(leftP, index);
+-        u32 rightIndex;
+-        u32 carry = 0;
+-        for (rightIndex = 0; rightIndex < rightUsed; rightIndex++) {
+-            u32 outputIndex = index + rightIndex;
+-            u32 value = ReadDigit(outputP, outputIndex) +
+-                left * ReadDigit(rightP, rightIndex) + carry;
+-            WriteDigit(outputP, outputIndex, value);
+-            carry = value >> 16;
+-        }
+-        WriteDigit(outputP, index + rightUsed, carry);
+-    }
+-    while (outputUsed != 0 && ReadDigit(outputP, outputUsed - 1) == 0)
+-        outputUsed--;
+-    return outputUsed;
++    return MultiplyDigits32(leftP, leftUsed, rightP, rightUsed, outputP);
+ }
+diff --git a/library/tests/armlet_math_test.c b/library/tests/armlet_math_test.c
+index 789a06e..a3e67a9 100644
+--- a/library/tests/armlet_math_test.c
++++ b/library/tests/armlet_math_test.c
+@@ -112,6 +112,59 @@ static void Check256KnownAnswer(void)
+         assert(GetDigit(outputP, index) == expected[index]);
+ }
+ 
++static void CheckMultiplyRandom(void)
++{
++    unsigned char request[headerSize + digitBytes * 3];
++    unsigned char *leftP = request + headerSize;
++    unsigned char *rightP = leftP + digitBytes;
++    unsigned char *outputP = rightP + digitBytes;
++    unsigned int product[264];
++    uint32_t state = 0x13579bdfU;
++    unsigned int trial;
++    for (trial = 0; trial < 5000; trial++) {
++        unsigned int leftUsed, rightUsed, limit, index, inner;
++        uint32_t carry;
++        state = state * 1664525U + 1013904223U;
++        leftUsed = state % 256U;
++        limit = 264U - leftUsed;
++        if (limit > 256U) limit = 256U;
++        state = state * 1664525U + 1013904223U;
++        rightUsed = state % limit;
++        memset(request, 0xa5, sizeof(request));
++        request[0] = PALM_TLS_ARMLET_VERSION;
++        request[1] = (unsigned char)leftUsed;
++        request[2] = (unsigned char)rightUsed;
++        request[3] = PALM_TLS_ARMLET_COMMAND_MULTIPLY;
++        for (index = 0; index < leftUsed; index++) {
++            state = state * 1664525U + 1013904223U;
++            SetDigit(leftP, index, state & 0xffffU);
++        }
++        for (index = 0; index < rightUsed; index++) {
++            state = state * 1664525U + 1013904223U;
++            SetDigit(rightP, index, state & 0xffffU);
++        }
++        if (leftUsed && trial % 7U == 0) SetDigit(leftP, leftUsed - 1U, 0);
++        if (rightUsed && trial % 11U == 0) SetDigit(rightP, rightUsed - 1U, 0);
++
++        memset(product, 0, sizeof(product));
++        for (index = 0; index < leftUsed; index++) {
++            carry = 0;
++            for (inner = 0; inner < rightUsed; inner++) {
++                uint64_t value = (uint64_t)GetDigit(leftP, index) *
++                    GetDigit(rightP, inner) + product[index + inner] + carry;
++                product[index + inner] = (unsigned int)(value & 0xffffU);
++                carry = (uint32_t)(value >> 16);
++            }
++            product[index + rightUsed] = carry;
++        }
++        index = leftUsed + rightUsed;
++        while (index != 0 && product[index - 1U] == 0) index--;
++        assert(PalmTlsArmletEntry(0, request, 0) == index);
++        for (inner = 0; inner < index; inner++)
++            assert(GetDigit(outputP, inner) == product[inner]);
++    }
++}
++
+ static void CheckP256(const char *scalarP, const char *pointP,
+                       const char *expectedP, int fixedBase)
+ {
+@@ -518,6 +571,7 @@ int main(void)
+             UINT64_C(0xfedcba9876543210));
+     Check64(UINT64_MAX, UINT64_MAX);
+     Check256KnownAnswer();
++    CheckMultiplyRandom();
+     CheckSha256();
+     CheckAesGcm(0);
+     CheckAesGcm(1);

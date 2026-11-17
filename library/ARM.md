@@ -15,9 +15,10 @@ protection execute in a native ARMlet through the SDK's `PceNativeCall` trap.
    request buffer.
 3. wolfSSL's TFM `fp_mul`/`fp_sqr`, P-256 scalar multiplication/validation/order preparation, SHA-256
    compression, and AES-128-GCM hooks marshal operands through that buffer.
-4. The ARMlet performs carry-safe bignum multiplication, SHA-256's 64-round
-   compression function, P-256 Montgomery/Jacobian scalar multiplication and
-   Jacobian-to-affine mapping, or streaming AES-GCM encryption/decryption and
+4. The ARMlet performs carry-safe bignum multiplication (packing 16-bit TFM
+   digits into 32-bit words), SHA-256's 64-round compression function, P-256
+   Montgomery/Jacobian scalar multiplication and Jacobian-to-affine mapping,
+   or streaming AES-GCM encryption/decryption and
    authentication.
 5. Before normal use, bignum multiplication, mapped and unmapped P-256
    generator multiplication (including native affine mapping), P-256 point
@@ -178,7 +179,9 @@ The integrated Montgomery multiplier fully unrolls its eight outer rounds so
 the multiplicand limbs stay in registers; squaring uses the same multiplier.
 This reduces field-multiply instructions by about 15% and the native
 double-scalar operation by about 12% in the emulator, without changing the
-value-independent control/address traces.
+value-independent control/address traces. Generic TFM multiplication packs
+pairs of 16-bit digits into 32-bit words before the schoolbook loop, reducing
+2048-bit multiply time by about 62% while preserving the 16-bit digit ABI.
 
 TLS Tester exposes cold engine-load and handshake timings from the shared
 library alongside NetLib, DNS, TCP, and HTTP phases. P-256, SHA-256 and AES-GCM

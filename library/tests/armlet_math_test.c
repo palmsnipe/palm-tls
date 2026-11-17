@@ -112,6 +112,59 @@ static void Check256KnownAnswer(void)
         assert(GetDigit(outputP, index) == expected[index]);
 }
 
+static void CheckMultiplyRandom(void)
+{
+    unsigned char request[headerSize + digitBytes * 3];
+    unsigned char *leftP = request + headerSize;
+    unsigned char *rightP = leftP + digitBytes;
+    unsigned char *outputP = rightP + digitBytes;
+    unsigned int product[264];
+    uint32_t state = 0x13579bdfU;
+    unsigned int trial;
+    for (trial = 0; trial < 5000; trial++) {
+        unsigned int leftUsed, rightUsed, limit, index, inner;
+        uint32_t carry;
+        state = state * 1664525U + 1013904223U;
+        leftUsed = state % 256U;
+        limit = 264U - leftUsed;
+        if (limit > 256U) limit = 256U;
+        state = state * 1664525U + 1013904223U;
+        rightUsed = state % limit;
+        memset(request, 0xa5, sizeof(request));
+        request[0] = PALM_TLS_ARMLET_VERSION;
+        request[1] = (unsigned char)leftUsed;
+        request[2] = (unsigned char)rightUsed;
+        request[3] = PALM_TLS_ARMLET_COMMAND_MULTIPLY;
+        for (index = 0; index < leftUsed; index++) {
+            state = state * 1664525U + 1013904223U;
+            SetDigit(leftP, index, state & 0xffffU);
+        }
+        for (index = 0; index < rightUsed; index++) {
+            state = state * 1664525U + 1013904223U;
+            SetDigit(rightP, index, state & 0xffffU);
+        }
+        if (leftUsed && trial % 7U == 0) SetDigit(leftP, leftUsed - 1U, 0);
+        if (rightUsed && trial % 11U == 0) SetDigit(rightP, rightUsed - 1U, 0);
+
+        memset(product, 0, sizeof(product));
+        for (index = 0; index < leftUsed; index++) {
+            carry = 0;
+            for (inner = 0; inner < rightUsed; inner++) {
+                uint64_t value = (uint64_t)GetDigit(leftP, index) *
+                    GetDigit(rightP, inner) + product[index + inner] + carry;
+                product[index + inner] = (unsigned int)(value & 0xffffU);
+                carry = (uint32_t)(value >> 16);
+            }
+            product[index + rightUsed] = carry;
+        }
+        index = leftUsed + rightUsed;
+        while (index != 0 && product[index - 1U] == 0) index--;
+        assert(PalmTlsArmletEntry(0, request, 0) == index);
+        for (inner = 0; inner < index; inner++)
+            assert(GetDigit(outputP, inner) == product[inner]);
+    }
+}
+
 static void CheckP256(const char *scalarP, const char *pointP,
                       const char *expectedP, int fixedBase)
 {
@@ -518,6 +571,7 @@ int main(void)
             UINT64_C(0xfedcba9876543210));
     Check64(UINT64_MAX, UINT64_MAX);
     Check256KnownAnswer();
+    CheckMultiplyRandom();
     CheckSha256();
     CheckAesGcm(0);
     CheckAesGcm(1);

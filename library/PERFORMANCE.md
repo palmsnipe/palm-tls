@@ -1,5 +1,59 @@
 # ARM performance review — November 1, 2026
 
+## 32-bit-word generic multiplication and P-256 final-select unroll
+
+The generic TFM multiplication command now packs pairs of 16-bit digits into
+32-bit words, multiplies in base 2^32, and splits the product back into the
+caller's digit order. The former path performed one 16-bit multiply and two
+byte reads/writes per digit pair. The new path quarters the inner-loop count
+while preserving odd lengths, zero operands, leading zero digits and the
+existing trimmed result length. A 264-word local product buffer is used; a
+measured 2048-bit call consumes **1,612 bytes of stack**, less than the
+existing RSA multiply path. The final conditional-subtraction selection in
+`FeMultiply` is also fully unrolled, removing loop control from every field
+multiply.
+
+The baseline is the committed **`9ad9c8a`** image. Both sides use the same
+supplied Frankenpilot / Tungsten E3 session, native `cp-uarm` binary, **100
+MIPS**, ARMv4T `-Os` flags, benchmark application code and 100 Hz clock. The
+benchmark PRCs differ only in the native image. Five-sample medians from one
+candidate run, reproduced exactly by a second fresh-session run:
+
+| Operation | Baseline | Candidate | Repeat | Less elapsed time |
+| --- | ---: | ---: | ---: | ---: |
+| Generic multiply, 256 bits | 56.152 us | 31.738 us | 31.738 us | 43.5% |
+| Generic multiply, 2048 bits | 2656.250 us | 1015.625 us | 1015.625 us | 61.8% |
+| Raw P-256 field multiply | 6.104 us | 5.951 us | 5.951 us | 2.5% |
+| Raw P-256 field square | 6.104 us | 5.951 us | 5.951 us | 2.5% |
+| P-256 fixed-base affine multiply | 9062.500 us | 8750.000 us | 8750.000 us | 3.4% |
+| P-256 general-point affine multiply | 27500.000 us | 26250.000 us | 26250.000 us | 4.5% |
+| P-256 fixed-base raw output | 7500.000 us | 7187.500 us | 7187.500 us | 4.2% |
+| P-256 double-scalar, generator left | 25000.000 us | 23750.000 us | 23750.000 us | 5.0% |
+
+The generic 2048-bit multiply falls from about **265,600 to 101,600
+instructions** on the extracted PXA270 image, matching the elapsed-time
+reduction. AES-GCM and SHA-256 rows are unchanged.
+
+The native image grows from **36,408 to 36,764 bytes** (+356). Its SHA-256 is
+`c517e91b15b243f7cd2db1c89f147c88de7b4d59ca31f8456cb547d5b40996e0`.
+All existing ARM profiles and both benchmark apps carry this one ARMv4T image;
+no processor-specific PRC is added.
+
+Host C and the extracted image under **TI925T and PXA270** pass 336 AES-GCM
+records, 99 ChaCha records, 1,881 raw-field chains, 69 inversions/maps, 88
+scalar products, 181 double-scalar cases, 432 order preparations, 270 point
+validations, 30 ECDSA valid/tampered cases, 397 Ed25519 field cases and 79
+public-key arithmetic cases, with request alignment offsets 0–3. The host
+suite compares the new generic multiply against an independent base-2^16
+schoolbook reference over **5,000 deterministic random cases**, including odd
+lengths, zero operands and leading zero digits. Field control/address and
+private-scalar trace checks remain identical. These are emulator
+instruction-budget results, not physical XScale cache/pipeline measurements or
+end-to-end network throughput.
+
+Raw samples, manifests, comparisons and the candidate source diff are saved
+under [bench/baselines/2026-11-17-arm-mul32](bench/baselines/2026-11-17-arm-mul32).
+
 ## P-256 field-multiply outer-loop unroll
 
 The eight outer rounds of `FeMultiply` are now fully unrolled. Each round
