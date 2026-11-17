@@ -1510,74 +1510,10 @@ static void SelectWindowCoordinate(Fe256 *resultP,
 
 static void ReduceP256Scalar(Order256 *resultP, const volatile u8 *scalarP);
 
-static u32 P256MultiplyPoint(const volatile u8 *scalarP,
-                            const volatile u8 *inputP, Point256 *resultP)
-{
-    Fe256 affineX, affineY;
-    Point256 table[15];
-    int window;
-    u32 index;
-    FeReadBigEndian(&affineX, inputP);
-    FeReadBigEndian(&affineY, inputP + 32);
-    if (FeEqual(&affineX, &kGeneratorComb[0].x) &&
-        FeEqual(&affineY, &kGeneratorComb[0].y)) {
-#ifdef PALM_ARMLET_HOST_TEST
-        PalmTlsArmletFixedBaseCalls++;
-#endif
-        PointSetInfinity(resultP);
-        for (window = P256_COMB_WINDOWS - 1; window >= 0; window--) {
-            Affine256 selected;
-            u32 digit = 0;
-            PointDouble(resultP, resultP);
-            for (index = 0; index < P256_COMB_WIDTH; index++) {
-                u32 bit = (u32)window + index * P256_COMB_WINDOWS;
-                if (bit < 256U)
-                    digit |= ((scalarP[31U - (bit >> 3)] >> (bit & 7U)) & 1U)
-                        << index;
-            }
-            SelectGeneratorComb(&selected, digit);
-            PointAddMixed(resultP, resultP, &selected.x, &selected.y,
-                          EqualSmall(digit, 0) ^ 1U);
-        }
-    }
-    else {
-        Order256 scalar;
-        ReduceP256Scalar(&scalar, scalarP);
-        FeCopy(&table[0].x, &affineX);
-        FeCopy(&table[0].y, &affineY);
-        FeCopy(&table[0].z, &kR);
-        /* Build even multiples by doubling, then add Q for the odd rows. */
-        for (index = 1; index < 15U; index += 2U) {
-            PointDouble(&table[index], &table[index / 2U]);
-            PointAddMixed(&table[index + 1U], &table[index],
-                          &affineX, &affineY, 1U);
-        }
-        NormalizeWindowCoordinates(table);
-        PointSetInfinity(resultP);
-        /* The scalar is below n, so a nonzero accumulator coefficient is
-         * a multiple of 16 below n. It cannot equal a digit in 1..15. */
-        for (window = 63; window >= 0; window--) {
-            Affine256 selected;
-            u32 bit = (u32)window * 4U;
-            u32 digit = (scalar.v[bit >> 5] >> (bit & 31U)) & 0x0fU;
-            /* Use Q for a zero digit, then discard its addition. */
-            u32 selection = (digit | EqualSmall(digit, 0)) - 1U;
-            for (index = 0; index < 4; index++)
-                PointDouble(resultP, resultP);
-            SelectWindowCoordinate(&selected.x, table, selection, 0U);
-            SelectWindowCoordinate(&selected.y, table, selection, 1U);
-            PointAddMixed(resultP, resultP, &selected.x, &selected.y,
-                          EqualSmall(digit, 0) ^ 1U);
-        }
-        ClearSecret(&scalar, sizeof(scalar));
-    }
-    if (FeIsZero(&resultP->z)) return PALM_TLS_ARMLET_ERROR;
-    return PALM_TLS_ARMLET_SUCCESS;
-}
-
 static u32 P256WritePoint(Point256 *resultP, volatile u8 *outputP, u32 map)
 {
     Point256 result;
+    if (FeIsZero(&resultP->z)) return PALM_TLS_ARMLET_ERROR;
     PointCopy(&result, resultP);
     if (map != 0U) {
         Fe256 inverseZ, inverseZ2, inverseZ3;
@@ -1597,13 +1533,78 @@ static u32 P256WritePoint(Point256 *resultP, volatile u8 *outputP, u32 map)
     return PALM_TLS_ARMLET_SUCCESS;
 }
 
+/* Keep the general-point table off the generator path's stack. */
+static __attribute__((noinline)) u32 P256MultiplyGeneralPoint(
+    const volatile u8 *scalarP, const volatile u8 *inputP,
+    volatile u8 *outputP, u32 map)
+{
+    Point256 table[15], result;
+    int window;
+    u32 index;
+    Order256 scalar;
+    ReduceP256Scalar(&scalar, scalarP);
+    FeReadBigEndian(&table[0].x, inputP);
+    FeReadBigEndian(&table[0].y, inputP + 32);
+    FeCopy(&table[0].z, &kR);
+    /* Build even multiples by doubling, then add Q for the odd rows. */
+    for (index = 1; index < 15U; index += 2U) {
+        PointDouble(&table[index], &table[index / 2U]);
+        PointAddMixed(&table[index + 1U], &table[index],
+                      &table[0].x, &table[0].y, 1U);
+    }
+    NormalizeWindowCoordinates(table);
+    PointSetInfinity(&result);
+    /* The scalar is below n, so a nonzero accumulator coefficient is
+     * a multiple of 16 below n. It cannot equal a digit in 1..15. */
+    for (window = 63; window >= 0; window--) {
+        Affine256 selected;
+        u32 bit = (u32)window * 4U;
+        u32 digit = (scalar.v[bit >> 5] >> (bit & 31U)) & 0x0fU;
+        /* Use Q for a zero digit, then discard its addition. */
+        u32 selection = (digit | EqualSmall(digit, 0)) - 1U;
+        for (index = 0; index < 4; index++)
+            PointDouble(&result, &result);
+        SelectWindowCoordinate(&selected.x, table, selection, 0U);
+        SelectWindowCoordinate(&selected.y, table, selection, 1U);
+        PointAddMixed(&result, &result, &selected.x, &selected.y,
+                      EqualSmall(digit, 0) ^ 1U);
+    }
+    ClearSecret(&scalar, sizeof(scalar));
+    return P256WritePoint(&result, outputP, map);
+}
+
 static u32 P256Multiply(const volatile u8 *scalarP,
                         const volatile u8 *inputP, volatile u8 *outputP,
                         u32 map)
 {
     Point256 result;
-    u32 status = P256MultiplyPoint(scalarP, inputP, &result);
-    if (status != PALM_TLS_ARMLET_SUCCESS) return status;
+    int window;
+    u32 index, difference = 0;
+    /* Both generator coordinates exceed 2^256 - p, so each has a unique
+     * 256-bit encoding modulo p. Match the input before field conversion. */
+    for (index = 0; index < 16U; index++)
+        difference |= ReadBigEndian32(inputP + index * 4U) ^ kGeneratorWords[index];
+    if (difference != 0U)
+        return P256MultiplyGeneralPoint(scalarP, inputP, outputP, map);
+
+#ifdef PALM_ARMLET_HOST_TEST
+    PalmTlsArmletFixedBaseCalls++;
+#endif
+    PointSetInfinity(&result);
+    for (window = P256_COMB_WINDOWS - 1; window >= 0; window--) {
+        Affine256 selected;
+        u32 digit = 0;
+        PointDouble(&result, &result);
+        for (index = 0; index < P256_COMB_WIDTH; index++) {
+            u32 bit = (u32)window + index * P256_COMB_WINDOWS;
+            if (bit < 256U)
+                digit |= ((scalarP[31U - (bit >> 3)] >> (bit & 7U)) & 1U)
+                    << index;
+        }
+        SelectGeneratorComb(&selected, digit);
+        PointAddMixed(&result, &result, &selected.x, &selected.y,
+                      EqualSmall(digit, 0) ^ 1U);
+    }
     return P256WritePoint(&result, outputP, map);
 }
 
@@ -1613,7 +1614,6 @@ static u32 P256Map(const volatile u8 *inputP, volatile u8 *outputP)
     FeReadRawBigEndian(&point.x, inputP);
     FeReadRawBigEndian(&point.y, inputP + 32);
     FeReadRawBigEndian(&point.z, inputP + 64);
-    if (FeIsZero(&point.z)) return PALM_TLS_ARMLET_ERROR;
     return P256WritePoint(&point, outputP, 1U);
 }
 
@@ -1750,7 +1750,6 @@ static u32 P256Multiply2Add(const volatile u8 *scalarsP,
 {
     Point256 result;
     P256Multiply2AddPoint(&result, scalarsP, pointsP);
-    if (FeIsZero(&result.z)) return PALM_TLS_ARMLET_ERROR;
     return P256WritePoint(&result, outputP, 1U);
 }
 
