@@ -1382,14 +1382,14 @@ static void FeReadRawBigEndian(Fe256 *resultP, const volatile u8 *bytesP)
     }
 }
 
-static void FeWriteBigEndian(volatile u8 *bytesP, const Fe256 *valueP)
+/* Write the field element limbs in big-endian order. The caller chooses
+ * the representation appropriate to the ARMlet operation. */
+static void FeWriteRawBigEndian(volatile u8 *bytesP, const Fe256 *valueP)
 {
-    Fe256 normal;
     u32 limb;
-    FeMultiply(&normal, valueP, &kOne);
     for (limb = 0; limb < 8; limb++) {
         u32 offset = 32 - (limb + 1) * 4;
-        u32 value = normal.v[limb];
+        u32 value = valueP->v[limb];
         bytesP[offset] = (u8)(value >> 24);
         bytesP[offset + 1] = (u8)(value >> 16);
         bytesP[offset + 2] = (u8)(value >> 8);
@@ -1405,24 +1405,10 @@ void PalmTlsArmletTestInverse(const u8 *inputP, u8 *outputP)
     Fe256 value, inverse;
     FeReadBigEndian(&value, inputP);
     FeInverse(&inverse, &value);
-    FeWriteBigEndian(outputP, &inverse);
+    FeMultiply(&inverse, &inverse, &kOne);
+    FeWriteRawBigEndian(outputP, &inverse);
 }
 #endif
-
-/* Write a Montgomery-domain field element without converting it back to the
- * normal domain. wolfSSL expects these coordinates when map is false. */
-static void FeWriteRawBigEndian(volatile u8 *bytesP, const Fe256 *valueP)
-{
-    u32 limb;
-    for (limb = 0; limb < 8; limb++) {
-        u32 offset = 32 - (limb + 1) * 4;
-        u32 value = valueP->v[limb];
-        bytesP[offset] = (u8)(value >> 24);
-        bytesP[offset + 1] = (u8)(value >> 16);
-        bytesP[offset + 2] = (u8)(value >> 8);
-        bytesP[offset + 3] = (u8)value;
-    }
-}
 
 #ifdef PALM_ARMLET_HOST_TEST
 /* Preserve the raw input so tests can hit the exact reduction threshold. */
@@ -1510,26 +1496,25 @@ static void SelectWindowCoordinate(Fe256 *resultP,
 
 static void ReduceP256Scalar(Order256 *resultP, const volatile u8 *scalarP);
 
+/* The caller owns the point and can reuse it as affine scratch space. */
 static u32 P256WritePoint(Point256 *resultP, volatile u8 *outputP, u32 map)
 {
-    Point256 result;
     if (FeIsZero(&resultP->z)) return PALM_TLS_ARMLET_ERROR;
-    PointCopy(&result, resultP);
     if (map != 0U) {
-        Fe256 inverseZ, inverseZ2, inverseZ3;
-        FeInverse(&inverseZ, &result.z);
+        Fe256 inverseZ, inverseZ2;
+        FeInverse(&inverseZ, &resultP->z);
         FeSquare(&inverseZ2, &inverseZ);
-        FeMultiply(&inverseZ3, &inverseZ2, &inverseZ);
-        FeMultiply(&result.x, &result.x, &inverseZ2);
-        FeMultiply(&result.y, &result.y, &inverseZ3);
-        FeWriteBigEndian(outputP, &result.x);
-        FeWriteBigEndian(outputP + 32, &result.y);
+        /* Convert Z^-2 once. Products of one normal operand and one
+         * Montgomery operand are normal, including Z^-3 and both outputs. */
+        FeMultiply(&inverseZ2, &inverseZ2, &kOne);
+        FeMultiply(&inverseZ, &inverseZ2, &inverseZ);
+        FeMultiply(&resultP->x, &resultP->x, &inverseZ2);
+        FeMultiply(&resultP->y, &resultP->y, &inverseZ);
     }
-    else {
-        FeWriteRawBigEndian(outputP, &result.x);
-        FeWriteRawBigEndian(outputP + 32, &result.y);
-        FeWriteRawBigEndian(outputP + 64, &result.z);
-    }
+    FeWriteRawBigEndian(outputP, &resultP->x);
+    FeWriteRawBigEndian(outputP + 32, &resultP->y);
+    if (map == 0U)
+        FeWriteRawBigEndian(outputP + 64, &resultP->z);
     return PALM_TLS_ARMLET_SUCCESS;
 }
 
