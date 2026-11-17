@@ -181,7 +181,10 @@ The integrated Montgomery multiplier fully unrolls its eight outer rounds so
 the multiplicand limbs stay in registers; squaring uses the same multiplier.
 This reduces field-multiply instructions by about 15% and the native
 double-scalar operation by about 12% in the emulator, without changing the
-value-independent control/address traces. Generic TFM multiplication packs
+value-independent control/address traces. Fixed-size copy, compare, infinity
+and scalar-window loops in the verification path are also fully unrolled,
+cutting a further 4.9% from the double-scalar instruction count. Generic TFM
+multiplication packs
 pairs of 16-bit digits into 32-bit words before the schoolbook loop, reducing
 2048-bit multiply time by about 62% while preserving the 16-bit digit ABI.
 

@@ -962,6 +962,9 @@ cleanup:
 static void FeCopy(Fe256 *destinationP, const Fe256 *sourceP)
 {
     u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++)
         destinationP->v[index] = sourceP->v[index];
 }
@@ -970,6 +973,9 @@ static u32 FeIsZero(const Fe256 *valueP)
 {
     u32 value = 0;
     u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++) value |= valueP->v[index];
     return ((value | (0U - value)) >> 31) ^ 1U;
 }
@@ -1233,6 +1239,9 @@ static void PointSetInfinity(Point256 *pointP)
     u32 index;
     FeCopy(&pointP->x, &kOne);
     FeCopy(&pointP->y, &kOne);
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++) pointP->z.v[index] = 0;
 }
 
@@ -1246,6 +1255,9 @@ static u32 FeEqual(const Fe256 *leftP, const Fe256 *rightP)
 {
     u32 difference = 0;
     u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++)
         difference |= leftP->v[index] ^ rightP->v[index];
     return ((difference | (0U - difference)) >> 31) ^ 1U;
@@ -1746,6 +1758,9 @@ static void ScalarWnaf(s8 *digitsP, const volatile u8 *scalarP, u32 width)
             }
         }
         digitsP[index] = (s8)digit;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
         for (word = 0; word < 8U; word++)
             words[word] = (words[word] >> 1) | (words[word + 1U] << 31);
         words[8] >>= 1;
