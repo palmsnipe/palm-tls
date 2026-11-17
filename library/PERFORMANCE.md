@@ -1,5 +1,65 @@
 # ARM performance review — November 1, 2026
 
+## AES-GCM T-table rounds and unrolled GHASH
+
+The native AES-GCM record path now encrypts four 32-bit columns per round using
+a single **1 KiB Te0 table**. Rotating Te0 right by 8, 16 and 24 bits produces
+the three companion tables, so SubBytes, ShiftRows and MixColumns become table
+lookups plus word rotations; the final round still uses the S-box because it
+has no MixColumns step. GHASH keeps the existing 4-bit table but replaces the
+four shifts/XORs for each low nibble with one 16-entry reduction-table lookup,
+and the 32-nibble block loop is fully unrolled so every shift and digit
+extraction has a constant position. The persistent request layout, 512-byte
+chunking, AES key expansion, CPU allowlist and 68K fallback are unchanged.
+
+The baseline is the committed **`b11f759`** image. Both sides use the same
+supplied Frankenpilot / Tungsten E3 session, native `cp-uarm` binary, **100
+MIPS**, ARMv4T `-Os` flags, benchmark application code and 100 Hz clock. The
+benchmark PRCs differ only in the native image. Five-sample medians from one
+candidate run, reproduced exactly by a second fresh-session run:
+
+| Operation | Baseline | Candidate | Repeat | Less elapsed time |
+| --- | ---: | ---: | ---: | ---: |
+| AES-GCM encrypt, 16 bytes | 302.734 us | 185.547 us | 185.547 us | 38.7% |
+| AES-GCM decrypt, 16 bytes | 302.734 us | 185.547 us | 185.547 us | 38.7% |
+| AES-GCM encrypt, 512 bytes | 2109.375 us | 820.312 us | 820.312 us | 61.1% |
+| AES-GCM decrypt, 512 bytes | 2109.375 us | 820.312 us | 859.375 us | 59.3% |
+| AES-GCM encrypt, 4096 bytes | 15000.000 us | 5625.000 us | 5625.000 us | 62.5% |
+| AES-GCM decrypt, 4096 bytes | 15000.000 us | 5625.000 us | 5781.250 us | 61.5% |
+| AES-GCM encrypt, 16384 bytes | 60000.000 us | 22500.000 us | 22500.000 us | 62.5% |
+| AES-GCM decrypt, 16384 bytes | 60000.000 us | 22500.000 us | 22500.000 us | 62.5% |
+
+Large-record throughput rises from **266.7 to 711.1 KiB/s** in both directions,
+a **2.67x** improvement. The 16-byte record improves 38.7%; its remaining cost
+includes the per-record key expansion and GHASH table construction. P-256,
+SHA-256 and the engine self-test medians are unchanged within the existing
+timer quantization. The TLS 1.2/1.3 verification rows move by one 10 ms tick
+between runs and are not evidence of a P-256 change.
+
+An instruction-count profile of the extracted image on PXA270 explains the
+change: an AES-128 block falls from 4,223 to 1,041 instructions, and a GHASH
+block falls from 1,326 to 822. The native image grows from **30,592 to 34,984
+bytes** (+4,392), including the 1 KiB AES table, the 64-byte reduction table
+and the unrolled GHASH code. Its SHA-256 is
+`50438f7841fb7d7eea52fd9ccaa5e3cf2564b0d0ec61c05ac1a89294d99cfd0d`.
+All existing ARM profiles and both benchmark apps carry this single ARMv4T
+image; no processor-specific PRC is added.
+
+Host C and the extracted image under **TI925T and PXA270** pass 336 AES-GCM
+records, 99 ChaCha records, 1,881 raw-field chains, 69 inversions/maps, 88
+scalar products, 181 double-scalar cases, 432 order preparations, 270 point
+validations, 30 ECDSA valid/tampered cases, 397 Ed25519 field cases and 79
+public-key arithmetic cases, with request alignment offsets 0–3. The T-table
+output matches the former byte implementation on 2,000 host key/block trials.
+Project/profile/package checks and the native instruction-attribute rejection
+tests pass. The T-table and reduction table remain secret-indexed lookups, the
+same access class as the existing AES S-box; these are emulator
+instruction-budget results, not physical XScale cache/pipeline measurements or
+end-to-end network throughput.
+
+Raw samples, manifests, comparisons and the candidate source diff are saved
+under [bench/baselines/2026-11-17-arm-aes](bench/baselines/2026-11-17-arm-aes).
+
 ## Release 0.1.3 to 0.1.4
 
 The common-ABI, profiling-disabled benchmark compares the **published 0.1.3

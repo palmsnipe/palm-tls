@@ -159,14 +159,17 @@ SHA-256 compression also runs natively, batching as many as eight consecutive
 block, while certificate and record-sized inputs avoid most architecture-crossing
 overhead. AES-128-GCM keeps its counter, expanded AES-128 key, and a 4-bit GHASH
 table across bounded 512-byte native calls. Key expansion and table construction
-therefore happen once per record instead of once per chunk. Each native call
-decodes the persistent GHASH table into aligned local words; GHASH then shifts
-and XORs four 32-bit words per nibble, with a direct four-bit polynomial
-reduction instead of repeated byte shifts. The state still fits in the existing 528-byte
-request operand, supports TLS records of any size, and does not allocate a large
-exchange buffer. Protocol control, certificate parsing, memory management, and
-NetLib callbacks still run through PACE. Unsupported AES key or nonce shapes
-automatically retain wolfSSL's unchanged 68K implementation.
+therefore happen once per record instead of once per chunk. AES rounds operate on
+four 32-bit columns through a 1 KiB Te0 table; the three companion tables are
+obtained by rotating Te0, so SubBytes, ShiftRows and MixColumns share word
+lookups instead of byte loops. Each native call decodes the persistent GHASH
+table into aligned local words; GHASH then shifts and XORs four 32-bit words per
+nibble, uses a 16-entry reduction table for the shifted-out low nibble, and runs
+a fully unrolled 32-nibble block loop. The state still fits in the existing
+528-byte request operand, supports TLS records of any size, and does not allocate
+a large exchange buffer. Protocol control, certificate parsing, memory
+management, and NetLib callbacks still run through PACE. Unsupported AES key or
+nonce shapes automatically retain wolfSSL's unchanged 68K implementation.
 
 P-256 field inversion uses a fixed addition chain with 255 squarings and
 12 multiplications, replacing 256 squarings and 128 multiplications. Its
@@ -174,8 +177,9 @@ schedule is independent of the field value and is shared by all ARM CPUs.
 
 TLS Tester exposes cold engine-load and handshake timings from the shared
 library alongside NetLib, DNS, TCP, and HTTP phases. P-256, SHA-256 and AES-GCM
-already have native paths; remaining candidates include AES round processing,
-the remaining 68K parsing/setup work around those paths, and measured bridge costs. A large
+already have native paths; remaining candidates include the remaining 68K
+parsing/setup work around those paths, P-256 verification arithmetic, and
+measured bridge costs. A large
 `Load` value includes loading, relocation, initialization and native self-tests;
 it must be separated from warm requests. The repeatable host/Palm benchmark suite, calibration, CSV comparison
 and emulator workflow are documented in [bench/README.md](bench/README.md).
