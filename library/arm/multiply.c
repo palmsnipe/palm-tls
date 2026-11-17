@@ -255,6 +255,11 @@ static u32 Sha256Transform(const volatile u8 *stateP,
             words[round] = ReadBigEndian32(blockP + block * 64U + round * 4U);
         a = initial[0]; b = initial[1]; c = initial[2]; d = initial[3];
         e = initial[4]; f = initial[5]; g = initial[6]; h = initial[7];
+        /* Unroll all 64 rounds. Constant round indices remove the message
+         * schedule's circular-buffer masks and the round-16 branch. */
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
         for (round = 0; round < 64; round++) {
             u32 word;
             u32 sum0, sum1, choice, majority, t1, t2;

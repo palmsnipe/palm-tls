@@ -156,9 +156,11 @@ aliased outputs. DER parsing, signature range checks and final comparison
 remain in wolfSSL.
 
 SHA-256 compression also runs natively, batching as many as eight consecutive
-64-byte blocks into one ARM call. Short transcript hashes still use a single
-block, while certificate and record-sized inputs avoid most architecture-crossing
-overhead. AES-128-GCM keeps its counter, expanded AES-128 key, and a 4-bit GHASH
+64-byte blocks into one ARM call. Its 64 rounds are fully unrolled so the
+message schedule uses constant indices and no round-16 branch; the emulator
+measures about 39% fewer compression instructions for eight blocks. Short
+transcript hashes still use a single block, while certificate and
+record-sized inputs avoid most architecture-crossing overhead. AES-128-GCM keeps its counter, expanded AES-128 key, and a 4-bit GHASH
 table across bounded 512-byte native calls. Key expansion and table construction
 therefore happen once per record instead of once per chunk. AES rounds operate on
 four 32-bit columns through a 1 KiB Te0 table; the three companion tables are
