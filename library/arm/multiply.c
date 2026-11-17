@@ -1108,14 +1108,6 @@ static void FeTimes8(Fe256 *resultP, const Fe256 *valueP)
     FeDouble(resultP, &temporary);
 }
 
-static void PointSelect(Point256 *resultP, const Point256 *zeroP,
-                        const Point256 *oneP, u32 selectOne)
-{
-    FeSelect(&resultP->x, &zeroP->x, &oneP->x, selectOne);
-    FeSelect(&resultP->y, &zeroP->y, &oneP->y, selectOne);
-    FeSelect(&resultP->z, &zeroP->z, &oneP->z, selectOne);
-}
-
 static void PointCopy(Point256 *destinationP, const Point256 *sourceP)
 {
     FeCopy(&destinationP->x, &sourceP->x);
@@ -1175,14 +1167,27 @@ static void PointDouble(Point256 *resultP, const Point256 *pointP)
     PointCopy(resultP, &result);
 }
 
-/* Unscaled mixed addition (madd-2004-hmv). The caller supplies distinct
- * points when the accumulator is finite. Select the affine operand with a
- * mask when the accumulator is infinity. */
+/* Always read all three operands. The output may alias the accumulator. */
+static void SelectMixedCoordinate(Fe256 *resultP,
+                                  const volatile Fe256 *accumulatorP,
+                                  const volatile Fe256 *sumP,
+                                  const volatile Fe256 *affineP,
+                                  u32 keepMask, u32 sumMask, u32 affineMask)
+{
+    for (u32 limb = 0; limb < 8U; limb++)
+        resultP->v[limb] = (accumulatorP->v[limb] & keepMask) |
+            (sumP->v[limb] & sumMask) | (affineP->v[limb] & affineMask);
+}
+
+/* Unscaled mixed addition (madd-2004-hmv). Finite inputs must be distinct.
+ * applyAddition is 0 or 1. The masks select the accumulator for 0,
+ * the affine point when adding to infinity, or the sum otherwise. */
 static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
-                          const Fe256 *affineXP, const Fe256 *affineYP)
+                          const Fe256 *affineXP, const Fe256 *affineYP,
+                          u32 applyAddition)
 {
     Fe256 zSquared, u2, s2, h, hh, hhh, r, v, temporary;
-    Point256 result, affine;
+    Point256 result;
     u32 wasInfinity = FeIsZero(&pointP->z);
     FeSquare(&zSquared, &pointP->z);
     FeMultiply(&u2, affineXP, &zSquared);
@@ -1202,10 +1207,15 @@ static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
     FeMultiply(&temporary, &pointP->y, &hhh);
     FeSubtract(&result.y, &result.y, &temporary);
     FeMultiply(&result.z, &pointP->z, &h);
-    FeCopy(&affine.x, affineXP);
-    FeCopy(&affine.y, affineYP);
-    FeCopy(&affine.z, &kR);
-    PointSelect(resultP, &result, &affine, wasInfinity);
+    u32 keepMask = applyAddition - 1U;
+    u32 affineMask = 0U - (applyAddition & wasInfinity);
+    u32 sumMask = ~(keepMask | affineMask);
+    SelectMixedCoordinate(&resultP->x, &pointP->x, &result.x, affineXP,
+                          keepMask, sumMask, affineMask);
+    SelectMixedCoordinate(&resultP->y, &pointP->y, &result.y, affineYP,
+                          keepMask, sumMask, affineMask);
+    SelectMixedCoordinate(&resultP->z, &pointP->z, &result.z, &kR,
+                          keepMask, sumMask, affineMask);
 }
 
 /* ECDSA verification points and scalars are public. This complete addition
@@ -1518,7 +1528,7 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
         PointSetInfinity(&result);
         for (window = P256_COMB_WINDOWS - 1; window >= 0; window--) {
             Affine256 selected;
-            Point256 doubled, added;
+            Point256 doubled;
             u32 digit = 0;
             PointDouble(&doubled, &result);
             PointCopy(&result, &doubled);
@@ -1529,8 +1539,8 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                         << index;
             }
             SelectGeneratorComb(&selected, digit);
-            PointAddMixed(&added, &result, &selected.x, &selected.y);
-            PointSelect(&result, &result, &added, EqualSmall(digit, 0) ^ 1U);
+            PointAddMixed(&result, &result, &selected.x, &selected.y,
+                          EqualSmall(digit, 0) ^ 1U);
         }
     }
     else {
@@ -1542,7 +1552,8 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
         /* Build even multiples by doubling, then add Q for the odd rows. */
         for (index = 1; index < 15U; index += 2U) {
             PointDouble(&table[index], &table[index / 2U]);
-            PointAddMixed(&table[index + 1U], &table[index], &affineX, &affineY);
+            PointAddMixed(&table[index + 1U], &table[index],
+                          &affineX, &affineY, 1U);
         }
         NormalizeWindowCoordinates(table);
         PointSetInfinity(&result);
@@ -1550,7 +1561,6 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
          * a multiple of 16 below n. It cannot equal a digit in 1..15. */
         for (window = 63; window >= 0; window--) {
             Affine256 selected;
-            Point256 added;
             u32 bit = (u32)window * 4U;
             u32 digit = (scalar.v[bit >> 5] >> (bit & 31U)) & 0x0fU;
             /* Use Q for a zero digit, then discard its addition. */
@@ -1559,8 +1569,8 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                 PointDouble(&result, &result);
             SelectWindowCoordinate(&selected.x, table, selection, 0U);
             SelectWindowCoordinate(&selected.y, table, selection, 1U);
-            PointAddMixed(&added, &result, &selected.x, &selected.y);
-            PointSelect(&result, &result, &added, EqualSmall(digit, 0) ^ 1U);
+            PointAddMixed(&result, &result, &selected.x, &selected.y,
+                          EqualSmall(digit, 0) ^ 1U);
         }
         ClearSecret(&scalar, sizeof(scalar));
     }
