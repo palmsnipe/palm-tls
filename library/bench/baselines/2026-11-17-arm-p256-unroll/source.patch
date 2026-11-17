@@ -1,0 +1,16 @@
+diff --git a/library/arm/multiply.c b/library/arm/multiply.c
+index 7fbb64c..229d669 100644
+--- a/library/arm/multiply.c
++++ b/library/arm/multiply.c
+@@ -1074,6 +1074,11 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
+ {
+     u32 t[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+     u32 outer;
++    /* Unroll all eight outer rounds. This keeps the multiplicand limbs in
++     * registers instead of reloading them from the stack each round. */
++#if defined(__clang__)
++#pragma clang loop unroll(full)
++#endif
+     for (outer = 0; outer < 8; outer++) {
+         /* A limb product plus two limb addends fits in 64 bits. Only its
+          * high word carries to the next digit. */

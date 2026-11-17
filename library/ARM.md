@@ -174,6 +174,11 @@ nonce shapes automatically retain wolfSSL's unchanged 68K implementation.
 P-256 field inversion uses a fixed addition chain with 255 squarings and
 12 multiplications, replacing 256 squarings and 128 multiplications. Its
 schedule is independent of the field value and is shared by all ARM CPUs.
+The integrated Montgomery multiplier fully unrolls its eight outer rounds so
+the multiplicand limbs stay in registers; squaring uses the same multiplier.
+This reduces field-multiply instructions by about 15% and the native
+double-scalar operation by about 12% in the emulator, without changing the
+value-independent control/address traces.
 
 TLS Tester exposes cold engine-load and handshake timings from the shared
 library alongside NetLib, DNS, TCP, and HTTP phases. P-256, SHA-256 and AES-GCM

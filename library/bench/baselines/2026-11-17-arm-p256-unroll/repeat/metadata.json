@@ -1,0 +1,30 @@
+{
+  "benchmark_version": 1,
+  "benchmark_type": "native",
+  "mips": 100,
+  "device": "auto",
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "emulator_sha256": "f1ce6b0dae71caf60f26694336056974cdf02c51b14429ade7222871d90c13f3",
+  "prc_sha256": "7e2dec1c56ba7434f3573359bd4ebbd0023b574d3281b147c331d34faf0e847d",
+  "library_sha256": "5b095795aa6dbd204de7fbc71bc5e050b4b7da99a992a0c5c3822edbcb1216de",
+  "arm_image_sha256": "7cb372f8739b31391186dcce8bd75cd06b67d6cba54a2a5f663acb887709e48d",
+  "arm_image_bytes": 36408,
+  "git_revision": "dc2721cc7579df2ae319a53cdae157c3d9c8f593",
+  "git_dirty": true,
+  "command": [
+    "/Users/cyril/projects/cloudpilot-emu/src/uarm/cp-uarm",
+    "--mips",
+    "100",
+    "--no-sound",
+    "--device",
+    "auto",
+    "/Users/cyril/projects/palm-tls/library/build/bench/arm-p256-2/session.img"
+  ],
+  "local_arm_build_config": "clang --target=armv4t-none-eabi -mcpu=arm7tdmi -march=armv4t -marm -Os",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "a931f335932ae2228edddf94cd7c8a593f146387adeeb0a5f80f82063ddff57e"
+  }
+}
