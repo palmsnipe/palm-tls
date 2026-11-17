@@ -1515,7 +1515,6 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
 {
     Fe256 affineX, affineY;
     Point256 table[15];
-    Point256 result;
     int window;
     u32 index;
     FeReadBigEndian(&affineX, inputP);
@@ -1525,13 +1524,11 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
 #ifdef PALM_ARMLET_HOST_TEST
         PalmTlsArmletFixedBaseCalls++;
 #endif
-        PointSetInfinity(&result);
+        PointSetInfinity(resultP);
         for (window = P256_COMB_WINDOWS - 1; window >= 0; window--) {
             Affine256 selected;
-            Point256 doubled;
             u32 digit = 0;
-            PointDouble(&doubled, &result);
-            PointCopy(&result, &doubled);
+            PointDouble(resultP, resultP);
             for (index = 0; index < P256_COMB_WIDTH; index++) {
                 u32 bit = (u32)window + index * P256_COMB_WINDOWS;
                 if (bit < 256U)
@@ -1539,7 +1536,7 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                         << index;
             }
             SelectGeneratorComb(&selected, digit);
-            PointAddMixed(&result, &result, &selected.x, &selected.y,
+            PointAddMixed(resultP, resultP, &selected.x, &selected.y,
                           EqualSmall(digit, 0) ^ 1U);
         }
     }
@@ -1556,7 +1553,7 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
                           &affineX, &affineY, 1U);
         }
         NormalizeWindowCoordinates(table);
-        PointSetInfinity(&result);
+        PointSetInfinity(resultP);
         /* The scalar is below n, so a nonzero accumulator coefficient is
          * a multiple of 16 below n. It cannot equal a digit in 1..15. */
         for (window = 63; window >= 0; window--) {
@@ -1566,16 +1563,15 @@ static u32 P256MultiplyPoint(const volatile u8 *scalarP,
             /* Use Q for a zero digit, then discard its addition. */
             u32 selection = (digit | EqualSmall(digit, 0)) - 1U;
             for (index = 0; index < 4; index++)
-                PointDouble(&result, &result);
+                PointDouble(resultP, resultP);
             SelectWindowCoordinate(&selected.x, table, selection, 0U);
             SelectWindowCoordinate(&selected.y, table, selection, 1U);
-            PointAddMixed(&result, &result, &selected.x, &selected.y,
+            PointAddMixed(resultP, resultP, &selected.x, &selected.y,
                           EqualSmall(digit, 0) ^ 1U);
         }
         ClearSecret(&scalar, sizeof(scalar));
     }
-    if (FeIsZero(&result.z)) return PALM_TLS_ARMLET_ERROR;
-    PointCopy(resultP, &result);
+    if (FeIsZero(&resultP->z)) return PALM_TLS_ARMLET_ERROR;
     return PALM_TLS_ARMLET_SUCCESS;
 }
 
