@@ -1092,7 +1092,6 @@ static __inline__ u32 FeCancelP256Digit(const u32 *t, u32 *out)
     out[6] = (u32)value;
     return (u32)(value >> 32);
 }
-#endif
 
 /* Reduce an intermediate below 2*p. Inline this step to keep the integrated
  * multiplier's last limbs in registers. */
@@ -1115,6 +1114,8 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     }
 }
 
+#endif
+
 #if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
 /* r1 points to the fixed multiplicand, r2 is the current multiplier,
  * r3 loads each limb, r0 carries between products, and lr stays zero. */
@@ -1122,13 +1123,6 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     "ldr r3, [r1, #" #offset "]\n\t" \
     "adds " #t ", " #t ", r0\n\t" \
     "adc r0, lr, #0\n\t" \
-    "umlal " #t ", r0, r3, r2\n\t"
-
-/* The first row starts at zero, so the product only adds the incoming carry. */
-#define FE_MONT_FIRST_LIMB(t, offset) \
-    "ldr r3, [r1, #" #offset "]\n\t" \
-    "mov " #t ", r0\n\t" \
-    "mov r0, #0\n\t" \
     "umlal " #t ", r0, r3, r2\n\t"
 
 /* Cancel m=t0 by adding m*p, where p=-1+B^3+B^6-B^7+B^8 for
@@ -1171,7 +1165,9 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
 /* Reduce r4-r12, least significant limb first. Start the comparison
  * with the three all-ones limbs of p. The accumulator is below
  * 2^256+p, so the high limb and the comparison carry cannot both be
- * one. Add them to get the selection bit and subtract p under its mask.
+ * one. The top prime limb is all ones, so its comparison propagates
+ * carry only when the top input limb is also all ones. Subtract p
+ * under the mask derived from the high limb plus comparison carry.
  * r1-r3 are scratch. */
 #define FE_ARM_REDUCE \
     "and r1, r4, r5\n\t" \
@@ -1181,8 +1177,7 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     "sbcs r1, r8, #0\n\t" \
     "sbcs r1, r9, #0\n\t" \
     "sbcs r1, r10, #1\n\t" \
-    "mvn r3, #0\n\t" \
-    "sbcs r1, r11, r3\n\t" \
+    "adcs r1, r11, #0\n\t" \
     "adc r2, r12, #0\n\t" \
     "rsb r1, r2, #0\n\t" \
     "subs r4, r4, r1\n\t" \
@@ -1194,6 +1189,13 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     "sbcs r10, r10, r2\n\t" \
     "sbc r11, r11, r1\n\t"
 
+/* The first row starts at zero. The high half of one product and
+ * the low half of the next combine through a single carry chain. */
+#define FE_MONT_INITIAL_LIMB(op, word, next, offset) \
+    "ldr r3, [r1, #" #offset "]\n\t" \
+    "umull r0, " #next ", r3, r2\n\t" \
+    #op " " #word ", " #word ", r0\n\t"
+
 /* Fixed ARMv4T multiply and reduction schedule. Keep the accumulator
  * in nine registers and store the result after reading both inputs. */
 __attribute__((naked, noinline))
@@ -1202,14 +1204,18 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
     __asm__ volatile(
         "push {r0, r2, r4-r11, lr}\n\t"
         "mov lr, #0\n\t"
-        "mov r4, #0\n\t"
         "ldr r2, [r2]\n\t"
         "ldr r3, [r1]\n\t"
-        "umull r5, r0, r3, r2\n\t"
-        FE_MONT_FIRST_LIMB(r6, 4) FE_MONT_FIRST_LIMB(r7, 8)
-        FE_MONT_FIRST_LIMB(r8, 12) FE_MONT_FIRST_LIMB(r9, 16)
-        FE_MONT_FIRST_LIMB(r10, 20) FE_MONT_FIRST_LIMB(r11, 24)
-        FE_MONT_FIRST_LIMB(r12, 28)
+        "umull r5, r6, r3, r2\n\t"
+        FE_MONT_INITIAL_LIMB(adds, r6, r7, 4)
+        FE_MONT_INITIAL_LIMB(adcs, r7, r8, 8)
+        FE_MONT_INITIAL_LIMB(adcs, r8, r9, 12)
+        FE_MONT_INITIAL_LIMB(adcs, r9, r10, 16)
+        FE_MONT_INITIAL_LIMB(adcs, r10, r11, 20)
+        FE_MONT_INITIAL_LIMB(adcs, r11, r12, 24)
+        FE_MONT_INITIAL_LIMB(adcs, r12, r4, 28)
+        "adc r0, r4, #0\n\t"
+        "mov r4, #0\n\t"
         FE_MONT_CANCEL(r5, r8, r9, r10, r11, r12, r4)
         FE_MONT_ROW(4, r6, r7, r8, r9, r10, r11, r12, r4, r5)
         FE_MONT_ROW(8, r7, r8, r9, r10, r11, r12, r4, r5, r6)
@@ -1226,10 +1232,10 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
         "bx lr\n\t"
     );
 }
+#undef FE_MONT_INITIAL_LIMB
 #undef FE_MONT_ROW
 #undef FE_MONT_ROW_PRODUCTS
 #undef FE_MONT_CANCEL
-#undef FE_MONT_FIRST_LIMB
 #undef FE_MONT_LIMB
 
 /* Add both operands before the masked reduction and the final store. */
@@ -1315,10 +1321,11 @@ static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
 
 /* Keep all eight input limbs in r4-r11. Accumulate a triangular
  * product in memory, counting each off-diagonal term once. */
-#define FE_SQUARE_INITIAL_LIMB(a, b, offset) \
-    "mov r1, r2\n\t" \
-    "mov r2, #0\n\t" \
-    "umlal r1, r2, " #a ", " #b "\n\t" \
+/* Alternate the high registers and feed the next low word through
+ * the carry flag. UMULL and stores leave that flag intact. */
+#define FE_SQUARE_INITIAL_LIMB(op, src, high, next, offset) \
+    "umull r1, " #next ", r4, " #src "\n\t" \
+    #op " r1, r1, " #high "\n\t" \
     "str r1, [r0, #" #offset "]\n\t"
 
 /* Later rows add into the existing partial product. */
@@ -1363,12 +1370,13 @@ static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
         "mov r3, #0\n\t"
         "umull r1, r2, r4, r5\n\t"
         "str r1, [r0, #4]\n\t"
-        FE_SQUARE_INITIAL_LIMB(r4, r6, 8)
-        FE_SQUARE_INITIAL_LIMB(r4, r7, 12)
-        FE_SQUARE_INITIAL_LIMB(r4, r8, 16)
-        FE_SQUARE_INITIAL_LIMB(r4, r9, 20)
-        FE_SQUARE_INITIAL_LIMB(r4, r10, 24)
-        FE_SQUARE_INITIAL_LIMB(r4, r11, 28)
+        FE_SQUARE_INITIAL_LIMB(adds, r6, r2, r12, 8)
+        FE_SQUARE_INITIAL_LIMB(adcs, r7, r12, r2, 12)
+        FE_SQUARE_INITIAL_LIMB(adcs, r8, r2, r12, 16)
+        FE_SQUARE_INITIAL_LIMB(adcs, r9, r12, r2, 20)
+        FE_SQUARE_INITIAL_LIMB(adcs, r10, r2, r12, 24)
+        FE_SQUARE_INITIAL_LIMB(adcs, r11, r12, r2, 28)
+        "adc r2, r2, #0\n\t"
         "str r2, [r0, #32]\n\t"
 
         FE_SQUARE_ROW_FIRST(r5, r6, 12)
@@ -1447,6 +1455,62 @@ static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
 #undef FE_MONT_WIDE_ROWS
 #undef FE_MONT_WIDE_ROW
 #undef FE_MONT_CANCEL_LOW
+
+/* Shift limbs r4-r11 from high to low. The first shifter supplies
+ * either zero or the carry above r11. */
+#define P256_ARM_SHIFT_RIGHT(topShift) \
+    "movs r11, r11, " topShift "\n\t" \
+    "movs r10, r10, rrx\n\t" \
+    "movs r9, r9, rrx\n\t" \
+    "movs r8, r8, rrx\n\t" \
+    "movs r7, r7, rrx\n\t" \
+    "movs r6, r6, rrx\n\t" \
+    "movs r5, r5, rrx\n\t" \
+    "movs r4, r4, rrx\n\t"
+
+/* For 3*x/2, add p to odd x before shifting, then add the original x
+ * and reduce. Load both copies of x before storing for in-place calls. */
+__attribute__((naked, noinline))
+static void FeThreeHalves(Fe256 *resultP, const Fe256 *valueP)
+{
+    __asm__ volatile(
+        "push {r4-r11}\n\t"
+        "ldmia r1, {r4-r11}\n\t"
+        "and r3, r4, #1\n\t"
+        "rsb r2, r3, #0\n\t"
+        "adds r4, r4, r2\n\t"
+        "adcs r5, r5, r2\n\t"
+        "adcs r6, r6, r2\n\t"
+        "adcs r7, r7, #0\n\t"
+        "adcs r8, r8, #0\n\t"
+        "adcs r9, r9, #0\n\t"
+        "adcs r10, r10, r3\n\t"
+        "adcs r11, r11, r2\n\t"
+        P256_ARM_SHIFT_RIGHT("rrx")
+        "ldr r3, [r1, #0]\n\t"
+        "adds r4, r4, r3\n\t"
+        "ldr r3, [r1, #4]\n\t"
+        "adcs r5, r5, r3\n\t"
+        "ldr r3, [r1, #8]\n\t"
+        "adcs r6, r6, r3\n\t"
+        "ldr r3, [r1, #12]\n\t"
+        "adcs r7, r7, r3\n\t"
+        "ldr r3, [r1, #16]\n\t"
+        "adcs r8, r8, r3\n\t"
+        "ldr r3, [r1, #20]\n\t"
+        "adcs r9, r9, r3\n\t"
+        "ldr r3, [r1, #24]\n\t"
+        "adcs r10, r10, r3\n\t"
+        "ldr r3, [r1, #28]\n\t"
+        "adcs r11, r11, r3\n\t"
+        "mov r12, #0\n\t"
+        "adc r12, r12, #0\n\t"
+        FE_ARM_REDUCE
+        "stmia r0, {r4-r11}\n\t"
+        "pop {r4-r11}\n\t"
+        "bx lr\n\t"
+    );
+}
 
 #undef FE_ARM_REDUCE
 #else
@@ -1552,6 +1616,25 @@ static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
     FeFinishProduct(resultP, accumulatorP + 8U, pending);
 }
 
+/* Compute 3*x/2 in the field. Add p to 3*x when x is odd, then
+ * assemble the shifted integer and reduce it. It is below 2*p. */
+static void FeThreeHalves(Fe256 *resultP, const Fe256 *valueP)
+{
+    Fe256 scaled;
+    u32 mask = 0U - (valueP->v[0] & 1U);
+    u64 sum = 3U * (u64)valueP->v[0] + (kP.v[0] & mask);
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 i = 1; i < 8U; i++) {
+        u32 word = (u32)sum;
+        sum = 3U * (u64)valueP->v[i] + (kP.v[i] & mask) + (sum >> 32);
+        scaled.v[i - 1U] = (word >> 1) | ((u32)sum << 31);
+    }
+    scaled.v[7] = (u32)(sum >> 1);
+    FeFinishProduct(resultP, scaled.v, (u32)(sum >> 33));
+}
+
 /* The integrated product accepts equal inputs and in-place output: it
  * consumes all input limbs before writing resultP. Keep one field product
  * implementation for both multiplication and squaring. */
@@ -1595,25 +1678,6 @@ static u32 FeEqual(const Fe256 *leftP, const Fe256 *rightP)
     for (index = 0; index < 8; index++)
         difference |= leftP->v[index] ^ rightP->v[index];
     return ((difference | (0U - difference)) >> 31) ^ 1U;
-}
-
-/* Compute 3*x/2 in the field. Add p to 3*x when x is odd, then
- * assemble the shifted integer and reduce it. It is below 2*p. */
-static void FeThreeHalves(Fe256 *resultP, const Fe256 *valueP)
-{
-    Fe256 scaled;
-    u32 mask = 0U - (valueP->v[0] & 1U);
-    u64 sum = 3U * (u64)valueP->v[0] + (kP.v[0] & mask);
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-    for (u32 i = 1; i < 8U; i++) {
-        u32 word = (u32)sum;
-        sum = 3U * (u64)valueP->v[i] + (kP.v[i] & mask) + (sum >> 32);
-        scaled.v[i - 1U] = (word >> 1) | ((u32)sum << 31);
-    }
-    scaled.v[7] = (u32)(sum >> 1);
-    FeFinishProduct(resultP, scaled.v, (u32)(sum >> 33));
 }
 
 /* Jacobian doubling for y^2 = x^3 - 3x + b, scaled by 1/2 in Z.
@@ -2282,6 +2346,9 @@ static const Order256 kOrderR2 = {{
 static int OrderCompare(const Order256 *leftP, const Order256 *rightP)
 {
     int index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 7; index >= 0; index--) {
         if (leftP->v[index] > rightP->v[index]) return 1;
         if (leftP->v[index] < rightP->v[index]) return -1;
@@ -2317,25 +2384,96 @@ static u32 OrderSubtract(Order256 *resultP, const Order256 *leftP,
     return borrow;
 }
 
-static void OrderSubtractMod(Order256 *resultP, const Order256 *leftP,
-                             const Order256 *rightP)
+static __inline__ void OrderAddModulus(Order256 *valueP, u32 mask)
 {
-    u32 borrow = OrderSubtract(resultP, leftP, rightP);
     u64 carry = 0;
     u32 index;
 #if defined(__clang__)
 #pragma clang loop unroll(full)
 #endif
     for (index = 0; index < 8; index++) {
-        u64 sum = (u64)resultP->v[index] +
-            (kOrder.v[index] & (0U - borrow)) + carry;
-        resultP->v[index] = (u32)sum;
+        u64 sum = (u64)valueP->v[index] +
+            (kOrder.v[index] & mask) + carry;
+        valueP->v[index] = (u32)sum;
         carry = sum >> 32;
     }
 }
 
-static void OrderShiftRight(Order256 *valueP, u32 top)
+static void OrderSubtractMod(Order256 *resultP, const Order256 *leftP,
+                             const Order256 *rightP)
 {
+    u32 borrow = OrderSubtract(resultP, leftP, rightP);
+    OrderAddModulus(resultP, 0U - borrow);
+}
+
+/* The binary inverse uses public coefficients, so skip a zero correction. */
+static void OrderSubtractModPublic(Order256 *resultP, const Order256 *leftP,
+                                   const Order256 *rightP)
+{
+    if (OrderSubtract(resultP, leftP, rightP))
+        OrderAddModulus(resultP, 0xffffffffU);
+}
+
+#if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
+/* Shift through the carry flag, starting with the most-significant limb. */
+__attribute__((naked, noinline))
+static void OrderShiftRight(Order256 *valueP)
+{
+    __asm__ volatile(
+        "push {r4-r11}\n\t"
+        "ldmia r0, {r4-r11}\n\t"
+        P256_ARM_SHIFT_RIGHT("lsr #1")
+        "stmia r0, {r4-r11}\n\t"
+        "pop {r4-r11}\n\t"
+        "bx lr\n\t"
+    );
+}
+
+/* All inverse coefficients are public. Make the value even before halving. */
+__attribute__((naked, noinline))
+static void OrderHalfModWithOrder(Order256 *valueP, const Order256 *orderP)
+{
+    __asm__ volatile(
+        "push {r4-r11}\n\t"
+        "ldmia r0, {r4-r11}\n\t"
+        "tst r4, #1\n\t"
+        "beq 1f\n\t"
+        "ldr r3, [r1, #0]\n\t"
+        "adds r4, r4, r3\n\t"
+        "ldr r3, [r1, #4]\n\t"
+        "adcs r5, r5, r3\n\t"
+        "ldr r3, [r1, #8]\n\t"
+        "adcs r6, r6, r3\n\t"
+        "ldr r3, [r1, #12]\n\t"
+        "adcs r7, r7, r3\n\t"
+        "ldr r3, [r1, #16]\n\t"
+        "adcs r8, r8, r3\n\t"
+        "ldr r3, [r1, #20]\n\t"
+        "adcs r9, r9, r3\n\t"
+        "adcs r10, r10, #0\n\t"
+        "ldr r3, [r1, #28]\n\t"
+        "adcs r11, r11, r3\n\t"
+        "b 2f\n\t"
+        /* The even case needs a zero carry into the top word. */
+        "1: cmn r4, #0\n\t"
+        "2:\n\t"
+        P256_ARM_SHIFT_RIGHT("rrx")
+        "stmia r0, {r4-r11}\n\t"
+        "pop {r4-r11}\n\t"
+        "bx lr\n\t"
+    );
+}
+
+static void OrderHalfMod(Order256 *valueP)
+{
+    OrderHalfModWithOrder(valueP, &kOrder);
+}
+
+#undef P256_ARM_SHIFT_RIGHT
+#else
+static void OrderShiftRight(Order256 *valueP)
+{
+    u32 top = 0;
     int index;
 #if defined(__clang__)
 #pragma clang loop unroll(full)
@@ -2352,7 +2490,7 @@ static void OrderShiftRight(Order256 *valueP, u32 top)
 static void OrderHalfMod(Order256 *valueP)
 {
     if ((valueP->v[0] & 1U) == 0) {
-        OrderShiftRight(valueP, 0);
+        OrderShiftRight(valueP);
         return;
     }
 
@@ -2367,6 +2505,7 @@ static void OrderHalfMod(Order256 *valueP)
     }
     valueP->v[7] = (u32)(sum >> 1);
 }
+#endif
 
 static void OrderInverse(Order256 *resultP, const Order256 *valueP)
 {
@@ -2378,19 +2517,19 @@ static void OrderInverse(Order256 *resultP, const Order256 *valueP)
      * v=y*value mod n, 0<=x,y<n. The positive gcd operands strictly decrease. */
     while (!OrderIsValue(&u, 1) && !OrderIsValue(&v, 1)) {
         while ((u.v[0] & 1U) == 0) {
-            OrderShiftRight(&u, 0);
+            OrderShiftRight(&u);
             OrderHalfMod(&x);
         }
         while ((v.v[0] & 1U) == 0) {
-            OrderShiftRight(&v, 0);
+            OrderShiftRight(&v);
             OrderHalfMod(&y);
         }
         if (OrderCompare(&u, &v) >= 0) {
             OrderSubtract(&u, &u, &v);
-            OrderSubtractMod(&x, &x, &y);
+            OrderSubtractModPublic(&x, &x, &y);
         } else {
             OrderSubtract(&v, &v, &u);
-            OrderSubtractMod(&y, &y, &x);
+            OrderSubtractModPublic(&y, &y, &x);
         }
     }
     *resultP = OrderIsValue(&u, 1) ? x : y;
