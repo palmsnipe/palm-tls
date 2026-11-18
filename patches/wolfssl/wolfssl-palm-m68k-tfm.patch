@@ -1,0 +1,369 @@
+diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
+--- a/wolfcrypt/src/tfm.c
++++ b/wolfcrypt/src/tfm.c
+@@ -45,6 +45,11 @@
+ #include <wolfcrypt/src/asm.c>  /* will define asm MACROS or C ones */
+ #include <wolfssl/wolfcrypt/wolfmath.h> /* common functions */
+ #include <wolfssl/wolfcrypt/logging.h>
++
++#if defined(__m68k__) && defined(WC_16BIT_CPU) && \
++    defined(WOLFSSL_PALM_STATELESS_INIT) && !defined(PALM_WOLFSSL_ARMLET_MATH)
++    #define PALM_TFM_68K
++#endif
+
+ #ifdef PALM_WOLFSSL_ARMLET_MATH
+ extern int PalmTlsArmletMultiply(fp_int* left, fp_int* right, fp_int* output);
+@@ -620,12 +625,30 @@
+ }
+ #endif
+
++#ifdef PALM_TFM_68K
++/* A 48-bit Comba column lives in one longword and one carry word. */
++static WC_INLINE __attribute__((always_inline)) void PalmCombaAdd(
++    fp_word* lo, fp_digit* hi, fp_word product)
++{
++    __asm__ ("add.l %2,%0\n\t"
++             "addx.w %3,%1"
++        : "+&d" (*lo), "+d" (*hi)
++        : "d" (product), "d" ((fp_digit)0) : "cc");
++}
++#endif
++
+ /*  C = (A * B)   */
+ int fp_mul_comba(fp_int *A, fp_int *B, fp_int *C)
+ {
+    int       ret = 0;
+    int       ix, iy, iz, tx, ty, pa;
+-   fp_digit  c0, c1, c2, *tmpx, *tmpy;
++   fp_digit  *tmpx, *tmpy;
++#ifdef PALM_TFM_68K
++   fp_word lo = 0;
++   fp_digit hi = 0;
++#else
++   fp_digit c0, c1, c2;
++#endif
+    fp_int    *dst;
+    WC_DECLARE_VAR(tmp, fp_int, 1, 0);
+
+@@ -637,7 +660,9 @@
+        return FP_MEM);
+
+    COMBA_START;
++#ifndef PALM_TFM_68K
+    COMBA_CLEAR;
++#endif
+
+    /* get size of output and trim */
+    pa = A->used + B->used;
+@@ -667,15 +692,28 @@
+       iy = MIN(A->used-tx, ty+1);
+
+       /* execute loop */
++#ifdef PALM_TFM_68K
++      lo = (lo >> DIGIT_BIT) | ((fp_word)hi << DIGIT_BIT);
++      hi = 0;
++#else
+       COMBA_FORWARD;
++#endif
+       for (iz = 0; iz < iy; ++iz) {
+           fp_digit _tmpx = *tmpx++;
+           fp_digit _tmpy = *tmpy--;
++#ifdef PALM_TFM_68K
++          PalmCombaAdd(&lo, &hi, (fp_word)_tmpx * _tmpy);
++#else
+           MULADD(_tmpx, _tmpy);
++#endif
+       }
+
+       /* store term */
++#ifdef PALM_TFM_68K
++      dst->dp[ix] = (fp_digit)lo;
++#else
+       COMBA_STORE(dst->dp[ix]);
++#endif
+   }
+   COMBA_FINI;
+
+@@ -687,7 +725,9 @@
+   fp_copy(dst, C);
+
+   /* Variables used but not seen by cppcheck. */
++#ifndef PALM_TFM_68K
+   (void)c0; (void)c1; (void)c2;
++#endif
+
+   WC_FREE_VAR_EX(tmp, NULL, DYNAMIC_TYPE_BIGINT);
+   return ret;
+@@ -1582,6 +1622,47 @@
+   return err;
+ }
+
++#if defined(PALM_TFM_68K)
++/* Use the 68000 extend flag to carry the borrow across 16-bit digits.
++ * MOVE, AND and DBRA leave X intact. All inner loop counts are fixed. */
++static void PalmSubMod16(const fp_digit* a, const fp_digit* b,
++    const fp_digit* modulus, fp_digit* result)
++{
++    fp_digit term, borrow, value, count = 15;
++    fp_digit* dst = result;
++
++    __asm__ volatile(
++        "moveq #0,%[borrow]\n\t"
++        "add.w %[borrow],%[borrow]\n"
++        "1: move.w (%[a])+,%[term]\n\t"
++        "move.w (%[b])+,%[borrow]\n\t"
++        "subx.w %[borrow],%[term]\n\t"
++        "move.w %[term],(%[dst])+\n\t"
++        "dbra %[count],1b\n\t"
++        "move.w (%[a]),%[term]\n\t"
++        "move.w (%[b]),%[borrow]\n\t"
++        "subx.w %[borrow],%[term]\n\t"
++        "subx.w %[borrow],%[borrow]"
++        : [a] "+&a"(a), [b] "+&a"(b), [dst] "+&a"(dst),
++          [count] "+&d"(count), [term] "=&d"(term), [borrow] "=&d"(borrow)
++        : : "cc", "memory");
++
++    count = 15;
++    __asm__ volatile(
++        "moveq #0,%[term]\n\t"
++        "add.w %[term],%[term]\n"
++        "1: move.w (%[modulus])+,%[term]\n\t"
++        "and.w %[borrow],%[term]\n\t"
++        "move.w (%[dst]),%[value]\n\t"
++        "addx.w %[term],%[value]\n\t"
++        "move.w %[value],(%[dst])+\n\t"
++        "dbra %[count],1b"
++        : [modulus] "+&a"(modulus), [dst] "+&a"(result),
++          [count] "+&d"(count), [term] "=&d"(term), [value] "=&d"(value)
++        : [borrow] "d"(borrow) : "cc", "memory");
++}
++#endif
++
+ /* d = a - b (mod c) - constant time (a < c and b < c and all positive)
+  * c and d must not be the same pointers.
+  */
+@@ -1597,6 +1678,16 @@
+   if (c == d) {
+     return FP_VAL;
+   }
++
++#ifdef PALM_TFM_68K
++  if (c->used == 16) {
++    PalmSubMod16(a->dp, b->dp, c->dp, d->dp);
++    d->used = 16;
++    d->sign = FP_ZPOS;
++    fp_clamp(d);
++    return FP_OKAY;
++  }
++#endif
+
+   /* In constant time, subtract b from a putting result in d. */
+   w = 0;
+@@ -3374,13 +3465,31 @@
+   return err;
+ }
+
++#ifdef PALM_TFM_68K
++static WC_INLINE __attribute__((always_inline)) void PalmCombaAddDouble(
++    fp_word* lo, fp_digit* hi, fp_word product)
++{
++    __asm__ ("add.l %2,%0\n\t"
++             "addx.w %3,%1\n\t"
++             "add.l %2,%0\n\t"
++             "addx.w %3,%1"
++        : "+&d" (*lo), "+&d" (*hi)
++        : "d" (product), "d" ((fp_digit)0) : "cc");
++}
++#endif
++
+ /* generic comba squarer */
+ int fp_sqr_comba(fp_int *A, fp_int *B)
+ {
+   int       pa, ix, iz;
+-  fp_digit  c0, c1, c2;
+-#ifdef TFM_ISO
+-  fp_word   tt = 0;
++#ifdef PALM_TFM_68K
++  fp_word lo = 0;
++  fp_digit hi = 0;
++#else
++  fp_digit c0, c1, c2;
++  #ifdef TFM_ISO
++  fp_word tt = 0;
++  #endif
+ #endif
+    fp_int    *dst;
+    WC_DECLARE_VAR(tmp, fp_int, 1, 0);
+@@ -3396,7 +3505,9 @@
+
+   /* number of output digits to produce */
+   COMBA_START;
++#ifndef PALM_TFM_68K
+   COMBA_CLEAR;
++#endif
+
+   if (A == B) {
+      fp_init(tmp);
+@@ -3431,21 +3542,40 @@
+       iy = MIN(iy, (ty-tx+1)>>1);
+
+       /* forward carries */
++#ifdef PALM_TFM_68K
++      lo = (lo >> DIGIT_BIT) | ((fp_word)hi << DIGIT_BIT);
++      hi = 0;
++#else
+       COMBA_FORWARD;
++#endif
+
+       /* execute loop */
+       for (iz = 0; iz < iy; iz++) {
++#ifdef PALM_TFM_68K
++          fp_word product = (fp_word)*tmpx++ * *tmpy--;
++          PalmCombaAddDouble(&lo, &hi, product);
++#else
+           SQRADD2(*tmpx++, *tmpy--);
++#endif
+       }
+
+       /* even columns have the square term in them */
+       if ((ix&1) == 0) {
+           /* TAO change COMBA_ADD back to SQRADD */
++#ifdef PALM_TFM_68K
++          fp_digit digit = A->dp[ix >> 1];
++          PalmCombaAdd(&lo, &hi, (fp_word)digit * digit);
++#else
+           SQRADD(A->dp[ix>>1], A->dp[ix>>1]);
++#endif
+       }
+
+       /* store it */
++#ifdef PALM_TFM_68K
++      dst->dp[ix] = (fp_digit)lo;
++#else
+       COMBA_STORE(dst->dp[ix]);
++#endif
+   }
+
+   COMBA_FINI;
+@@ -3458,9 +3588,11 @@
+   }
+
+   /* Variables used but not seen by cppcheck. */
++#ifndef PALM_TFM_68K
+   (void)c0; (void)c1; (void)c2;
+ #ifdef TFM_ISO
+   (void)tt;
++#endif
+ #endif
+
+   WC_FREE_VAR_EX(tmp, NULL, DYNAMIC_TYPE_BIGINT);
+@@ -3714,12 +3846,49 @@
+ }
+ #endif
+
++/* The P-256 prime has six consecutive zero digits and eight 0xffff digits in radix 2^16. */
++#if defined(PALM_TFM_68K) && defined(HAVE_ECC)
++static const fp_digit palmP256Prime[16] = {
++    0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0, 0,
++    0, 0, 0, 0, 1, 0, 0xffff, 0xffff
++};
++
++static WC_INLINE __attribute__((always_inline)) fp_digit PalmMontgomeryWord(
++    fp_digit* digit, fp_digit carry, fp_word product)
++{
++    fp_word sum = product + *digit + carry;
++    *digit = (fp_digit)sum;
++    return (fp_digit)(sum >> DIGIT_BIT);
++}
++
++static WC_INLINE __attribute__((always_inline)) fp_digit PalmP256MontgomeryRow(
++    fp_digit* row)
++{
++    fp_digit mu = row[0];
++    fp_word ones = ((fp_word)mu << DIGIT_BIT) - mu;
++    fp_digit carry = 0;
++    int i;
++    for (i = 0; i < 6; i++)
++        carry = PalmMontgomeryWord(&row[i], carry, ones);
++    for (; i < 12; i++)
++        carry = PalmMontgomeryWord(&row[i], carry, 0);
++    carry = PalmMontgomeryWord(&row[12], carry, mu);
++    carry = PalmMontgomeryWord(&row[13], carry, 0);
++    carry = PalmMontgomeryWord(&row[14], carry, ones);
++    return PalmMontgomeryWord(&row[15], carry, ones);
++}
++#endif
++
+ /* computes x/R == x (mod N) via Montgomery Reduction */
+ int fp_montgomery_reduce_ex(fp_int *a, fp_int *m, fp_digit mp, int ct)
+ {
+    WC_DECLARE_VAR(c, fp_digit, FP_SIZE+1, 0);
+    fp_digit *_c, *tmpm, mu = 0;
+    int      oldused, x, y, pa, err = 0;
++#if defined(PALM_TFM_68K) && defined(WC_DECLARE_VAR_IS_HEAP_ALLOC)
++   /* P-256 needs 32 product words and one word of carry. */
++   fp_digit small[2 * 16 + 1];
++#endif
+
+ #if defined(PALM_WOLFSSL_BROWSER) && defined(PALM_WOLFSSL_ARMLET_MATH) && \
+     defined(WOLFSSL_RSA_VERIFY_ONLY)
+@@ -3744,12 +3913,18 @@
+    }
+ #endif
+
+-   /* only allocate space for what's needed for window plus res */
+-   WC_ALLOC_VAR_EX(c, fp_digit, (FP_SIZE+1), NULL, DYNAMIC_TYPE_BIGINT,
+-       return FP_MEM);
+-
+-   /* now zero the buff */
+-   XMEMSET(c, 0, sizeof(fp_digit)*(FP_SIZE + 1));
++#if defined(PALM_TFM_68K) && defined(WC_DECLARE_VAR_IS_HEAP_ALLOC)
++   if (m->used <= 16) {
++      c = small;
++      XMEMSET(c, 0, sizeof(small));
++   }
++   else
++#endif
++   {
++      WC_ALLOC_VAR_EX(c, fp_digit, (FP_SIZE + 1), NULL, DYNAMIC_TYPE_BIGINT,
++          return FP_MEM);
++      XMEMSET(c, 0, sizeof(fp_digit) * (FP_SIZE + 1));
++   }
+    pa = m->used;
+
+    /* copy the input */
+@@ -3767,6 +3942,21 @@
+        c[x] = a->dp[x];
+    }
+    MONT_START;
++
++#if defined(PALM_TFM_68K) && defined(HAVE_ECC)
++   if (pa == 16 && mp == 1 &&
++          XMEMCMP(m->dp, palmP256Prime, sizeof(palmP256Prime)) == 0) {
++      for (x = 0; x < pa; x++) {
++          fp_digit cy = PalmP256MontgomeryRow(c + x);
++          _c = c + x + pa;
++          while (cy) {
++              PROPCARRY;
++              ++_c;
++          }
++      }
++   }
++   else
++#endif
+
+    for (x = 0; x < pa; x++) {
+        fp_digit cy = 0;
+@@ -3825,7 +4015,12 @@
+   }
+ #endif
+
+-  WC_FREE_VAR_EX(c, NULL, DYNAMIC_TYPE_BIGINT);
++#if defined(PALM_TFM_68K) && defined(WC_DECLARE_VAR_IS_HEAP_ALLOC)
++  if (c != small)
++#endif
++  {
++     WC_FREE_VAR_EX(c, NULL, DYNAMIC_TYPE_BIGINT);
++  }
+   return FP_OKAY;
+ }
