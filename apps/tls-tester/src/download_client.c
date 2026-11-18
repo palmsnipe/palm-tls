@@ -2,7 +2,10 @@
 #include "download_store.h"
 #include "http.h"
 
-#define DOWNLOAD_IO_CAPACITY 2048
+/* Read a full TLS record (or plain socket burst) per step. Each step costs an
+ * event-loop tick, so 2 KiB reads capped plain HTTP and TLS transfers near
+ * 40 KB/s even though record protection sustains far more. */
+#define DOWNLOAD_IO_CAPACITY 16384
 #define DOWNLOAD_REQUEST_CAPACITY 768
 
 typedef struct DownloadSinkContext {
