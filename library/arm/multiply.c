@@ -1065,6 +1065,7 @@ static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
 }
 #endif
 
+#if !defined(__clang__) || !defined(__arm__) || defined(__thumb__)
 /* Cancel a low limb using p = (B-1,B-1,B-1,0,0,0,1,B-1), B=2^32.
  * m=t[0] since -p^-1 mod B=1. m*(B-1)=(m<<32)-m; m*p[0]+m
  * has low limb zero and carry m. Emit the next seven limbs and return the
@@ -1091,6 +1092,7 @@ static __inline__ u32 FeCancelP256Digit(const u32 *t, u32 *out)
     out[6] = (u32)value;
     return (u32)(value >> 32);
 }
+#endif
 
 /* Reduce an intermediate below 2*p. Inline this step to keep the integrated
  * multiplier's last limbs in registers. */
@@ -1129,13 +1131,10 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     "mov r0, #0\n\t" \
     "umlal " #t ", r0, r3, r2\n\t"
 
-/* Add m*p, where m=t0 and p=-1+B^3+B^6-B^7+B^8. The carry c
- * into limb 7 is zero when m is zero, so m-c fits in one limb.
- * Rotate the register names to divide by B. The register holding m
- * becomes the new ninth limb. */
-#define FE_MONT_CANCEL(t0, t3, t4, t5, t6, t7, t8) \
-    "adds " #t8 ", " #t8 ", r0\n\t" \
-    "adc r0, lr, #0\n\t" \
+/* Cancel m=t0 by adding m*p, where p=-1+B^3+B^6-B^7+B^8 for
+ * B=2^32. The carry c into limb 7 is zero when m is zero, so m-c
+ * fits in one limb. Return the correction for limb 8 in r2. */
+#define FE_MONT_CANCEL_LOW(t0, t3, t4, t5, t6, t7) \
     "adds " #t3 ", " #t3 ", " #t0 "\n\t" \
     "adcs " #t4 ", " #t4 ", #0\n\t" \
     "adcs " #t5 ", " #t5 ", #0\n\t" \
@@ -1143,7 +1142,14 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     "adc r3, lr, #0\n\t" \
     "sub r3, " #t0 ", r3\n\t" \
     "subs " #t7 ", " #t7 ", r3\n\t" \
-    "sbc r2, " #t0 ", #0\n\t" \
+    "sbc r2, " #t0 ", #0\n\t"
+
+/* Rotate the accumulator registers between multiplication rows.
+ * The canceled low register becomes the new high limb. */
+#define FE_MONT_CANCEL(t0, t3, t4, t5, t6, t7, t8) \
+    "adds " #t8 ", " #t8 ", r0\n\t" \
+    "adc r0, lr, #0\n\t" \
+    FE_MONT_CANCEL_LOW(t0, t3, t4, t5, t6, t7) \
     "adds " #t8 ", " #t8 ", r2\n\t" \
     "adc " #t0 ", r0, #0\n\t"
 
@@ -1270,6 +1276,178 @@ static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
     );
 }
 
+/* Read the next upper limb after dropping m. The previous
+ * row's carry belongs at this limb, above the eight-limb window. */
+#define FE_MONT_WIDE_ROW(offset, t0, t3, t4, t5, t6, t7) \
+    FE_MONT_CANCEL_LOW(t0, t3, t4, t5, t6, t7) \
+    "ldr " #t0 ", [r1, #" #offset "]\n\t" \
+    "adds " #t0 ", " #t0 ", r12\n\t" \
+    "adc r12, lr, #0\n\t" \
+    "adds " #t0 ", " #t0 ", r2\n\t" \
+    "adc r12, r12, #0\n\t"
+
+/* Eight rotations return the output to r4-r11, with carry in r12. */
+#define FE_MONT_WIDE_ROWS \
+    FE_MONT_WIDE_ROW(32, r4, r7, r8, r9, r10, r11) \
+    FE_MONT_WIDE_ROW(36, r5, r8, r9, r10, r11, r4) \
+    FE_MONT_WIDE_ROW(40, r6, r9, r10, r11, r4, r5) \
+    FE_MONT_WIDE_ROW(44, r7, r10, r11, r4, r5, r6) \
+    FE_MONT_WIDE_ROW(48, r8, r11, r4, r5, r6, r7) \
+    FE_MONT_WIDE_ROW(52, r9, r4, r5, r6, r7, r8) \
+    FE_MONT_WIDE_ROW(56, r10, r5, r6, r7, r8, r9) \
+    FE_MONT_WIDE_ROW(60, r11, r6, r7, r8, r9, r10)
+
+__attribute__((naked, noinline))
+static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
+{
+    __asm__ volatile(
+        "push {r4-r11, lr}\n\t"
+        "ldmia r1, {r4-r11}\n\t"
+        "mov lr, #0\n\t"
+        "mov r12, #0\n\t"
+        FE_MONT_WIDE_ROWS
+        FE_ARM_REDUCE
+        "stmia r0, {r4-r11}\n\t"
+        "pop {r4-r11, lr}\n\t"
+        "bx lr\n\t"
+    );
+}
+
+/* Keep all eight input limbs in r4-r11. Accumulate a triangular
+ * product in memory, counting each off-diagonal term once. */
+#define FE_SQUARE_INITIAL_LIMB(a, b, offset) \
+    "mov r1, r2\n\t" \
+    "mov r2, #0\n\t" \
+    "umlal r1, r2, " #a ", " #b "\n\t" \
+    "str r1, [r0, #" #offset "]\n\t"
+
+/* Later rows add into the existing partial product. */
+#define FE_SQUARE_ROW_FIRST(a, b, offset) \
+    "ldr r1, [r0, #" #offset "]\n\t" \
+    "mov r2, #0\n\t" \
+    "umlal r1, r2, " #a ", " #b "\n\t" \
+    "str r1, [r0, #" #offset "]\n\t"
+
+#define FE_SQUARE_ROW_LIMB(a, b, offset) \
+    "ldr r1, [r0, #" #offset "]\n\t" \
+    "adds r1, r1, r2\n\t" \
+    "adc r2, r3, #0\n\t" \
+    "umlal r1, r2, " #a ", " #b "\n\t" \
+    "str r1, [r0, #" #offset "]\n\t"
+
+/* Double an off-diagonal word pair and add a diagonal product.
+ * r3 carries the overflow to the next pair. */
+#define FE_SQUARE_DIAGONAL(a) \
+    "umull r1, r2, " #a ", " #a "\n\t" \
+    "ldmia r0, {r12, lr}\n\t" \
+    "adds r1, r1, r3\n\t" \
+    "adc r2, r2, #0\n\t" \
+    "adds r1, r1, r12, lsl #1\n\t" \
+    "adcs r2, r2, lr, lsl #1\n\t" \
+    "mov r3, lr, lsr #31\n\t" \
+    "adc r3, r3, #0\n\t" \
+    "adds r2, r2, r12, lsr #31\n\t" \
+    "adc r3, r3, #0\n\t" \
+    "stmia r0!, {r1-r2}\n\t"
+
+/* A square needs eight diagonal and 28 off-diagonal products. Finish
+ * collecting the full square before reducing and writing resultP. */
+__attribute__((naked, noinline))
+static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
+{
+    __asm__ volatile(
+        "push {r0, r4-r11, lr}\n\t"
+        "sub sp, sp, #64\n\t"
+        "mov r0, sp\n\t"
+        "ldmia r1, {r4-r11}\n\t"
+        "mov r3, #0\n\t"
+        "umull r1, r2, r4, r5\n\t"
+        "str r1, [r0, #4]\n\t"
+        FE_SQUARE_INITIAL_LIMB(r4, r6, 8)
+        FE_SQUARE_INITIAL_LIMB(r4, r7, 12)
+        FE_SQUARE_INITIAL_LIMB(r4, r8, 16)
+        FE_SQUARE_INITIAL_LIMB(r4, r9, 20)
+        FE_SQUARE_INITIAL_LIMB(r4, r10, 24)
+        FE_SQUARE_INITIAL_LIMB(r4, r11, 28)
+        "str r2, [r0, #32]\n\t"
+
+        FE_SQUARE_ROW_FIRST(r5, r6, 12)
+        FE_SQUARE_ROW_LIMB(r5, r7, 16)
+        FE_SQUARE_ROW_LIMB(r5, r8, 20)
+        FE_SQUARE_ROW_LIMB(r5, r9, 24)
+        FE_SQUARE_ROW_LIMB(r5, r10, 28)
+        FE_SQUARE_ROW_LIMB(r5, r11, 32)
+        "str r2, [r0, #36]\n\t"
+
+        FE_SQUARE_ROW_FIRST(r6, r7, 20)
+        FE_SQUARE_ROW_LIMB(r6, r8, 24)
+        FE_SQUARE_ROW_LIMB(r6, r9, 28)
+        FE_SQUARE_ROW_LIMB(r6, r10, 32)
+        FE_SQUARE_ROW_LIMB(r6, r11, 36)
+        "str r2, [r0, #40]\n\t"
+
+        FE_SQUARE_ROW_FIRST(r7, r8, 28)
+        FE_SQUARE_ROW_LIMB(r7, r9, 32)
+        FE_SQUARE_ROW_LIMB(r7, r10, 36)
+        FE_SQUARE_ROW_LIMB(r7, r11, 40)
+        "str r2, [r0, #44]\n\t"
+
+        FE_SQUARE_ROW_FIRST(r8, r9, 36)
+        FE_SQUARE_ROW_LIMB(r8, r10, 40)
+        FE_SQUARE_ROW_LIMB(r8, r11, 44)
+        "str r2, [r0, #48]\n\t"
+
+        FE_SQUARE_ROW_FIRST(r9, r10, 44)
+        FE_SQUARE_ROW_LIMB(r9, r11, 48)
+        "str r2, [r0, #52]\n\t"
+
+        FE_SQUARE_ROW_FIRST(r10, r11, 52)
+        "str r2, [r0, #56]\n\t"
+
+        /* The first pair has no carry or off-diagonal low word. */
+        "umull r1, r2, r4, r4\n\t"
+        "ldr lr, [r0, #4]\n\t"
+        "adds r2, r2, lr, lsl #1\n\t"
+        "mov r3, lr, lsr #31\n\t"
+        "adc r3, r3, #0\n\t"
+        "stmia r0!, {r1-r2}\n\t"
+        FE_SQUARE_DIAGONAL(r5)
+        FE_SQUARE_DIAGONAL(r6)
+        FE_SQUARE_DIAGONAL(r7)
+        FE_SQUARE_DIAGONAL(r8)
+        FE_SQUARE_DIAGONAL(r9)
+        FE_SQUARE_DIAGONAL(r10)
+        /* The last off-diagonal high word is zero. */
+        "umull r1, r2, r11, r11\n\t"
+        "ldr r12, [r0]\n\t"
+        "adds r1, r1, r3\n\t"
+        "adc r2, r2, #0\n\t"
+        "adds r1, r1, r12, lsl #1\n\t"
+        "adc r2, r2, r12, lsr #31\n\t"
+        "stmia r0!, {r1-r2}\n\t"
+        "mov r1, sp\n\t"
+        "ldr r0, [sp, #64]\n\t"
+        "ldmia r1, {r4-r11}\n\t"
+        "mov lr, #0\n\t"
+        "mov r12, #0\n\t"
+        FE_MONT_WIDE_ROWS
+        FE_ARM_REDUCE
+        "stmia r0, {r4-r11}\n\t"
+        "add sp, sp, #64\n\t"
+        "pop {r0, r4-r11, lr}\n\t"
+        "bx lr\n\t"
+    );
+}
+
+#undef FE_SQUARE_DIAGONAL
+#undef FE_SQUARE_ROW_LIMB
+#undef FE_SQUARE_ROW_FIRST
+#undef FE_SQUARE_INITIAL_LIMB
+
+#undef FE_MONT_WIDE_ROWS
+#undef FE_MONT_WIDE_ROW
+#undef FE_MONT_CANCEL_LOW
+
 #undef FE_ARM_REDUCE
 #else
 
@@ -1357,7 +1535,6 @@ static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
         previous = limb >> 31;
     }
 }
-#endif
 
 /* Montgomery-reduce a 512-bit value. P[0] is -1, so the reduction digit is
  * the low accumulator limb without an additional multiplication. */
@@ -1382,6 +1559,7 @@ static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
 {
     FeMultiply(resultP, valueP, valueP);
 }
+#endif
 
 static void PointCopy(Point256 *destinationP, const Point256 *sourceP)
 {
