@@ -6,6 +6,7 @@
 #include <time.h>
 
 unsigned int PalmTlsArmletEntry(const void *, void *, void *);
+extern unsigned char *PalmTlsArmletHostMemory;
 
 static BenchWord Invoke(BenchContext *context)
 {
@@ -32,6 +33,8 @@ int main(void)
     if (!context) return 1;
     context->invoke = Invoke;
     context->clock = Clock;
+    /* ChaCha uses ARMlet host-memory offsets; point them at the record. */
+    PalmTlsArmletHostMemory = context->record;
     fputs(BENCH_CSV_HEADER, stdout);
     for (i = 0; i < BenchCaseCount; i++) {
         if (!BenchRun(context, &BenchCases[i], 1000000, 50000, Emit, stdout)) {

@@ -15,7 +15,7 @@
 #endif
 #include "bench_vectors.inc"
 
-enum { multiply, fixed, general, raw, mapping, verify, sha, encrypt, decrypt, field };
+enum { multiply, fixed, general, raw, mapping, verify, sha, encrypt, decrypt, field, chacha };
 #ifdef PALMOS
 __attribute__((section(".text.bench_cases")))
 #endif
@@ -41,7 +41,11 @@ const BenchCase BenchCases[] = {
     {"gcm_decrypt_16", decrypt, 16},
     {"gcm_decrypt_512", decrypt, 512},
     {"gcm_decrypt_4096", decrypt, 4096},
-    {"gcm_decrypt_16384", decrypt, 16384}
+    {"gcm_decrypt_16384", decrypt, 16384},
+    {"chacha_encrypt_16", chacha, 16},
+    {"chacha_encrypt_512", chacha, 512},
+    {"chacha_encrypt_4096", chacha, 4096},
+    {"chacha_encrypt_16384", chacha, 16384}
 };
 const unsigned short BenchCaseCount = sizeof(BenchCases) / sizeof(BenchCases[0]);
 
@@ -69,6 +73,20 @@ static void Hex(unsigned char *out, const char *hex, unsigned short size)
     unsigned short i;
     for (i = 0; i < size; i++) out[i] = (unsigned char)
         ((Nibble(hex[i * 2]) << 4) | Nibble(hex[i * 2 + 1]));
+}
+
+static unsigned long Little32(const unsigned char *p)
+{
+    return (unsigned long)p[0] | ((unsigned long)p[1] << 8) |
+        ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24);
+}
+
+static void PutBig32(unsigned char *p, unsigned long value)
+{
+    p[0] = (unsigned char)(value >> 24);
+    p[1] = (unsigned char)(value >> 16);
+    p[2] = (unsigned char)(value >> 8);
+    p[3] = (unsigned char)value;
 }
 
 int BenchPrepare(BenchContext *context, const BenchCase *test)
@@ -102,6 +120,39 @@ int BenchPrepare(BenchContext *context, const BenchCase *test)
             right[3] = 128; right[63] = 24;
         }
         break;
+    case chacha: {
+        static const unsigned char state[64] = {
+            'e','x','p','a','n','d',' ','3','2','-','b','y','t','e',' ','k',
+            0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,
+            16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,
+            0,0,0,0,
+            0,1,2,3,4,5,6,7,8,9,10,11
+        };
+        unsigned short i;
+        unsigned long inAddr, outAddr, aadAddr;
+        r[3] = PALM_TLS_ARMLET_COMMAND_CHACHA_POLY;
+        left[0] = 0;
+        for (i = 0; i < 64; i++) context->chachaState[i] = state[i];
+        for (i = 0; i < 16; i++)
+            PutBig32(left + 4 + i * 4, Little32(state + i * 4));
+#ifdef PALMOS
+        inAddr = (unsigned long)context->record;
+        outAddr = (unsigned long)(context->record + 16384);
+        aadAddr = (unsigned long)(context->record + 32768);
+#else
+        inAddr = 0;
+        outAddr = 16384;
+        aadAddr = 32768;
+#endif
+        PutBig32(left + PALM_TLS_ARMLET_CHACHA_INPUT_OFFSET, inAddr);
+        PutBig32(left + PALM_TLS_ARMLET_CHACHA_OUTPUT_OFFSET, outAddr);
+        PutBig32(left + PALM_TLS_ARMLET_CHACHA_LENGTH_OFFSET, test->size);
+        PutBig32(left + PALM_TLS_ARMLET_CHACHA_AAD_OFFSET, aadAddr);
+        PutBig32(left + PALM_TLS_ARMLET_CHACHA_AAD_LENGTH_OFFSET, 13);
+        for (i = 0; i < 16; i++) left[PALM_TLS_ARMLET_CHACHA_TAG_OFFSET + i] = 0;
+        ZERO(context->record, sizeof(context->record));
+        break;
+    }
     case encrypt: case decrypt:
         r[3] = PALM_TLS_ARMLET_COMMAND_AES_GCM;
         break;
@@ -140,6 +191,13 @@ int BenchOperation(BenchContext *context, const BenchCase *test)
     unsigned char *right = r + PALM_TLS_ARMLET_RIGHT_OFFSET;
     unsigned char *output = r + PALM_TLS_ARMLET_OUTPUT_OFFSET;
     unsigned short offset, chunk;
+    if (test->kind == chacha) {
+        unsigned short i;
+        /* The ARMlet clears the state copy after each call. */
+        for (i = 0; i < 16; i++)
+            PutBig32(left + 4 + i * 4, Little32(context->chachaState + i * 4));
+        return context->invoke(context) == PALM_TLS_ARMLET_SUCCESS;
+    }
     if (test->kind != encrypt && test->kind != decrypt)
         return context->invoke(context) == (test->kind == multiply ?
             (BenchWord)test->size * 2 : PALM_TLS_ARMLET_SUCCESS);
@@ -185,6 +243,20 @@ int BenchVerify(BenchContext *context, const BenchCase *test)
                 output[i * 2 + 1] != (unsigned char)digit) return 0;
         }
         return 1;
+    }
+    if (test->kind == chacha) {
+        unsigned short vector = test->size == 16 ? 0 : test->size == 512 ? 1 :
+                                test->size == 4096 ? 2 : 3;
+        unsigned short length = test->size < 512 ? test->size : 512;
+        BenchWord checksum = 2166136261UL;
+        const unsigned char *tail = context->record + 16384 +
+            test->size - length;
+        for (i = 0; i < length; i++)
+            checksum = (checksum ^ tail[i]) * 16777619UL;
+        return checksum == kChaChaVectors[vector].tail &&
+            CMP(r + PALM_TLS_ARMLET_LEFT_OFFSET +
+                PALM_TLS_ARMLET_CHACHA_TAG_OFFSET,
+                kChaChaVectors[vector].tag, 16) == 0;
     }
     if (test->kind == encrypt || test->kind == decrypt) {
         unsigned short vector = test->size == 16 ? 0 : test->size == 512 ? 1 :
@@ -250,7 +322,8 @@ int BenchRun(BenchContext *context, const BenchCase *test,
 {
     BenchWord count = 1, elapsed, sample;
     BenchWord bytes = test->kind == sha ? (BenchWord)test->size * 64 :
-        test->kind == encrypt || test->kind == decrypt ? test->size : 0;
+        test->kind == encrypt || test->kind == decrypt ||
+        test->kind == chacha ? test->size : 0;
     char row[160];
     if (!Batch(context, test, 1, &elapsed)) return 0;
     for (;;) {

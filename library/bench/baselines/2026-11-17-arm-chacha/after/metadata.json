@@ -1,0 +1,30 @@
+{
+  "benchmark_version": 1,
+  "benchmark_type": "native",
+  "mips": 100,
+  "device": "auto",
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "emulator_sha256": "f1ce6b0dae71caf60f26694336056974cdf02c51b14429ade7222871d90c13f3",
+  "prc_sha256": "f4b43c924349fb5ed75a5c52d9223e34c0afb5ee3973965b3f64129f70c9a4ab",
+  "library_sha256": "e11e6c3ebd1d9f097fe02fc6b2a13cdb56446c723b653fa85ad14ddfa1b9cb96",
+  "arm_image_sha256": "0a46e40e5769b3ac9c3872ab2b1a3a6dc695bfed483c4feb081df7c2636eab4a",
+  "arm_image_bytes": 48640,
+  "git_revision": "69decfe30628973f9eed562aa3e2eabc53f017e6",
+  "git_dirty": true,
+  "command": [
+    "/Users/cyril/projects/cloudpilot-emu/src/uarm/cp-uarm",
+    "--mips",
+    "100",
+    "--no-sound",
+    "--device",
+    "auto",
+    "/Users/cyril/projects/palm-tls/library/build/bench/arm-chacha-new/session.img"
+  ],
+  "local_arm_build_config": "clang --target=armv4t-none-eabi -mcpu=arm7tdmi -march=armv4t -marm -Os",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "a931f335932ae2228edddf94cd7c8a593f146387adeeb0a5f80f82063ddff57e"
+  }
+}

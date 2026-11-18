@@ -719,6 +719,9 @@ static void ChaChaBlock(const u32 *inputP, u32 *outputP)
     u32 x8 = inputP[8], x9 = inputP[9], x10 = inputP[10], x11 = inputP[11];
     u32 x12 = inputP[12], x13 = inputP[13], x14 = inputP[14], x15 = inputP[15];
     u32 round;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (round = 0; round < 10; round++) {
         CHACHA_QUARTER(x0, x4, x8, x12);
         CHACHA_QUARTER(x1, x5, x9, x13);

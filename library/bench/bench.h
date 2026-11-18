@@ -29,6 +29,10 @@ typedef struct BenchContext {
                           PALM_TLS_ARMLET_DIGIT_BYTES * 3];
     unsigned char tail[PALM_TLS_ARMLET_AES_GCM_CHUNK];
     unsigned char zero[PALM_TLS_ARMLET_AES_GCM_CHUNK];
+    /* ChaCha records are sealed in one native call. Input, output and AAD
+     * share one buffer so host offsets and Palm pointers use the same layout. */
+    unsigned char record[16384UL * 2UL + 16UL];
+    unsigned char chachaState[64];
     BenchWord (*invoke)(struct BenchContext *);
     BenchWord (*clock)(void);
     void *entry;

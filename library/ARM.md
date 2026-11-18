@@ -60,9 +60,10 @@ The copied cipher state is erased after use, including authentication and
 length errors. Temporary ARM key, keystream and authenticator buffers are
 also cleared using volatile stores.
 
-ChaCha20-Poly1305 is much faster than AES-128-GCM here. In the emulator, a
-16 KB record takes about 27 ARM instructions per byte, against about 1,700
-for AES-GCM. It also needs one native call instead of 34. It avoids AES-GCM's
+ChaCha20-Poly1305 is much faster than AES-128-GCM here. Its ten double-rounds
+are fully unrolled, which cuts the emulator instruction count for a 16 KB
+record by about 9%. In the emulator, a 16 KB record takes about 25 ARM
+instructions per byte, against about 1,700 for AES-GCM. It also needs one native call instead of 34. It avoids AES-GCM's
 secret-dependent table lookups, but constant-time execution is not guaranteed
 on every supported processor: XScale multiplication can terminate early based
 on secret Poly1305 operands. The emulator's instruction count does not measure
