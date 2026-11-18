@@ -34,6 +34,7 @@ patches=(
   wolfssl-palm-trust-profile.patch
   wolfssl-palm-public-ca-pem.patch
   wolfssl-palm-public-base64-quartets.patch
+  wolfssl-palm-parsed-ca-cache.patch
   wolfssl-palm-armlet-chacha.patch
   wolfssl-palm-16bit-int64.patch
   wolfssl-palm-client-auth.patch
@@ -134,7 +135,7 @@ build_variant wolfssl-palm-tls13-68k \
   '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_IGNORE_TLS13_TICKETS' \
   --disable-oldtls libwolfssl-tls13.a copy
 build_variant wolfssl-palm-tls13-armlet \
-  '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_ENABLE_ARMLET_MATH' \
+  '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_ENABLE_ARMLET_MATH -DPALM_WOLFSSL_PARSED_CA_CACHE' \
   --disable-oldtls libwolfssl-tls13-armlet.a copy
 build_variant wolfssl-palm-tls11-68k \
   '-DWOLFSSL_USER_SETTINGS -DPALM_WOLFSSL_TLS11_ONLY' \

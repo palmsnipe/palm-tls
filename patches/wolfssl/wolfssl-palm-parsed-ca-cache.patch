@@ -1,0 +1,205 @@
+diff --git a/src/ssl_certman.c b/src/ssl_certman.c
+--- a/src/ssl_certman.c
++++ b/src/ssl_certman.c
+@@ -3061,6 +3061,189 @@
+     return 0;
+ }
+
++#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
++#if !defined(SINGLE_THREADED) || defined(WOLFSSL_SIGNER_DER_CERT) || \
++    defined(WOLFSSL_DUAL_ALG_CERTS) || defined(OPENSSL_COMPATIBLE_DEFAULTS)
++    #error unsupported cert-manager configuration for this experiment
++#endif
++
++typedef struct PalmAnchorDates {
++    struct PalmAnchorDates* next;
++    byte before[MAX_DATE_SIZE + 4];
++    byte after[MAX_DATE_SIZE + 4];
++    int beforeSize, afterSize;
++} PalmAnchorDates;
++
++/* Set only during the synchronous import of explicit anchors. */
++static WOLFSSL_CERT_MANAGER* palmCaptureManager;
++static PalmAnchorDates* palmCaptureDates;
++static int palmCaptureOk;
++
++static void PalmCaptureAnchorDates(const DecodedCert* cert)
++{
++    PalmAnchorDates* dates;
++    if (cert->beforeDate == NULL || cert->afterDate == NULL ||
++        cert->beforeDateLen <= 0 || cert->afterDateLen <= 0 ||
++        cert->beforeDateLen > (int)sizeof(dates->before) ||
++        cert->afterDateLen > (int)sizeof(dates->after)) {
++        palmCaptureOk = 0;
++        return;
++    }
++    dates = (PalmAnchorDates*)XMALLOC(sizeof(*dates), NULL, DYNAMIC_TYPE_TMP_BUFFER);
++    if (dates == NULL) {
++        palmCaptureOk = 0;
++        return;
++    }
++    dates->beforeSize = cert->beforeDateLen;
++    dates->afterSize = cert->afterDateLen;
++    XMEMCPY(dates->before, cert->beforeDate, dates->beforeSize);
++    XMEMCPY(dates->after, cert->afterDate, dates->afterSize);
++    dates->next = palmCaptureDates;
++    palmCaptureDates = dates;
++}
++
++WOLFSSL_LOCAL void PalmTlsWolfFreeAnchorDates(void* context)
++{
++    PalmAnchorDates* dates = (PalmAnchorDates*)context;
++    while (dates != NULL) {
++        PalmAnchorDates* next = dates->next;
++        XFREE(dates, NULL, DYNAMIC_TYPE_TMP_BUFFER);
++        dates = next;
++    }
++}
++
++WOLFSSL_LOCAL int PalmTlsWolfLoadAnchorDates(WOLFSSL_CTX* ctx, const byte* bytes,
++                              long size, int format, void** dates)
++{
++    int ret;
++    palmCaptureManager = ctx->cm;
++    palmCaptureOk = 1;
++    palmCaptureDates = NULL;
++    ret = wolfSSL_CTX_load_verify_buffer(ctx, bytes, size, format);
++    palmCaptureManager = NULL;
++    if (ret == WOLFSSL_SUCCESS && palmCaptureOk)
++        *dates = palmCaptureDates;
++    else {
++        PalmTlsWolfFreeAnchorDates(palmCaptureDates);
++        *dates = NULL;
++    }
++    palmCaptureDates = NULL;
++    return ret;
++}
++
++static int PalmAnchorDateIsValid(const byte* der, int size, int type, time_t now)
++{
++    word32 start = 1;
++    int length;
++    if ((der[0] != ASN_UTC_TIME && der[0] != ASN_GENERALIZED_TIME) ||
++        GetLength(der, &start, &length, (word32)size) < 0 ||
++        length < MIN_DATE_SIZE || length > MAX_DATE_SIZE ||
++        start + (word32)length != (word32)size)
++        return 0;
++    return wc_ValidateDateWithTime(der + start, der[0], type, now, length);
++}
++
++WOLFSSL_LOCAL int PalmTlsWolfCheckAnchorDates(const void* context)
++{
++    const PalmAnchorDates* dates = (const PalmAnchorDates*)context;
++    time_t now = wc_Time(NULL);
++    for (; dates != NULL; dates = dates->next) {
++        if (!PalmAnchorDateIsValid(dates->before, dates->beforeSize, ASN_BEFORE, now) ||
++            !PalmAnchorDateIsValid(dates->after, dates->afterSize, ASN_AFTER, now))
++            return 0;
++    }
++    return 1;
++}
++
++#ifndef IGNORE_NAME_CONSTRAINTS
++static int PalmCopySubtrees(Base_entry** dest, const Base_entry* src)
++{
++    for (; src != NULL; src = src->next) {
++        Base_entry* entry = (Base_entry*)XMALLOC(sizeof(*entry), NULL, DYNAMIC_TYPE_ALTNAME);
++        if (entry == NULL)
++            return MEMORY_E;
++        *entry = *src;
++        entry->next = NULL;
++        entry->name = NULL;
++        *dest = entry;
++        entry->name = (char*)XMALLOC(src->nameSz + 1, NULL, DYNAMIC_TYPE_ALTNAME);
++        if (entry->name == NULL)
++            return MEMORY_E;
++        XMEMCPY(entry->name, src->name, src->nameSz);
++        entry->name[src->nameSz] = '\0';
++        dest = &entry->next;
++    }
++    return 0;
++}
++#endif
++
++/* Clone the in-memory signer, including flags and name constraints.
++ * Only link the completed table into the destination after all copies succeed. */
++WOLFSSL_LOCAL int PalmTlsWolfCloneAnchors(WOLFSSL_CERT_MANAGER* dest, const WOLFSSL_CERT_MANAGER* src)
++{
++    Signer* rows[CA_TABLE_SIZE] = {0};
++    unsigned int i;
++    int ret = 0;
++    if (dest == NULL || src == NULL || src == dest)
++        return BAD_FUNC_ARG;
++    for (i = 0; i < CA_TABLE_SIZE; i++)
++        if (dest->caTable[i] != NULL)
++            return BAD_FUNC_ARG;
++    for (i = 0; i < CA_TABLE_SIZE && ret == 0; i++) {
++        const Signer* signer = src->caTable[i];
++        Signer** next = &rows[i];
++        for (; signer != NULL; signer = signer->next) {
++            Signer* copy;
++            if (signer->type != WOLFSSL_USER_CA) {
++                ret = BAD_FUNC_ARG;
++                break;
++            }
++            copy = MakeSigner(dest->heap);
++            if (copy == NULL) {
++                ret = MEMORY_E;
++                break;
++            }
++            *copy = *signer;
++            copy->publicKey = NULL;
++            copy->name = NULL;
++            copy->next = NULL;
++#ifndef IGNORE_NAME_CONSTRAINTS
++            copy->permittedNames = NULL;
++            copy->excludedNames = NULL;
++#endif
++            *next = copy;
++            next = &copy->next;
++            if (signer->publicKey != NULL) {
++                byte* key = (byte*)XMALLOC(signer->pubKeySize, dest->heap, DYNAMIC_TYPE_PUBLIC_KEY);
++                if (key == NULL) { ret = MEMORY_E; break; }
++                XMEMCPY(key, signer->publicKey, signer->pubKeySize);
++                copy->publicKey = key;
++            }
++            if (signer->name != NULL) {
++                char* name = (char*)XMALLOC(signer->nameLen + 1, dest->heap, DYNAMIC_TYPE_SUBJECT_CN);
++                if (name == NULL) { ret = MEMORY_E; break; }
++                XMEMCPY(name, signer->name, signer->nameLen);
++                name[signer->nameLen] = '\0';
++                copy->name = name;
++            }
++#ifndef IGNORE_NAME_CONSTRAINTS
++            ret = PalmCopySubtrees(&copy->permittedNames, signer->permittedNames);
++            if (ret == 0)
++                ret = PalmCopySubtrees(&copy->excludedNames, signer->excludedNames);
++            if (ret != 0)
++                break;
++#endif
++        }
++    }
++    if (ret != 0) {
++        FreeSignerTable(rows, CA_TABLE_SIZE, dest->heap);
++        return ret;
++    }
++    XMEMCPY(dest->caTable, rows, sizeof(rows));
++    return WOLFSSL_SUCCESS;
++}
++#endif
++
+ /* owns der, internal now uses too */
+ /* type flag ids from user or from chain received during verify
+    don't allow chain ones to be added w/o isCA extension */
+@@ -3098,6 +3281,11 @@
+
+     WOLFSSL_MSG_CERT("\tParsing new CA");
+     ret = ParseCert(cert, CA_TYPE, verify, cm);
++#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
++    if (ret == 0 && palmCaptureManager == cm && palmCaptureOk &&
++            type == WOLFSSL_USER_CA)
++        PalmCaptureAnchorDates(cert);
++#endif
+
+     WOLFSSL_MSG("\tParsed new CA");
+ #ifdef WOLFSSL_DEBUG_CERTS

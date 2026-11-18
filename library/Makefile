@@ -61,7 +61,7 @@ OBJECTS_12_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engin
 OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o
 OBJECTS_11_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
 OBJECTS_12_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o
-OBJECTS_13_ARM := $(COMMON_OBJECTS_ARM) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o
+OBJECTS_13_ARM := $(COMMON_OBJECTS_ARM) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13_arm.o
 OBJECTS_11_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
 OBJECTS_browser_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_browser.o $(PALM_BUILD)/tls_palm_browser.o \
 	$(PALM_BUILD)/tls_drbg_browser.o $(PALM_BUILD)/tls_engine_browser.o
@@ -146,9 +146,10 @@ $(PALM_BUILD)/tls_loader.o: src/tls_loader.c include/palm_tls.h src/tls_segments
 $(PALM_BUILD)/tls_engine_12.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=12 \
 		-DPALM_WOLFSSL_TLS12_ONLY -c $< -o $@
-$(PALM_BUILD)/tls_engine_13.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(PALM_BUILD)/tls_engine_13_arm.o: TLS13_ENGINE_FLAGS := -DPALM_WOLFSSL_PARSED_CA_CACHE
+$(PALM_BUILD)/tls_engine_13.o $(PALM_BUILD)/tls_engine_13_arm.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=13 \
-		-DWOLFSSL_NO_TLS12 -c $< -o $@
+		-DWOLFSSL_NO_TLS12 $(TLS13_ENGINE_FLAGS) -c $< -o $@
 $(PALM_BUILD)/tls_engine_browser.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=13 \
 		-DPALM_WOLFSSL_BROWSER -c $< -o $@

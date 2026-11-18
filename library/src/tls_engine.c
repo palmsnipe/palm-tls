@@ -639,6 +639,74 @@ static int VerifyPinnedLeaf(int preverified, WOLFSSL_X509_STORE_CTX *storeP)
 }
 #endif
 
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+extern void PalmTlsWolfFreeAnchorDates(void *);
+extern int PalmTlsWolfLoadAnchorDates(WOLFSSL_CTX *, const unsigned char *,
+                                    long, int, void **);
+extern int PalmTlsWolfCheckAnchorDates(const void *);
+extern int PalmTlsWolfCloneAnchors(WOLFSSL_CERT_MANAGER *,
+                                 const WOLFSSL_CERT_MANAGER *);
+
+typedef struct PalmParsedTrust {
+    WOLFSSL_CERT_MANAGER *anchorsP;
+    void *datesP;
+    void *bytesP;
+    UInt32 size;
+} PalmParsedTrust;
+
+/* The engine owns one exact bundle and its configured trust anchors.
+ * Each context gets its own manager, which may learn peer intermediates. */
+static PalmParsedTrust parsedTrust;
+
+static void FreeParsedTrust(void)
+{
+    wolfSSL_CertManagerFree(parsedTrust.anchorsP);
+    PalmTlsWolfFreeAnchorDates(parsedTrust.datesP);
+    if (parsedTrust.bytesP)
+        MemPtrFree(parsedTrust.bytesP);
+    parsedTrust.anchorsP = NULL;
+    parsedTrust.datesP = parsedTrust.bytesP = NULL;
+    parsedTrust.size = 0;
+}
+
+static int LoadParsedTrust(WOLFSSL_CTX *contextP, const UInt8 *bytesP,
+                          UInt32 size, int format)
+{
+    WOLFSSL_CERT_MANAGER *destP = wolfSSL_CTX_GetCertManager(contextP);
+    if (parsedTrust.anchorsP && parsedTrust.size == size &&
+        MemCmp(parsedTrust.bytesP, bytesP, size) == 0) {
+        PalmTlsTrustProfileEnter(palmTlsTrustCache);
+        int ret = PalmTlsWolfCheckAnchorDates(parsedTrust.datesP) ?
+            PalmTlsWolfCloneAnchors(destP, parsedTrust.anchorsP) : 0;
+        PalmTlsTrustProfileLeave();
+        if (ret == WOLFSSL_SUCCESS)
+            return ret;
+    }
+    FreeParsedTrust();
+    void *datesP = NULL;
+    int ret = PalmTlsWolfLoadAnchorDates(contextP, bytesP, size, format, &datesP);
+    if (ret != WOLFSSL_SUCCESS || !datesP)
+        return ret;
+
+    WOLFSSL_CERT_MANAGER *anchorsP = wolfSSL_CertManagerNew();
+    void *ownedP = MemPtrNew(size);
+    if (anchorsP && ownedP && PalmTlsWolfCloneAnchors(anchorsP, destP) == WOLFSSL_SUCCESS) {
+        MemMove(ownedP, bytesP, size);
+        parsedTrust.anchorsP = anchorsP;
+        parsedTrust.datesP = datesP;
+        parsedTrust.bytesP = ownedP;
+        parsedTrust.size = size;
+    } else {
+        wolfSSL_CertManagerFree(anchorsP);
+        PalmTlsWolfFreeAnchorDates(datesP);
+        if (ownedP)
+            MemPtrFree(ownedP);
+    }
+    return ret;
+}
+#endif
+
+
 /* A per-slot context is reusable only for an exact owned trust configuration
  * and hostname. Session objects and ephemeral key shares are always fresh. */
 static int ConfigureContext(const PalmTlsEngineParams *paramsP)
@@ -723,9 +791,14 @@ static int ConfigureContext(const PalmTlsEngineParams *paramsP)
         if (paramsP->verifyMode == palmTlsVerifyExactPeer)
             ret = wolfSSL_CTX_trust_peer_buffer(contextP,
                 controlP->contextTrustP, length, format);
-        else
+        else {
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+            ret = LoadParsedTrust(contextP, controlP->contextTrustP, length, format);
+#else
             ret = wolfSSL_CTX_load_verify_buffer(contextP,
                 controlP->contextTrustP, length, format);
+#endif
+        }
     }
     wolfSSL_CTX_set_verify(contextP, paramsP->verifyMode == palmTlsVerifyNone ?
         WOLFSSL_VERIFY_NONE : WOLFSSL_VERIFY_PEER, 0);
@@ -1232,6 +1305,9 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
             FreeResume(controlP);
             FreeContext(controlP);
             if ((paramsP->options & PALM_TLS_ENGINE_CONTROL_ONLY) == 0) {
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+                FreeParsedTrust();
+#endif
                 if (controlP->initialized) wolfSSL_Cleanup();
                 PalmTlsArmletShutdown();
             }
