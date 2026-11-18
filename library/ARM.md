@@ -166,10 +166,11 @@ table across bounded 512-byte native calls. Key expansion and table construction
 therefore happen once per record instead of once per chunk. AES rounds operate on
 four 32-bit columns through a 1 KiB Te0 table; the three companion tables are
 obtained by rotating Te0, so SubBytes, ShiftRows and MixColumns share word
-lookups instead of byte loops. Each native call decodes the persistent GHASH
-table into aligned local words; GHASH then shifts and XORs four 32-bit words per
-nibble, uses a 16-entry reduction table for the shifted-out low nibble, and runs
-a fully unrolled 32-nibble block loop. The state still fits in the existing
+lookups instead of byte loops. The persistent GHASH table is built from aligned 32-bit
+words with masked power selection, and each native call decodes it into local
+words; GHASH then shifts and XORs four 32-bit words per nibble, uses a
+16-entry reduction table for the shifted-out low nibble, and runs a fully
+unrolled 32-nibble block loop. The state still fits in the existing
 528-byte request operand, supports TLS records of any size, and does not allocate
 a large exchange buffer. Protocol control, certificate parsing, memory
 management, and NetLib callbacks still run through PACE. Unsupported AES key or

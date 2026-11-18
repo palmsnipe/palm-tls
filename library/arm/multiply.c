@@ -459,38 +459,41 @@ static void AesEncrypt(const volatile u8 *roundKeyP, const u8 *inputP,
     }
 }
 
-static void GhashShiftRight(u8 *valueP)
+static void GhashShiftRight32(u32 *valueP)
 {
-    u8 lsb = valueP[15] & 1U;
-    u32 index;
-    for (index = 15; index > 0; index--)
-        valueP[index] = (u8)((valueP[index] >> 1) |
-                            (valueP[index - 1] << 7));
-    valueP[0] >>= 1;
-    valueP[0] ^= (u8)(0xe1U & (u8)(0U - lsb));
+    u32 lsb = valueP[3] & 1U;
+    valueP[3] = (valueP[3] >> 1) | (valueP[2] << 31);
+    valueP[2] = (valueP[2] >> 1) | (valueP[1] << 31);
+    valueP[1] = (valueP[1] >> 1) | (valueP[0] << 31);
+    valueP[0] = (valueP[0] >> 1) ^ (0xe1000000U & (0U - lsb));
 }
 
 /* Store only the first eight GHASH entries. The upper half differs by H,
- * leaving room for the AES-256 schedule in the existing request size. */
+ * leaving room for the AES-256 schedule in the existing request size.
+ * Build the powers and table as aligned 32-bit words, selecting each power
+ * with a mask instead of a per-byte branch. */
 static void GhashBuildTable(volatile u8 *tableP, const u8 *hP)
 {
-    u8 powers[4][16];
-    u32 power;
-    u32 digit;
-    u32 index;
-    for (index = 0; index < 16; index++) powers[0][index] = hP[index];
-    for (power = 1; power < 4; power++) {
-        for (index = 0; index < 16; index++)
-            powers[power][index] = powers[power - 1U][index];
-        GhashShiftRight(powers[power]);
+    u32 powers[4][4];
+    u32 word, power, digit;
+    for (word = 0; word < 4U; word++)
+        powers[0][word] = ReadBigEndian32(hP + word * 4U);
+    for (power = 1; power < 4U; power++) {
+        for (word = 0; word < 4U; word++)
+            powers[power][word] = powers[power - 1U][word];
+        GhashShiftRight32(powers[power]);
     }
-    for (digit = 0; digit < 8; digit++) {
-        for (index = 0; index < 16; index++) {
-            u8 value = 0;
-            for (power = 0; power < 4; power++)
-                if ((digit & (8U >> power)) != 0U)
-                    value ^= powers[power][index];
-            tableP[digit * 16U + index] = value;
+    for (digit = 0; digit < 8U; digit++) {
+        u32 mask0 = 0U - ((digit >> 3) & 1U);
+        u32 mask1 = 0U - ((digit >> 2) & 1U);
+        u32 mask2 = 0U - ((digit >> 1) & 1U);
+        u32 mask3 = 0U - (digit & 1U);
+        for (word = 0; word < 4U; word++) {
+            u32 value = (powers[0][word] & mask0) ^
+                (powers[1][word] & mask1) ^
+                (powers[2][word] & mask2) ^
+                (powers[3][word] & mask3);
+            WriteBigEndian32(tableP + digit * 16U + word * 4U, value);
         }
     }
 }
