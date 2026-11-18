@@ -184,6 +184,14 @@ def field_arithmetic(backend):
             # T < p*R is the Montgomery reducer's domain; its low half need
             # not be canonical. Include T=p*R-1 and the 256-bit carry edges.
             vectors += [(r - 1, b, 1) for b in (0, 1, P - 1)]
+            # Construct T + m*p = target*R to exercise the sparse comparison
+            # before the final subtraction, including its exact equality case.
+            targets = [P - (1 << 192), P - (1 << 64), P - (1 << 32), P - 1,
+                       P, P + 1, P + (1 << 128), P + (1 << 192), r - 1, r]
+            for target in targets:
+                m = min(r - 1, target * r // P)
+                high, low = divmod(target * r - m * P, r)
+                vectors.append((low, high, 1))
         for index, (a, b, count) in enumerate(vectors):
             expected = a
             for _ in range(count):

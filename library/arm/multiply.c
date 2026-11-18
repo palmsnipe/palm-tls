@@ -1089,6 +1089,29 @@ static __inline__ u32 FeCancelP256Digit(const u32 *t, u32 *out)
     return (u32)(value >> 32);
 }
 
+/* The Montgomery accumulator is less than 2*p. Inline this step to keep
+ * the integrated multiplier's last limbs in registers. */
+static __inline__ __attribute__((always_inline)) void FeFinishProduct(
+    Fe256 *resultP, const u32 *limbsP, u32 high)
+{
+    /* Compare with p from the high limbs down. The middle three limbs
+     * of p are zero and the bottom three are all ones. */
+    u32 lowerFull = (limbsP[0] & limbsP[1] & limbsP[2]) == 0xffffffffU;
+    u32 middleNonzero = (limbsP[3] | limbsP[4] | limbsP[5]) != 0U;
+    u32 reduce = (high != 0U) | ((limbsP[7] == 0xffffffffU) &
+        ((limbsP[6] > 1U) | ((limbsP[6] == 1U) & (middleNonzero | lowerFull))));
+    u32 mask = 0U - reduce;
+    u32 borrow = 0;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 index = 0; index < 8U; index++) {
+        u64 difference = (u64)limbsP[index] - (kP.v[index] & mask) - borrow;
+        resultP->v[index] = (u32)difference;
+        borrow = (u32)(difference >> 63);
+    }
+}
+
 /* Coarsely integrated operand-scanning Montgomery multiplication. P[0] is
  * 0xffffffff, therefore -P^-1 mod 2^32 is exactly one. */
 static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
@@ -1125,65 +1148,23 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
             t[8] = (u32)((top >> 32) + (value >> 32));
         }
     }
-    {
-        Fe256 reduced;
-        u64 borrow = 0;
-        u32 index;
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-        for (index = 0; index < 8; index++) {
-            u64 right = (u64)kP.v[index] + borrow;
-            reduced.v[index] = t[index] - (u32)right;
-            borrow = ((u64)t[index] < right);
-        }
-        /* Select directly from the accumulator. Make both reads observable
-         * so Clang cannot use a secret-dependent address. */
-        u32 mask = 0U - ((t[8] != 0U) | ((u32)borrow ^ 1U));
-        const volatile u32 *originalP = t;
-        const volatile u32 *reducedP = reduced.v;
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-        for (index = 0; index < 8; index++)
-            resultP->v[index] = (originalP[index] & ~mask) |
-                (reducedP[index] & mask);
-    }
+    FeFinishProduct(resultP, t, t[8]);
 }
 
 /* Montgomery-reduce a 512-bit value. P[0] is -1, so the reduction digit is
  * the low accumulator limb without an additional multiplication. */
 static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
 {
-    u32 outer;
-    for (outer = 0; outer < 8U; outer++) {
-        /* The canceled low limb is discarded, so no zero store is needed. */
-        u64 carry = FeCancelP256Digit(accumulatorP + outer,
-                                     accumulatorP + outer + 1U);
-        u32 index;
-        index = outer + 8U;
-        while (index < 17U) {
-            u64 value = (u64)accumulatorP[index] + (u32)carry;
-            accumulatorP[index] = (u32)value;
-            carry = (carry >> 32) + (value >> 32);
-            index++;
-        }
+    u32 pending = 0;
+    /* The carry beyond limb i+8 is untouched by the next digit
+     * cancellation. Add it when the next round reaches that limb. */
+    for (u32 i = 0; i < 8U; i++) {
+        u32 carry = FeCancelP256Digit(accumulatorP + i, accumulatorP + i + 1U);
+        u64 sum = (u64)accumulatorP[i + 8U] + carry + pending;
+        accumulatorP[i + 8U] = (u32)sum;
+        pending = (u32)(sum >> 32);
     }
-    {
-        Fe256 value;
-        Fe256 reduced;
-        u64 borrow = 0;
-        u32 index;
-        for (index = 0; index < 8U; index++)
-            value.v[index] = accumulatorP[index + 8U];
-        for (index = 0; index < 8U; index++) {
-            u64 right = (u64)kP.v[index] + borrow;
-            reduced.v[index] = value.v[index] - (u32)right;
-            borrow = ((u64)value.v[index] < right);
-        }
-        FeSelect(resultP, &value, &reduced,
-                 (accumulatorP[16] != 0U) | ((u32)borrow ^ 1U));
-    }
+    FeFinishProduct(resultP, accumulatorP + 8U, pending);
 }
 
 /* The integrated product accepts equal inputs and in-place output: it
@@ -2212,13 +2193,12 @@ static u32 P256Field(const volatile u8 *leftP, const volatile u8 *rightP,
         else if (operation == PALM_TLS_ARMLET_FIELD_SQUARE)
             FeSquare(&a, &a);
         else {
-            u32 wide[17];
+            u32 wide[16];
             u32 limb;
             for (limb = 0; limb < 8U; limb++) {
                 wide[limb] = a.v[limb];
                 wide[limb + 8U] = b.v[limb];
             }
-            wide[16] = 0;
             FeReduceWide(&a, wide);
         }
     }
