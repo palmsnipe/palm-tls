@@ -76,15 +76,6 @@ static Boolean MatchHeaderValue(const Char *startP, const Char *endP,
         StartsWithNoCase(startP, valueP);
 }
 
-static const Char *FindLineEnd(const Char *startP, const Char *endP)
-{
-    while (startP + 1 < endP) {
-        if (startP[0] == '\r' && startP[1] == '\n') return startP;
-        startP++;
-    }
-    return 0;
-}
-
 static void CopyFilenameParameter(Char *targetP, UInt16 capacity,
                                   const Char *startP, const Char *endP)
 {
@@ -109,125 +100,131 @@ static void CopyFilenameParameter(Char *targetP, UInt16 capacity,
     }
 }
 
-static UInt16 ParseHeaders(HttpParser *parserP)
+static UInt16 ParseStatusLine(HttpParser *parserP, const Char *lineP,
+                              UInt16 length)
 {
-    Boolean locationFits = true;
-    const Char *cursorP = parserP->headers;
-    const Char *endP = parserP->headers + parserP->headerLength;
-    const Char *lineEndP = FindLineEnd(cursorP, endP);
-    if (lineEndP == 0 || lineEndP - cursorP < 12 ||
-        !StartsWithNoCase(cursorP, "HTTP/"))
+    const Char *cursorP = lineP;
+    const Char *endP = lineP + length;
+    if (length < 12 || !StartsWithNoCase(cursorP, "HTTP/"))
         return httpMalformed;
-    parserP->http11 = lineEndP - cursorP >= 8 &&
+    parserP->http11 = length >= 8 &&
         cursorP[5] == '1' && cursorP[6] == '.' && cursorP[7] == '1';
-    while (cursorP < lineEndP && *cursorP != ' ') cursorP++;
-    if (cursorP + 3 >= lineEndP || cursorP[1] < '0' || cursorP[1] > '9' ||
+    while (cursorP < endP && *cursorP != ' ') cursorP++;
+    if (cursorP + 3 >= endP || cursorP[1] < '0' || cursorP[1] > '9' ||
         cursorP[2] < '0' || cursorP[2] > '9' ||
         cursorP[3] < '0' || cursorP[3] > '9')
         return httpMalformed;
     parserP->statusCode = (UInt16)((cursorP[1] - '0') * 100 +
         (cursorP[2] - '0') * 10 + cursorP[3] - '0');
-    cursorP = lineEndP + 2;
-    while (cursorP < endP) {
-        const Char *colonP;
-        lineEndP = FindLineEnd(cursorP, endP);
-        if (lineEndP == 0) return httpMalformed;
-        if (lineEndP == cursorP) break;
-        colonP = cursorP;
-        while (colonP < lineEndP && *colonP != ':') colonP++;
-        if (colonP == lineEndP) return httpMalformed;
-        if ((UInt16)(colonP - cursorP) == 14 &&
-            StartsWithNoCase(cursorP, "Content-Length")) {
-            UInt32 length;
-            if (!ParseUInt32(colonP + 1, lineEndP, &length) ||
-                (parserP->hasContentLength && parserP->contentLength != length))
-                return httpMalformed;
-            parserP->contentLength = length;
-            parserP->hasContentLength = true;
-        } else if ((UInt16)(colonP - cursorP) == 17 &&
-                   StartsWithNoCase(cursorP, "Transfer-Encoding")) {
-            if (!MatchHeaderValue(colonP + 1, lineEndP, "chunked"))
-                return httpUnsupportedEncoding;
-            if (parserP->chunked) return httpMalformed;
-            parserP->chunked = true;
-        } else if ((UInt16)(colonP - cursorP) == 8 &&
-                   StartsWithNoCase(cursorP, "Location")) {
-            locationFits = CopyTrimmed(parserP->location,
-                sizeof(parserP->location), colonP + 1, lineEndP) && locationFits;
-        } else if ((UInt16)(colonP - cursorP) == 4 &&
-                   StartsWithNoCase(cursorP, "ETag")) {
-            CopyTrimmed(parserP->etag, sizeof(parserP->etag), colonP + 1,
-                lineEndP);
-        } else if ((UInt16)(colonP - cursorP) == 13 &&
-                   StartsWithNoCase(cursorP, "Last-Modified")) {
-            CopyTrimmed(parserP->lastModified,
-                sizeof(parserP->lastModified), colonP + 1, lineEndP);
-        } else if ((UInt16)(colonP - cursorP) == 19 &&
-                   StartsWithNoCase(cursorP, "Content-Disposition")) {
-            CopyFilenameParameter(parserP->filename,
-                sizeof(parserP->filename), colonP + 1, lineEndP);
-        } else if ((UInt16)(colonP - cursorP) == 12 &&
-                   StartsWithNoCase(cursorP, "Content-Type")) {
-            const Char *semiP = colonP + 1;
-            while (semiP < lineEndP && *semiP != ';') semiP++;
-            CopyTrimmed(parserP->contentType, sizeof(parserP->contentType),
-                colonP + 1, semiP);
-        } else if ((UInt16)(colonP - cursorP) == 13 &&
-                   StartsWithNoCase(cursorP, "Content-Range")) {
-            const Char *valueP = colonP + 1;
-            const Char *slashP;
-            while (valueP < lineEndP && (*valueP == ' ' || *valueP == '\t'))
-                valueP++;
-            if (!StartsWithNoCase(valueP, "bytes "))
-                return httpMalformed;
-            valueP += 6;
-            if (*valueP == '*') {
-                while (valueP < lineEndP && *valueP != '/') valueP++;
-                if (valueP == lineEndP || !ParseUInt32(valueP + 1,
-                        lineEndP, &parserP->contentRangeTotal))
-                    return httpMalformed;
-                parserP->hasContentRange = true;
-                parserP->unsatisfiedRange = true;
-                cursorP = lineEndP + 2;
-                continue;
-            }
-            if (!ParseUInt32(valueP, lineEndP, &parserP->contentRangeStart))
-                return httpMalformed;
-            while (valueP < lineEndP && *valueP != '-') valueP++;
-            if (valueP == lineEndP ||
-                !ParseUInt32(++valueP, lineEndP,
-                    &parserP->contentRangeEnd))
-                return httpMalformed;
-            slashP = valueP;
-            while (slashP < lineEndP && *slashP != '/') slashP++;
-            if (slashP == lineEndP || slashP[1] == '*' ||
-                !ParseUInt32(slashP + 1, lineEndP,
-                    &parserP->contentRangeTotal) ||
-                parserP->contentRangeEnd < parserP->contentRangeStart)
+    parserP->statusLineParsed = true;
+    return httpOk;
+}
+
+static UInt16 ParseHeaderLine(HttpParser *parserP, const Char *lineP,
+                              UInt16 length)
+{
+    const Char *endP = lineP + length;
+    const Char *colonP = lineP;
+    while (colonP < endP && *colonP != ':') colonP++;
+    if (colonP == endP) return httpMalformed;
+    if ((UInt16)(colonP - lineP) == 14 &&
+        StartsWithNoCase(lineP, "Content-Length")) {
+        UInt32 lengthValue;
+        if (!ParseUInt32(colonP + 1, endP, &lengthValue) ||
+            (parserP->hasContentLength &&
+             parserP->contentLength != lengthValue))
+            return httpMalformed;
+        parserP->contentLength = lengthValue;
+        parserP->hasContentLength = true;
+    } else if ((UInt16)(colonP - lineP) == 17 &&
+               StartsWithNoCase(lineP, "Transfer-Encoding")) {
+        if (!MatchHeaderValue(colonP + 1, endP, "chunked"))
+            return httpUnsupportedEncoding;
+        if (parserP->chunked) return httpMalformed;
+        parserP->chunked = true;
+    } else if ((UInt16)(colonP - lineP) == 8 &&
+               StartsWithNoCase(lineP, "Location")) {
+        if (!CopyTrimmed(parserP->location,
+                sizeof(parserP->location), colonP + 1, endP))
+            parserP->locationTruncated = true;
+    } else if ((UInt16)(colonP - lineP) == 4 &&
+               StartsWithNoCase(lineP, "ETag")) {
+        CopyTrimmed(parserP->etag, sizeof(parserP->etag), colonP + 1,
+            endP);
+    } else if ((UInt16)(colonP - lineP) == 13 &&
+               StartsWithNoCase(lineP, "Last-Modified")) {
+        CopyTrimmed(parserP->lastModified,
+            sizeof(parserP->lastModified), colonP + 1, endP);
+    } else if ((UInt16)(colonP - lineP) == 19 &&
+               StartsWithNoCase(lineP, "Content-Disposition")) {
+        CopyFilenameParameter(parserP->filename,
+            sizeof(parserP->filename), colonP + 1, endP);
+    } else if ((UInt16)(colonP - lineP) == 12 &&
+               StartsWithNoCase(lineP, "Content-Type")) {
+        const Char *semiP = colonP + 1;
+        while (semiP < endP && *semiP != ';') semiP++;
+        CopyTrimmed(parserP->contentType, sizeof(parserP->contentType),
+            colonP + 1, semiP);
+    } else if ((UInt16)(colonP - lineP) == 13 &&
+               StartsWithNoCase(lineP, "Content-Range")) {
+        const Char *valueP = colonP + 1;
+        const Char *slashP;
+        while (valueP < endP && (*valueP == ' ' || *valueP == '\t'))
+            valueP++;
+        if (!StartsWithNoCase(valueP, "bytes "))
+            return httpMalformed;
+        valueP += 6;
+        if (*valueP == '*') {
+            while (valueP < endP && *valueP != '/') valueP++;
+            if (valueP == endP || !ParseUInt32(valueP + 1,
+                    endP, &parserP->contentRangeTotal))
                 return httpMalformed;
             parserP->hasContentRange = true;
-        } else if ((UInt16)(colonP - cursorP) == 16 &&
-                   StartsWithNoCase(cursorP, "Content-Encoding")) {
-            if (parserP->gzip) return httpUnsupportedEncoding;
-            if (parserP->acceptGzip && MatchHeaderValue(colonP + 1, lineEndP, "gzip"))
-                parserP->gzip = true;
-            else if (!MatchHeaderValue(colonP + 1, lineEndP, "identity"))
-                return httpUnsupportedEncoding;
-        } else if ((UInt16)(colonP - cursorP) == 10 &&
-                   StartsWithNoCase(cursorP, "Connection")) {
-            const Char *valueP = colonP + 1;
-            while (valueP < lineEndP && (*valueP == ' ' || *valueP == '\t'))
-                valueP++;
-            if (StartsWithNoCase(valueP, "close"))
-                parserP->connectionClose = true;
+            parserP->unsatisfiedRange = true;
+            return httpOk;
         }
-        cursorP = lineEndP + 2;
+        if (!ParseUInt32(valueP, endP, &parserP->contentRangeStart))
+            return httpMalformed;
+        while (valueP < endP && *valueP != '-') valueP++;
+        if (valueP == endP ||
+            !ParseUInt32(++valueP, endP,
+                &parserP->contentRangeEnd))
+            return httpMalformed;
+        slashP = valueP;
+        while (slashP < endP && *slashP != '/') slashP++;
+        if (slashP == endP || slashP[1] == '*' ||
+            !ParseUInt32(slashP + 1, endP,
+                &parserP->contentRangeTotal) ||
+            parserP->contentRangeEnd < parserP->contentRangeStart)
+            return httpMalformed;
+        parserP->hasContentRange = true;
+    } else if ((UInt16)(colonP - lineP) == 16 &&
+               StartsWithNoCase(lineP, "Content-Encoding")) {
+        if (parserP->gzip) return httpUnsupportedEncoding;
+        if (parserP->acceptGzip && MatchHeaderValue(colonP + 1, endP, "gzip"))
+            parserP->gzip = true;
+        else if (!MatchHeaderValue(colonP + 1, endP, "identity"))
+            return httpUnsupportedEncoding;
+    } else if ((UInt16)(colonP - lineP) == 10 &&
+               StartsWithNoCase(lineP, "Connection")) {
+        const Char *valueP = colonP + 1;
+        while (valueP < endP && (*valueP == ' ' || *valueP == '\t'))
+            valueP++;
+        if (StartsWithNoCase(valueP, "close"))
+            parserP->connectionClose = true;
     }
+    return httpOk;
+}
+
+static UInt16 FinishHeaders(HttpParser *parserP)
+{
+    if (!parserP->statusLineParsed) return httpMalformed;
     parserP->redirect = parserP->statusCode == 301 ||
         parserP->statusCode == 302 || parserP->statusCode == 303 ||
         parserP->statusCode == 307 || parserP->statusCode == 308;
     if (parserP->chunked && parserP->hasContentLength) return httpMalformed;
-    if (parserP->redirect && (!locationFits || parserP->location[0] == '\0'))
+    if (parserP->redirect && (parserP->locationTruncated ||
+        parserP->location[0] == '\0'))
         return httpMalformed;
     if (parserP->statusCode == 206 && (!parserP->hasContentRange ||
         parserP->contentRangeStart != parserP->resumeOffset ||
@@ -528,20 +525,40 @@ UInt16 HttpParserFeed(HttpParser *parserP,
         return parserP != 0 ? parserP->parseStatus
             : httpMalformed;
     while (!parserP->headersComplete && offset < length) {
-        if (parserP->headerLength >= sizeof(parserP->headers) - 1)
-            return parserP->parseStatus = httpHeadersTooLarge;
-        parserP->headers[parserP->headerLength++] = (Char)dataP[offset++];
-        parserP->headers[parserP->headerLength] = '\0';
-        if (parserP->headerLength >= 4 &&
-            MemCmp(parserP->headers + parserP->headerLength - 4,
-                "\r\n\r\n", 4) == 0) {
-            parserP->headersComplete = true;
-            parserP->parseStatus = ParseHeaders(parserP);
-            if (parserP->parseStatus != httpOk ||
-                parserP->redirect) return parserP->parseStatus;
-            if (parserP->hasContentLength && parserP->contentLength == 0)
-                MarkComplete(parserP);
+        Char value = (Char)dataP[offset++];
+        if (value == '\n' && parserP->lineTail == '\r') {
+            UInt16 lineLength = parserP->headerLength;
+            Boolean overflow = parserP->headerLineOverflow;
+            if (!overflow && lineLength != 0) lineLength--;
+            parserP->headerLength = 0;
+            parserP->headerLineOverflow = false;
+            parserP->lineTail = value;
+            if (!overflow && lineLength == 0) {
+                parserP->headersComplete = true;
+                parserP->parseStatus = FinishHeaders(parserP);
+                if (parserP->parseStatus != httpOk ||
+                    parserP->redirect) return parserP->parseStatus;
+                if (parserP->hasContentLength &&
+                    parserP->contentLength == 0)
+                    MarkComplete(parserP);
+            } else if (!overflow) {
+                parserP->parseStatus = parserP->statusLineParsed
+                    ? ParseHeaderLine(parserP, parserP->headerLine,
+                        lineLength)
+                    : ParseStatusLine(parserP, parserP->headerLine,
+                        lineLength);
+                if (parserP->parseStatus != httpOk)
+                    return parserP->parseStatus;
+            }
+            continue;
         }
+        if (parserP->headerLength < sizeof(parserP->headerLine) - 1) {
+            parserP->headerLine[parserP->headerLength++] = value;
+            parserP->headerLine[parserP->headerLength] = '\0';
+        } else {
+            parserP->headerLineOverflow = true;
+        }
+        parserP->lineTail = value;
     }
     if (offset == length || parserP->connectionComplete)
         return parserP->parseStatus;

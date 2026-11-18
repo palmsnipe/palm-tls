@@ -31,7 +31,11 @@ HttpParserFinish(&parser);
 ```
 
 The parser removes response headers and chunk framing before invoking the body
-callback. Identity encoding is the default. Applications that decompress gzip themselves
+callback. It consumes headers one line at a time, so the total header block is
+not capped; a single line longer than `HTTP_HEADER_LINE_CAPACITY` (512 bytes by
+default) is ignored. `httpHeadersTooLarge` is retained in `HttpStatus` for
+source compatibility but is no longer returned. Identity encoding is the
+default. Applications that decompress gzip themselves
 can set `parser.acceptGzip = true` after initialization and check `parser.gzip`
 in the body callback. The parser removes HTTP framing and passes the encoded
 body to that callback. Redirect and resume validation remain application policy.

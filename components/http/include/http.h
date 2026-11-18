@@ -15,8 +15,11 @@ typedef char Char;
 #include <PalmOS.h>
 #endif
 
-#ifndef HTTP_HEADER_CAPACITY
-#define HTTP_HEADER_CAPACITY 2048
+/* Maximum length of a single response header line. The parser consumes one
+ * line at a time, so the total header block is not capped. Lines longer than
+ * this are ignored. */
+#ifndef HTTP_HEADER_LINE_CAPACITY
+#define HTTP_HEADER_LINE_CAPACITY 512
 #endif
 #ifndef HTTP_LOCATION_CAPACITY
 #define HTTP_LOCATION_CAPACITY 256
@@ -36,7 +39,7 @@ typedef Int16 (*HttpBodyProc)(void *contextP, const UInt8 *dataP,
 typedef enum HttpStatus {
     httpOk = 0,
     httpMalformed,
-    httpHeadersTooLarge,
+    httpHeadersTooLarge, /* Retained for source compatibility; not returned. */
     httpUnsupportedEncoding,
     httpSinkFailed
 } HttpStatus;
@@ -60,11 +63,14 @@ typedef struct HttpParser {
     UInt32 chunkRemaining;
     UInt16 statusCode;
     UInt16 parseStatus;
-    UInt16 headerLength;
+    UInt16 headerLength; /* Bytes buffered for the current header line. */
     UInt16 chunkLineLength;
     UInt16 trailerMatch;
     UInt16 chunkState;
     Boolean headersComplete;
+    Boolean statusLineParsed;
+    Boolean headerLineOverflow;
+    Boolean locationTruncated;
     Boolean chunked;
     Boolean hasContentLength;
     Boolean hasContentRange;
@@ -77,13 +83,14 @@ typedef struct HttpParser {
     Boolean gzip;       /* Body callback receives compressed bytes. */
     Boolean redirect;
     Boolean trailerHasData;
+    Char lineTail; /* Last byte seen, for incremental CRLF detection. */
     Char location[HTTP_LOCATION_CAPACITY];
     Char etag[HTTP_ETAG_CAPACITY];
     Char lastModified[HTTP_DATE_CAPACITY];
     Char filename[HTTP_FILENAME_CAPACITY];
     Char contentType[HTTP_MIME_CAPACITY];
     Char chunkLine[18];
-    Char headers[HTTP_HEADER_CAPACITY];
+    Char headerLine[HTTP_HEADER_LINE_CAPACITY];
 } HttpParser;
 
 Boolean HttpParseUrl(const Char *textP, Boolean defaultSecure, HttpUrl *urlP);

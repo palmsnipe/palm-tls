@@ -181,6 +181,64 @@ int main(void)
         parser.unsatisfiedRange && parser.contentRangeTotal == 42,
         "satisfied local file via HTTP 416");
 
+    /* Regression: a header block larger than the old 2 KiB cap, as served by
+     * www.cloudflare.com, must parse without httpHeadersTooLarge. */
+    {
+        static char big[8192];
+        char *p = big;
+        p += sprintf(p, "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n");
+        p += sprintf(p, "Link: <https://example.com/font.woff2>; rel=preload;"
+            " as=font; crossorigin\r\n");
+        while (p - big < (int)sizeof(big) - 160)
+            p += sprintf(p, "X-Filler-%u: padding-padding-padding-padding\r\n",
+                (unsigned int)(p - big));
+        p += sprintf(p, "\r\nhello");
+        memset(&capture, 0, sizeof(capture));
+        HttpParserInit(&parser, 0, CaptureBody, &capture);
+        failed += Check(FeedPieces(&parser, big, 7) == httpOk &&
+            parser.statusCode == 200 && parser.headersComplete &&
+            parser.connectionReusable && strcmp(capture.body, "hello") == 0,
+            "parse a header block larger than the old capacity");
+    }
+
+    /* A single line longer than HTTP_HEADER_LINE_CAPACITY is ignored instead of
+     * failing the response. */
+    {
+        static char longLine[1024];
+        char *p = longLine;
+        p += sprintf(p, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nLink: ");
+        memset(p, 'a', 600);
+        p += 600;
+        p += sprintf(p, "\r\n\r\nok");
+        memset(&capture, 0, sizeof(capture));
+        HttpParserInit(&parser, 0, CaptureBody, &capture);
+        failed += Check(FeedPieces(&parser, longLine, 5) == httpOk &&
+            strcmp(capture.body, "ok") == 0,
+            "ignore a header line longer than the line buffer");
+    }
+
+    /* A truncated Location must fail cleanly rather than redirect to a
+     * partially parsed URL. */
+    {
+        static char longLocation[1024];
+        char *p = longLocation;
+        p += sprintf(p, "HTTP/1.1 302 Found\r\nLocation: /");
+        memset(p, 'b', 600);
+        p += 600;
+        p += sprintf(p, "\r\n\r\n");
+        HttpParserInit(&parser, 0, CaptureBody, &capture);
+        failed += Check(HttpParserFeed(&parser, (const UInt8 *)longLocation,
+            (UInt16)strlen(longLocation)) == httpMalformed,
+            "reject a redirect with a truncated location");
+    }
+
+    /* A header line without a colon is still malformed. */
+    HttpParserInit(&parser, 0, CaptureBody, &capture);
+    failed += Check(HttpParserFeed(&parser,
+        (const UInt8 *)"HTTP/1.1 200 OK\r\nBroken header\r\n\r\n",
+        (UInt16)strlen("HTTP/1.1 200 OK\r\nBroken header\r\n\r\n"))
+        == httpMalformed, "reject a header line without a colon");
+
     if (failed == 0) printf("HTTP download parser tests passed\n");
     return failed != 0;
 }
