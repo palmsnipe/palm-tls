@@ -96,15 +96,14 @@ PROFILE_PROTOCOLS := 13
 else ifeq ($(TLS_PROFILE),modern)
 PROFILE_SUFFIX := -Modern
 PROFILE_PROTOCOLS := 12 13
+PROFILE_ARM_PROTOCOLS := browser
 else ifeq ($(TLS_PROFILE),full)
 PROFILE_SUFFIX :=
 PROFILE_PROTOCOLS := 11 12 13
-else ifeq ($(TLS_PROFILE),browser)
-PROFILE_SUFFIX := -Browser
-PROFILE_PROTOCOLS := browser
 else
-$(error Unknown TLS_PROFILE '$(TLS_PROFILE)'; choose tls13, modern, full, or browser)
+$(error Unknown TLS_PROFILE '$(TLS_PROFILE)'; choose tls13, modern, or full)
 endif
+PROFILE_ARM_PROTOCOLS ?= $(PROFILE_PROTOCOLS)
 
 TLS11_RESOURCES_68K := $(addprefix $(PALM_68K_BUILD)/,TlsC0015.bin TlsC0016.bin TlsC0017.bin TlsC0018.bin TlsR0003.bin)
 TLS12_RESOURCES_68K := $(addprefix $(PALM_68K_BUILD)/,TlsC0001.bin TlsC0002.bin TlsC0003.bin TlsC0004.bin TlsR0001.bin)
@@ -114,18 +113,15 @@ TLS12_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC0001.bin TlsC0002.bin 
 TLS13_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC000b.bin TlsC000c.bin TlsC000d.bin TlsC000e.bin TlsC000f.bin TlsR0002.bin)
 TLSbrowser_RESOURCES_ARM := $(addprefix $(PALM_ARM_BUILD)/,TlsC001f.bin TlsC0020.bin TlsC0021.bin TlsC0022.bin TlsC0023.bin TlsR0004.bin)
 PROFILE_RESOURCES_68K := $(foreach protocol,$(PROFILE_PROTOCOLS),$(TLS$(protocol)_RESOURCES_68K))
-PROFILE_RESOURCES_ARM := $(foreach protocol,$(PROFILE_PROTOCOLS),$(TLS$(protocol)_RESOURCES_ARM))
+PROFILE_RESOURCES_ARM := $(foreach protocol,$(PROFILE_ARM_PROTOCOLS),$(TLS$(protocol)_RESOURCES_ARM))
 PROFILE_ELFS_68K := $(foreach protocol,$(PROFILE_PROTOCOLS),$(ELF_$(protocol)_68K))
-PROFILE_ELFS_ARM := $(foreach protocol,$(PROFILE_PROTOCOLS),$(ELF_$(protocol)_ARM))
+PROFILE_ELFS_ARM := $(foreach protocol,$(PROFILE_ARM_PROTOCOLS),$(ELF_$(protocol)_ARM))
 BASE_ELF_68K := $(firstword $(PROFILE_ELFS_68K))
-ifeq ($(TLS_PROFILE),browser)
-BASE_ELF_68K := $(ELF_13_68K)
-endif
 PRC_68K := $(PALM_BUILD)/$(LIB_ID)68K$(PROFILE_SUFFIX).prc
 PRC_ARM := $(PALM_BUILD)/$(LIB_ID)Arm$(PROFILE_SUFFIX).prc
 ARMLET_PAD := $(PALM_BUILD)/PadR0001-$(TLS_PROFILE).bin
 
-.PHONY: all test test-arm test-prc profiles profile-tls13 profile-modern profile-full profile-browser clean benchmark benchmark-palm FORCE
+.PHONY: all test test-arm test-prc profiles profile-tls13 profile-modern profile-full clean benchmark benchmark-palm FORCE
 
 all: test
 
@@ -249,7 +245,7 @@ $(ARMLET_OBJECT): arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc $(P256_C
 		-Wall -Wextra -Werror -c $< -o $@
 $(ARMLET_CODE): $(ARMLET_OBJECT) tools/extract-armlet.mjs tools/arm-attributes.mjs
 	node tools/extract-armlet.mjs $< $@
-$(ARMLET_PAD): $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE) tools/generate-armlet-pad.mjs | $(PALM_BUILD)
+$(ARMLET_PAD): $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE) tools/generate-armlet-pad.mjs Makefile | $(PALM_BUILD)
 	node tools/generate-armlet-pad.mjs $@ $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE)
 $(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc src/tls_arm_compat.h $(P256_COMB)
 	@mkdir -p $(dir $@)
@@ -277,12 +273,8 @@ $(PRC_ARM): $(LIBRARY_CODE) $(PROFILE_RESOURCES_ARM) resources/library.rcp app.m
 		$(BASE_RO) $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE) $(ARMLET_PAD) $(ARMLET_CODE)
 	@echo "Built $@"
 
-ifeq ($(TLS_PROFILE),browser)
-test-prc: $(PRC_ARM)
-else
 test-prc: $(PRC_68K) $(PRC_ARM)
 	node tools/validate_library.mjs $(PRC_68K) 68k $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION) $(if $(TEST_RANDOM_RESOURCE),test-seed,no-test-seed)
-endif
 	node tools/validate_library.mjs $(PRC_ARM) arm $(TLS_PROFILE) $(LIB_VERSION) $(LIB_DB_VERSION) $(if $(TEST_RANDOM_RESOURCE),test-seed,no-test-seed)
 	$(SIZE) $(PROFILE_ELFS_68K) $(PROFILE_ELFS_ARM)
 
@@ -313,10 +305,9 @@ benchmark-palm:
 profiles:
 	$(MAKE) TLS_PROFILE=tls13 test-prc
 	$(MAKE) TLS_PROFILE=modern test-prc
-	$(MAKE) TLS_PROFILE=browser test-prc
 	$(MAKE) TLS_PROFILE=full test-prc
 
-profile-tls13 profile-modern profile-full profile-browser:
+profile-tls13 profile-modern profile-full:
 	$(MAKE) TLS_PROFILE=$(patsubst profile-%,%,$@) test-prc
 
 clean:

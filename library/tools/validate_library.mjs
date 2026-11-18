@@ -4,14 +4,13 @@ const [file, variant = '68k', profile = 'full', expectedVersion,
   expectedDbVersion, seedMode = 'no-test-seed'] = process.argv.slice(2);
 if (!file || !expectedVersion || !expectedDbVersion) {
   throw new Error(
-    'usage: validate_library.mjs FILE [68k|arm] [tls13|modern|full|browser] VERSION DB_VERSION [test-seed|no-test-seed]',
+    'usage: validate_library.mjs FILE [68k|arm] [tls13|modern|full] VERSION DB_VERSION [test-seed|no-test-seed]',
   );
 }
 const selectedProtocols = {
   tls13: [13],
-  modern: [12, 13],
+  modern: variant === 'arm' ? [14] : [12, 13],
   full: [11, 12, 13],
-  browser: [14],
 }[profile];
 if (!selectedProtocols) throw new Error(`unknown profile ${profile}`);
 const data = readFileSync(file);

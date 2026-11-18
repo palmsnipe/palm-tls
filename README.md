@@ -89,17 +89,18 @@ Install exactly one PalmTLS variant appropriate for the device:
 ```text
 library/build/palm/PalmTLS68K.prc
 library/build/palm/PalmTLSArm.prc
-library/build/palm/PalmTLSArm-Browser.prc
+library/build/palm/PalmTLSArm-Modern.prc
 ```
 
 PalmTLS also produces smaller `Modern` and `TLS13` profiles. Every variant has
 the same Palm database identity, so they cannot coexist on one device. See
 `library/README.md` and `library/API.md` for selection and integration details.
 
-Use `make -C library TLS_PROFILE=browser test-prc` for the Browser profile. It
+For CA-verified HTTPS on ARM, install `PalmTLSArm-Modern.prc`. It
 negotiates TLS 1.2 and 1.3 in one engine and supports P-384, SHA-384, and
-RSA-4096 certificates. Browser sessions use app-provided seed material by
-default. See the API guide for the experimental stylus option.
+RSA-4096 certificates. With `palmTlsProtocolModern`, applications supply
+the trusted CA bundle, hostname, and seed material. See the API guide for
+the experimental stylus option.
 
 Applications compile `components/http/src/http.c` directly when they need the
 included HTTP helpers. No separate HTTP PRC is installed or distributed.
@@ -124,8 +125,6 @@ public header and documentation, and the release TLS Tester with:
 ```sh
 scripts/package-artifacts.sh
 ```
-
-The Browser profile is available through a source build.
 
 The same packaging command is used by the manually triggered GitHub Actions
 release-candidate workflow. That trusted workflow runs inside a private SDK-enabled

@@ -51,7 +51,7 @@ the private toolchain image. Your local `gh` login or `GH_TOKEN` must separately
 have Actions-read and repository-contents-write access for download/promotion.
 Use `fetch --repo OWNER/REPO` when working in another repository.
 
-The workflow checks the toolchain, builds/tests all seven library variants and
+The workflow checks the toolchain, builds/tests all six library variants and
 the release TLS Tester, then runs the **exact extracted native image** through
 the independent crypto oracles on both **TI925T and PXA270**. A failed CPU test
 fails the job, even though its output is also collected with `tee`.

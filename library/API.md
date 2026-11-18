@@ -9,11 +9,11 @@ successful open with `PalmTlsLibClose`.
 lifecycle traps. Applications normally let Palm OS invoke them during system
 sleep/wake handling rather than using them as request operations.
 
-## Browser TLS sessions
+## Negotiated TLS sessions
 
-Build the ARM browser PRC with `make -C library TLS_PROFILE=browser test-prc`.
-Install it in place of the other PalmTLS profiles. Check
-`PALM_TLS_CAP_MODERN` and `PALM_TLS_CAP_HOST_SEED` before using the browser TLS
+Install `PalmTLSArm-Modern.prc` as the device's PalmTLS library. To build it
+from source, run `make -C library TLS_PROFILE=modern test-prc`. Check
+`PALM_TLS_CAP_MODERN` and `PALM_TLS_CAP_HOST_SEED` before using the negotiated TLS
 interfaces. `PALM_TLS_CAP_HOST_RANDOM` reports a ready host-seeded generator.
 
 Applications can load PalmTLS and query its capabilities without providing a
@@ -35,9 +35,9 @@ HMAC-DRBG. Missing randomness returns `palmTlsStatusRandomUnavailable`.
 After the session opens, `PalmTlsLibGetSessionProtocol` returns
 `palmTlsProtocolTls12` or `palmTlsProtocolTls13` for an active session ID.
 
-### Experimental stylus seeding for Browser HTTPS
+### Experimental stylus seeding for HTTPS
 
-The Browser profile advertises `PALM_TLS_CAP_BROWSER_STYLUS_SEED`. Call
+The ARM Modern profile advertises `PALM_TLS_CAP_BROWSER_STYLUS_SEED`. Call
 `PalmTlsLibSeedFromStylus` with the raw, timed stroke samples described below.
 Check `PALM_TLS_CAP_BROWSER_STYLUS_RANDOM` for the result. The successor
 seed is boot-scoped and separate from the pinned-client and host seed stores.
