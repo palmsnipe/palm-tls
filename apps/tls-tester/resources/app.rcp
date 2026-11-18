@@ -2,9 +2,9 @@
 
 DATA "code" ID 1 "code0001.bin"
 DATA "pPen" ID RawPenResource "raw-pen.bin"
-DATA "cert" ID GoogleIssuerCertificate "../../certs/gts-wr2.der"
+DATA "cert" ID GoogleIssuerCertificate "../../certs/gts-we2.der"
 DATA "cert" ID CloudflareIssuerCertificate "../../certs/gts-we1.der"
-DATA "cert" ID LetsEncryptIssuerCertificate "../../certs/letsencrypt-yr2.der"
+DATA "cert" ID LetsEncryptIssuerCertificate "../../certs/letsencrypt-yr1.der"
 // SysAppPrefsType: priority 30, 32 KiB stack, 4 KiB minimum free heap.
 HEX "pref" ID 0 0x00 0x1e 0x00 0x00 0x80 0x00 0x00 0x00 0x10 0x00
 
@@ -19,8 +19,8 @@ BEGIN
     LIST "HTTPS / TLS 1.1" "HTTPS / TLS 1.2" "HTTPS / TLS 1.3" "HTTPS / Stylus" "HTTP" ID ProtocolList AT (48 45 108 70) VISIBLEITEMS 5 NONUSABLE
     POPUPLIST ID ProtocolTrigger ProtocolList
     LABEL "Trust" ID 1202 AT (4 60) FONT 1
-    POPUPTRIGGER "Google issuer (WR2)" ID TrustTrigger AT (48 58 108 14) LEFTANCHOR
-    LIST "Google issuer (WR2)" "Cloudflare issuer (WE1)" "Let's Encrypt (YR2)" ID TrustList AT (48 58 108 42) VISIBLEITEMS 3 NONUSABLE
+    POPUPTRIGGER "Google issuer (WE2)" ID TrustTrigger AT (48 58 108 14) LEFTANCHOR
+    LIST "Google issuer (WE2)" "Cloudflare issuer (WE1)" "Let's Encrypt (YR1)" ID TrustList AT (48 58 108 42) VISIBLEITEMS 3 NONUSABLE
     POPUPLIST ID TrustTrigger TrustList
     CHECKBOX "Verify certificate" ID VerifyCheckbox AT (4 75 116 12)
     BUTTON "Seed" ID CollectSeedButton AT (118 73 38 14) NONUSABLE

@@ -94,7 +94,7 @@ $(BUILD_DIR)/raw-pen.bin: $(BUILD_DIR)/raw-pen.o
 	$(ARM_OBJCOPY) -O binary -j .text $< $@
 
 $(PRC): $(CODE) $(BUILD_DIR)/raw-pen.bin $(BUILD_DIR)/icon-mono.bmp $(BUILD_DIR)/icon-color.bmp $(RESOURCE_RCP) resources/resource.h \
-	certs/gts-wr2.der certs/gts-we1.der certs/letsencrypt-yr2.der app.mk
+	certs/gts-we2.der certs/gts-we1.der certs/letsencrypt-yr1.der app.mk
 	cd $(BUILD_DIR) && $(PILRC) -ro -o $(BASE_RO) -creator $(APP_CREATOR) \
 		-type $(APP_TYPE) -name '$(APP_NAME)' \
 		-I $(ROOT)/resources $(RESOURCE_RCP)

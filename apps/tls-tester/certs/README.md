@@ -4,9 +4,13 @@ TLS Tester embeds these three issuing-CA certificates as DER resources:
 
 | File | Subject | Expires | SHA-256 fingerprint | Source |
 | --- | --- | --- | --- | --- |
-| `gts-wr2.der` | Google Trust Services WR2 | 2029-02-20 | `E6:FE:22:BF:45:E4:F0:D3:B8:5C:59:E0:2C:0F:49:54:18:E1:EB:8D:32:10:F7:88:D4:8C:D5:E1:CB:54:7C:D4` | [Google Trust Services](https://pki.goog/repo/certs/wr2.pem) |
+| `gts-we2.der` | Google Trust Services WE2 | 2029-02-20 | `54:F8:CA:85:8B:CC:75:91:F2:8D:8D:C3:77:2E:9B:C5:81:71:7F:3A:23:A2:88:BF:D4:05:93:9C:36:20:8D:E5` | [Google Trust Services](https://pki.goog/repo/certs/we2.pem) |
 | `gts-we1.der` | Google Trust Services WE1 | 2029-02-20 | `A2:87:FF:AB:76:2C:C6:9A:26:D4:82:03:7E:DF:70:1F:65:3C:E8:99:02:5C:62:A7:E5:CB:88:BB:9B:41:9C:BB` | [Google Trust Services](https://pki.goog/repo/certs/we1.pem) |
-| `letsencrypt-yr2.der` | Let's Encrypt YR2 | 2028-09-02 | `23:8B:85:A0:09:9C:65:B9:70:47:7D:57:24:F1:A1:D4:75:CE:50:58:CF:FE:4E:FA:87:33:89:9B:DB:86:3C:47` | [Let's Encrypt](https://letsencrypt.org/certs/gen-y/int-yr2.pem) |
+| `letsencrypt-yr1.der` | Let's Encrypt YR1 | 2028-09-02 | `13:94:96:34:D9:9C:D6:FD:6A:A8:0B:C0:34:FE:FA:CC:EB:19:69:FE:EF:98:65:86:71:3E:CD:BB:05:75:8D:3F` | [Let's Encrypt](https://letsencrypt.org/certs/gen-y/int-yr1.pem) |
+
+These are the issuers currently served for the app's three test hosts:
+`google.com` (WE2), `www.cloudflare.com` (WE1), and
+`valid-isrgrootx1.letsencrypt.org` (YR1).
 
 Only these files are required by `resources/app.rcp` and the Makefile. Keeping
 them in the repository makes builds offline and pins the exact trust material
@@ -18,3 +22,12 @@ command from the repository root, to refresh them. The script downloads leaf
 certificates into a temporary directory and verifies the expected Google,
 Cloudflare, and Let's Encrypt chains before replacing these DER files. Review
 fingerprints, validity dates, and documentation whenever they change.
+
+Google moved its public sites from WR2 to WE2, and Let's Encrypt's
+`valid-isrgrootx1.letsencrypt.org` test host moved from YR2 to YR1; the earlier
+`gts-wr2.der` and `letsencrypt-yr2.der` files were retired for that reason.
+The Let's Encrypt ECDSA generation-Y chain signs with SHA-384, which the
+`full` profile does not enable, so the test host uses the RSA YR1 intermediate
+and SHA-256 signatures. A provider can change its chain before an issuer
+certificate expires, so rerun the refresh script when a verification test
+starts failing with `ASN_NO_SIGNER_E` (`-188`).
