@@ -1,0 +1,9 @@
+# Generated emulator artifacts and development-only fixture keys are not
+# committed; the results, metadata and logs above are.
+fixture/
+*/PalmTLSArm.prc
+*/PalmTLSHandshakeBench.prc
+*/session.img
+*/databases.zip
+*/complete.png
+*/progress.png

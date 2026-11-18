@@ -1,0 +1,69 @@
+/Applications/Xcode.app/Contents/Developer/usr/bin/make -C bench palm
+/Applications/Xcode.app/Contents/Developer/usr/bin/make -C /Users/cyril/projects/palm-tls/library /Users/cyril/projects/palm-tls/library/build/palm/armc0001.bin
+node /Users/cyril/projects/palm-tls/../palm-toolchain/tools/validate-prc.mjs /Users/cyril/projects/palm-tls/library/build/bench/PalmTLSBench.prc 'PalmTLS Bench' appl Tbch
+Validated /Users/cyril/projects/palm-tls/library/build/bench/PalmTLSBench.prc: PalmTLS Bench, appl/Tbch, 8 resources
+node validate-armlet.mjs /Users/cyril/projects/palm-tls/library/build/bench/PalmTLSBench.prc /Users/cyril/projects/palm-tls/library/build/palm/armc0001.bin
+/Applications/Xcode.app/Contents/Developer/usr/bin/make TLS_PROFILE=tls13 test-prc
+/Users/cyril/projects/palm-toolchain/.toolchain/prefix/bin/build-prc --no-check -o /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm-TLS13.prc -n 'Palm TLS' -c PTLS \
+		-t libr -v 1 \
+		/Users/cyril/projects/palm-tls/library/build/palm/PalmTLS-base.ro /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC000b.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC000c.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC000d.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC000e.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC000f.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsR0002.bin  /Users/cyril/projects/palm-tls/library/build/palm/PadR0001-tls13.bin /Users/cyril/projects/palm-tls/library/build/palm/armc0001.bin
+Built /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm-TLS13.prc
+node tools/validate_library.mjs /Users/cyril/projects/palm-tls/library/build/palm/PalmTLS68K-TLS13.prc 68k tls13 0.1.8 1 no-test-seed
+Validated /Users/cyril/projects/palm-tls/library/build/palm/PalmTLS68K-TLS13.prc: Palm TLS, libr/PTLS, 8 resources, tls13 profile
+node tools/validate_library.mjs /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm-TLS13.prc arm tls13 0.1.8 1 no-test-seed
+Validated /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm-TLS13.prc: Palm TLS, libr/PTLS, 10 resources, tls13 profile
+/Users/cyril/projects/palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-size /Users/cyril/projects/palm-tls/library/build/palm/68k/library-tls13.elf /Users/cyril/projects/palm-tls/library/build/palm/arm/library-tls13.elf
+   text	   data	    bss	    dec	    hex	filename
+ 270314	      0	      0	 270314	  41fea	/Users/cyril/projects/palm-tls/library/build/palm/68k/library-tls13.elf
+ 293302	      0	      0	 293302	  479b6	/Users/cyril/projects/palm-tls/library/build/palm/arm/library-tls13.elf
+/Applications/Xcode.app/Contents/Developer/usr/bin/make TLS_PROFILE=modern test-prc
+/Users/cyril/projects/palm-toolchain/.toolchain/prefix/bin/build-prc --no-check -o /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm-Modern.prc -n 'Palm TLS' -c PTLS \
+		-t libr -v 1 \
+		/Users/cyril/projects/palm-tls/library/build/palm/PalmTLS-base.ro /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC001f.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC0020.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC0021.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC0022.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsC0023.bin /Users/cyril/projects/palm-tls/library/build/palm/arm/TlsR0004.bin  /Users/cyril/projects/palm-tls/library/build/palm/PadR0001-modern.bin /Users/cyril/projects/palm-tls/library/build/palm/armc0001.bin
+Built /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm-Modern.prc
+node tools/validate_library.mjs /Users/cyril/projects/palm-tls/library/build/palm/PalmTLS68K-Modern.prc 68k modern 0.1.8 1 no-test-seed
+Validated /Users/cyril/projects/palm-tls/library/build/palm/PalmTLS68K-Modern.prc: Palm TLS, libr/PTLS, 13 resources, modern profile
+node tools/validate_library.mjs /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm-Modern.prc arm modern 0.1.8 1 no-test-seed
+Validated /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm-Modern.prc: Palm TLS, libr/PTLS, 10 resources, modern profile
+/Users/cyril/projects/palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-size /Users/cyril/projects/palm-tls/library/build/palm/68k/library.elf /Users/cyril/projects/palm-tls/library/build/palm/68k/library-tls13.elf /Users/cyril/projects/palm-tls/library/build/palm/arm/library-browser.elf
+   text	   data	    bss	    dec	    hex	filename
+ 164132	      0	      0	 164132	  28124	/Users/cyril/projects/palm-tls/library/build/palm/68k/library.elf
+ 270314	      0	      0	 270314	  41fea	/Users/cyril/projects/palm-tls/library/build/palm/68k/library-tls13.elf
+ 329865	      0	      0	 329865	  50889	/Users/cyril/projects/palm-tls/library/build/palm/arm/library-browser.elf
+/Applications/Xcode.app/Contents/Developer/usr/bin/make TLS_PROFILE=full test-prc
+node tools/validate_library.mjs /Users/cyril/projects/palm-tls/library/build/palm/PalmTLS68K.prc 68k full 0.1.8 1 no-test-seed
+Validated /Users/cyril/projects/palm-tls/library/build/palm/PalmTLS68K.prc: Palm TLS, libr/PTLS, 18 resources, full profile
+node tools/validate_library.mjs /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm.prc arm full 0.1.8 1 no-test-seed
+Validated /Users/cyril/projects/palm-tls/library/build/palm/PalmTLSArm.prc: Palm TLS, libr/PTLS, 20 resources, full profile
+/Users/cyril/projects/palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-size /Users/cyril/projects/palm-tls/library/build/palm/68k/library-tls11.elf /Users/cyril/projects/palm-tls/library/build/palm/68k/library.elf /Users/cyril/projects/palm-tls/library/build/palm/68k/library-tls13.elf /Users/cyril/projects/palm-tls/library/build/palm/arm/library-tls11.elf /Users/cyril/projects/palm-tls/library/build/palm/arm/library.elf /Users/cyril/projects/palm-tls/library/build/palm/arm/library-tls13.elf
+   text	   data	    bss	    dec	    hex	filename
+ 156268	      0	      0	 156268	  2626c	/Users/cyril/projects/palm-tls/library/build/palm/68k/library-tls11.elf
+ 164132	      0	      0	 164132	  28124	/Users/cyril/projects/palm-tls/library/build/palm/68k/library.elf
+ 270314	      0	      0	 270314	  41fea	/Users/cyril/projects/palm-tls/library/build/palm/68k/library-tls13.elf
+ 161418	      0	      0	 161418	  2768a	/Users/cyril/projects/palm-tls/library/build/palm/arm/library-tls11.elf
+ 171234	      0	      0	 171234	  29ce2	/Users/cyril/projects/palm-tls/library/build/palm/arm/library.elf
+ 293302	      0	      0	 293302	  479b6	/Users/cyril/projects/palm-tls/library/build/palm/arm/library-tls13.elf
+cc -std=c99 -O2 -Wall -Wextra -Werror \
+		-DPALM_ARMLET_HOST_TEST -I/Users/cyril/projects/palm-tls/library/build/generated tests/armlet_math_test.c arm/multiply.c -o /Users/cyril/projects/palm-tls/library/build/host/armlet_math_test
+cc -std=c99 -O2 -shared -fPIC -Wall -Wextra -Werror \
+		-DPALM_ARMLET_HOST_TEST -I/Users/cyril/projects/palm-tls/library/build/generated arm/multiply.c -o /Users/cyril/projects/palm-tls/library/build/host/armlet_oracle.so
+/Users/cyril/projects/palm-tls/library/build/host/armlet_math_test
+ARMlet multiplication, P-256 multiply/map/mul2add, SHA-256, AES-GCM, and ChaCha20-Poly1305 tests passed
+python3 tests/arm_build_test.py --cc 'clang'
+ARM packager ISA checks passed: ARMv4T accepted; XScale/ARMv5TE/missing/malformed attributes rejected
+python3 tests/crypto_oracle_test.py --host-library /Users/cyril/projects/palm-tls/library/build/host/armlet_oracle.so
+Crypto oracles passed (host): 99 ChaCha records, 336 AES-GCM records, 1881 raw-field chains, 69 inversions/maps, 88 scalar products, 181 double-scalar cases, 432 order preparations, 270 point validations, 30 ECDSA valid/tampered cases, 397 Ed25519 field cases, 79 public-key arithmetic cases; alignment offsets 0..3
+python3 tests/hex_import_test.py --source /Users/cyril/projects/palm-tls/.palm-tls/prefix/../src/wolfssl
+16-bit TFM hex differential tests passed: 16125 cases
+python3 tests/verify_profile_test.py
+Verification profiler nesting, exclusive timing and failure tests passed
+python3 tests/handshake_profile_test.py
+Handshake profiler nesting, wraparound, idle and slot-isolation tests passed
+python3 tests/session_id_test.py
+Session ID wrap preserves active sessions and retained profiles
+python3 tests/p256_validation_bridge_test.py
+P-256 bridge bounds, sign, Z, equation, domain and fallback checks passed
+python3 tests/public_ca_pem_test.py
+Public CA PEM decoder equivalence passed: 33915 valid/malformed/capacity cases
+python3 tests/loader_relocation_test.py
+Loader relocation/address, alignment, bounds, allocation and write-error checks passed

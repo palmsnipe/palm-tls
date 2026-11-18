@@ -1,0 +1,77 @@
+COMMAND: automation-status
+device: Tungsten E3 / Dmitry's Frankenpilot
+card name: PalmCard
+ROM version: Jan 12, 2025
+manufacturer: DmitryGR
+HAL ID: DmGR
+company ID: Palm
+using RAM size: 33554432 bytes
+
+chunk type 0x0150 not in map
+can't restore bcm2035: missing savestate
+
+found PACE entry at 0x003bb9c4
+found PACE callout for syscall at 0x003c17d1
+found PACE callout for divu at 0x003c19bb
+found PACE callout for divs at 0x003c1963
+found PACE callout for illegal instruction at 0x003c63f0
+found PACE callout for line 1010 at 0x003c1a73
+found PACE callout for line 1111 at 0x003c1aa3
+found PACE callout for trap 0 at 0x003c1ae1
+found PACE callout for trap 8 at 0x003c1aef
+found PACE callout for unimplemented instruction at 0x003c6400
+patching PACE
+> automation-status
+automation ready
+COMMAND: install "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm-handshake-profile/repeat1/PalmTLSArm.prc"
+> install "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm 
+-handshake-profile/repeat1/PalmTLSArm.prc"
+installation successful
+COMMAND: install "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm-handshake-profile/repeat1/PalmTLSHandshakeBench.prc"
+> install "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm 
+-handshake-profile/repeat1/PalmTLSHandshakeBench.prc"
+installation successful
+COMMAND: launch "PalmTLS HS Bench"
+> launch "PalmTLS HS Bench"
+launch successful
+COMMAND: screenshot "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm-handshake-profile/repeat1/progress.png"
+> screenshot "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17- 
+arm-handshake-profile/repeat1/progress.png"
+screenshot saved
+COMMAND: screenshot "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm-handshake-profile/repeat1/progress.png"
+> screenshot "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17- 
+arm-handshake-profile/repeat1/progress.png"
+screenshot saved
+COMMAND: screenshot "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm-handshake-profile/repeat1/progress.png"
+> screenshot "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17- 
+arm-handshake-profile/repeat1/progress.png"
+screenshot saved
+COMMAND: db-export "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm-handshake-profile/repeat1/databases.zip"
+> db-export "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-a 
+rm-handshake-profile/repeat1/databases.zip"
+OK ContactsDB-PAdd
+OK CalendarDB-PDat
+OK MemosDB-PMem
+OK Queries
+OK PalmTLS Handshake Results
+OK AddressDB
+OK DatebookDB
+OK MemoDB
+OK ConnectionMgr50DB
+OK NetworkDB
+OK npadDB
+OK PIMsSupportStatus-pdmE
+OK PhoneRegistryDB
+OK PalmTLS HS Bench
+OK ContactsBDIndex-PAdd
+OK Palm TLS
+OK psysLaunchDB
+OK Graffiti ShortCuts
+OK Bluetooth Prefs Backup
+OK Unsaved Preferences
+OK Net Prefs
+OK System MIDI Sounds
+OK Saved Preferences
+
+export written to /Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm-handshake-profile/repeat1/databases.zip
+> quit

@@ -1,0 +1,28 @@
+/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-gcc -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -mshort -std=gnu17 -Os -Wall -Wextra -Werror -Wno-old-style-declaration -ffunction-sections -fdata-sections -DPALMOS -I. -I/Users/cyril/projects/palm-tls/library/build/bench -I/Users/cyril/projects/palm-tls/library/include -isystem/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/palmdev/sdk/include -isystem/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/palmdev/sdk/include/Core -isystem/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/palmdev/sdk/include/Core/Hardware -isystem/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/palmdev/sdk/include/Core/System -isystem/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/palmdev/sdk/include/Core/UI -isystem/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/palmdev/sdk/include/Dynamic -isystem/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/palmdev/sdk/include/Libraries -isystem/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/palmdev/sdk/include/Libraries/PalmOSGlue -c handshake.c -o /Users/cyril/projects/palm-tls/library/build/bench/handshake.o
+/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-gcc -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -mshort -Os -nostartfiles -Wl,--gc-sections -Wl,-T,/Users/cyril/projects/palm-tls/apps/tls-tester/toolchain/linker.lkr -Wl,--emit-relocs /Users/cyril/projects/palm-tls/library/build/bench/handshake.o /Users/cyril/projects/palm-tls/library/build/bench/startup.o -o /Users/cyril/projects/palm-tls/library/build/bench/handshake.elf.stage1
+node /Users/cyril/projects/palm-tls/../palm-toolchain/tools/generate-m68k-relocs.mjs /Users/cyril/projects/palm-tls/library/build/bench/handshake.elf.stage1 /Users/cyril/projects/palm-tls/library/build/bench/handshake-relocs.s /Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-readelf
+Generated 2 Palm runtime relocations
+/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-gcc -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -mshort -c /Users/cyril/projects/palm-tls/library/build/bench/handshake-relocs.s -o /Users/cyril/projects/palm-tls/library/build/bench/handshake-relocs.o
+/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-gcc -Wno-multichar -m68000 -mno-align-int -mpcrel -fpic -fshort-enums -mshort -Os -nostartfiles -Wl,--gc-sections -Wl,-T,/Users/cyril/projects/palm-tls/apps/tls-tester/toolchain/linker.lkr /Users/cyril/projects/palm-tls/library/build/bench/handshake.o /Users/cyril/projects/palm-tls/library/build/bench/startup.o /Users/cyril/projects/palm-tls/library/build/bench/handshake-relocs.o -o /Users/cyril/projects/palm-tls/library/build/bench/handshake.elf
+rm /Users/cyril/projects/palm-tls/library/build/bench/handshake.elf.stage1
+/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/bin/m68k-none-elf-objcopy -O binary /Users/cyril/projects/palm-tls/library/build/bench/handshake.elf /Users/cyril/projects/palm-tls/library/build/bench/handshake-code0001.bin -j .vec -j .text
+/Applications/Xcode.app/Contents/Developer/usr/bin/make -C /Users/cyril/projects/palm-tls/library /Users/cyril/projects/palm-tls/library/build/palm/armc0001.bin
+cd /Users/cyril/projects/palm-tls/library/build/bench && /Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/bin/pilrc -ro -o handshake.ro /Users/cyril/projects/palm-tls/library/bench/handshake.rcp
+PilRC v3.2
+  Copyright 1997-1999 Wes Cherry   (wesc@ricochet.net)
+  Copyright 2000-2004 Aaron Ardiri (aaron@ardiri.com)
+
+Generating 68K resources from '/Users/cyril/projects/palm-tls/library/bench/handshake.rcp'.
+Writing temporary code0001.bin (11988 bytes)
+Writing temporary armc0001.bin (49636 bytes)
+Writing temporary PadR0001.bin (4 bytes)
+Writing temporary tver0001.bin (4 bytes)
+Writing temporary pref0000.bin (10 bytes)
+Writing temporary tFRM03e8.bin (106 bytes)
+Writing temporary tAIN03e8.bin (18 bytes)
+Writing temporary tSTR03e8.bin (23 bytes)
+Collecting *.bin files into handshake.ro
+/Users/cyril/projects/palm-tls/../palm-toolchain/.toolchain/prefix/bin/build-prc --no-check -o /Users/cyril/projects/palm-tls/library/build/bench/PalmTLSHandshakeBench.prc -n 'PalmTLS HS Bench' -c Thsb -t appl /Users/cyril/projects/palm-tls/library/build/bench/handshake.ro
+node /Users/cyril/projects/palm-tls/../palm-toolchain/tools/validate-prc.mjs /Users/cyril/projects/palm-tls/library/build/bench/PalmTLSHandshakeBench.prc 'PalmTLS HS Bench' appl Thsb
+Validated /Users/cyril/projects/palm-tls/library/build/bench/PalmTLSHandshakeBench.prc: PalmTLS HS Bench, appl/Thsb, 8 resources
+node validate-armlet.mjs /Users/cyril/projects/palm-tls/library/build/bench/PalmTLSHandshakeBench.prc /Users/cyril/projects/palm-tls/library/build/palm/armc0001.bin
