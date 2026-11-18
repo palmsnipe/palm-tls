@@ -48,15 +48,23 @@ _Static_assert(PALM_TLS_SEGMENT_COUNT == 5 &&
     PALM_TLS6_LINK_BASE == 0x15000000UL &&
     PALM_TLS_SEGMENT_LINK_LIMIT == 0x10000UL, "loader bank layout changed");
 
-static UInt32 RuntimeAddress(UInt32 linkedAddress, UInt8 **segments)
+/* The five link banks occupy slots 1 through 5 of 0x10-0x17.
+ * Leave unused and absent banks at a delta of zero. */
+static void RuntimeDeltas(UInt32 *deltas, UInt8 **segments)
 {
-    /* The linker banks are consecutive high bytes, each with a 64 KiB
-     * window. Keep external/resident addresses unchanged, including gaps. */
-    UInt16 segment = (UInt16)(linkedAddress >> 24) - 0x11U;
-    UInt32 offset = linkedAddress & 0x00ffffffUL;
-    if (segment < PALM_TLS_SEGMENT_COUNT && segments[segment] &&
-        offset < PALM_TLS_SEGMENT_LINK_LIMIT)
-        return (UInt32)segments[segment] + offset;
+    UInt16 index;
+    for (index = 0; index < 8; index++) deltas[index] = 0;
+    for (index = 0; index < PALM_TLS_SEGMENT_COUNT; index++) {
+        if (segments[index])
+            deltas[index + 1] = (UInt32)segments[index] -
+                (((UInt32)index + 0x11UL) << 24);
+    }
+}
+
+static UInt32 RuntimeAddress(UInt32 linkedAddress, const UInt32 *deltas)
+{
+    if ((linkedAddress & 0xf8ff0000UL) == 0x10000000UL)
+        return linkedAddress + deltas[(UInt16)(linkedAddress >> 24) & 7U];
     return linkedAddress;
 }
 
@@ -70,6 +78,7 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
     UInt16 segment;
     UInt16 applied = 0;
     UInt16 first[PALM_TLS_SEGMENT_COUNT], limit[PALM_TLS_SEGMENT_COUNT];
+    UInt32 deltas[8];
 
     if (relocSize < 4 || headerP[0] != PALM_TLS_RELOC_VERSION) return false;
     count = headerP[1];
@@ -88,19 +97,25 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
         limit[segment] = index + 1;
     }
 
+    RuntimeDeltas(deltas, segments);
     for (segment = 0; segment < PALM_TLS_SEGMENT_COUNT; segment++) {
-        if (!segments[segment]) continue;
-        UInt8 *scratchP = (UInt8 *)MemPtrNew(segmentSizes[segment]);
+        const PalmTlsRelocation *currentP, *stopP;
+        UInt32 size = segmentSizes[segment];
+        if (first[segment] == count) continue;
+        if (size < sizeof(UInt32)) return false;
+        UInt32 maxOffset = size - sizeof(UInt32);
+        UInt8 *scratchP = (UInt8 *)MemPtrNew(size);
         if (scratchP == 0) return false;
         MemMove(scratchP, segments[segment], segmentSizes[segment]);
-        for (index = first[segment]; index < limit[segment]; index++) {
+        currentP = entryP + first[segment];
+        stopP = entryP + limit[segment];
+        for (; currentP != stopP; currentP++) {
             UInt32 offset;
             UInt32 linkedAddress;
             UInt32 runtimeAddress;
-            if (entryP[index].sourceSegment != segment) continue;
-            offset = entryP[index].sourceOffset;
-            if ((offset & 1U) || segmentSizes[segment] < sizeof(UInt32) ||
-                offset > segmentSizes[segment] - sizeof(UInt32)) {
+            if (currentP->sourceSegment != segment) continue;
+            offset = currentP->sourceOffset;
+            if ((offset & 1U) || offset > maxOffset) {
                 MemPtrFree(scratchP);
                 return false;
             }
@@ -108,7 +123,7 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
              * Scratch is writable dynamic memory: avoid two system traps for
              * each four-byte relocation. Storage is still updated by DmWrite. */
             linkedAddress = *(const UInt32 *)(scratchP + offset);
-            runtimeAddress = RuntimeAddress(linkedAddress, segments);
+            runtimeAddress = RuntimeAddress(linkedAddress, deltas);
             *(UInt32 *)(scratchP + offset) = runtimeAddress;
             applied++;
         }

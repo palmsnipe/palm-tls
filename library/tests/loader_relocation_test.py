@@ -8,7 +8,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src/tls_loader.c').read_text()
-code = source[source.index('static UInt32 RuntimeAddress('):source.index('void PalmTlsUnloadEngine(')]
+code = source[source.index('static void RuntimeDeltas('):source.index('void PalmTlsUnloadEngine(')]
 # Palm pointers are 32-bit; retain their low-address arithmetic in the host
 # adapter without asking the host compiler to truncate a pointer implicitly.
 code = code.replace('(UInt32)segments[', '(UInt32)(uintptr_t)segments[')
@@ -74,9 +74,11 @@ int main(void) {
     }
     {
         UInt32 offsets[5]={0,1,65535,65536,0xffffff}; unsigned bank,j;
+        UInt32 deltas[8];
+        RuntimeDeltas(deltas,segments);
         for(bank=0;bank<256;bank++) for(j=0;j<5;j++) {
             UInt32 address=((UInt32)bank<<24)|offsets[j];
-            assert(RuntimeAddress(address,segments)==ReferenceAddress(address,segments));
+            assert(RuntimeAddress(address,deltas)==ReferenceAddress(address,segments));
         }
     }
     table.version=2;
