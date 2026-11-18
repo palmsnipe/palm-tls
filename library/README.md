@@ -8,7 +8,7 @@ PalmTLS is distributed as mutually exclusive Palm OS system-library PRCs for
   traps remain 68K-compatible while multiprecision multiply/square, complete
   P-256 scalar multiplication, and SHA-256 compression execute as a native
   ARMlet through `PceNativeCall`.
-- `PalmTLSArm-Modern.prc` negotiates TLS 1.2 or 1.3
+- The Browser profile is available as a source build. It negotiates TLS 1.2 or 1.3
   for a CA-verified client provisioned with host randomness. Its broader
   certificate support includes SHA-384, P-384 and RSA-4096. The ARMlet
   accelerates public RSA-4096 multiplication and Montgomery reduction.
@@ -30,7 +30,7 @@ verification, caller-supplied DER/PEM trust anchors, exact-peer trust, and an
 explicitly unverified diagnostic mode. It intentionally does not implement
 DNS, TCP connection setup, HTTP parsing, or a built-in root store.
 
-The compact protocol engines are restricted to P-256, SHA-256, AES-128-GCM, the
+The modern profile is restricted to P-256, SHA-256, AES-128-GCM, the
 ECDHE/ECDSA or ECDHE/RSA TLS 1.2 suites, and the P-256/AES-GCM TLS 1.3 profile.
 On ARM, TLS 1.3 also offers ChaCha20-Poly1305, first; see [ARM.md](ARM.md).
 The isolated TLS 1.1 engine instead enables static RSA key exchange,
@@ -133,12 +133,11 @@ Release packages contain these profiles:
 
 ```text
 PalmTLS68K.prc / PalmTLSArm.prc                 TLS 1.1 + 1.2 + 1.3
-PalmTLS68K-Modern.prc                         TLS 1.2 + 1.3
-PalmTLSArm-Modern.prc                         Negotiated TLS 1.2/1.3, broader CA chain support
+PalmTLS68K-Modern.prc / PalmTLSArm-Modern.prc   TLS 1.2 + 1.3
 PalmTLS68K-TLS13.prc / PalmTLSArm-TLS13.prc     TLS 1.3 only
 ```
 
-Build one profile directly with `TLS_PROFILE=tls13`, `modern`, or `full` and
+Build one profile directly with `TLS_PROFILE=tls13`, `modern`, `browser`, or `full` and
 the `test-prc` target.
 The ARM PRCs range from approximately 347 KiB for TLS13 to 684 KiB for
 Full. Applications discover the protocols actually packaged through

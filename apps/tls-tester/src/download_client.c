@@ -6,7 +6,19 @@
  * event-loop tick, so 2 KiB reads capped plain HTTP and TLS transfers near
  * 40 KB/s even though record protection sustains far more. */
 #define DOWNLOAD_IO_CAPACITY 16384
+#define DOWNLOAD_IO_FALLBACK_CAPACITY 2048
 #define DOWNLOAD_REQUEST_CAPACITY 768
+
+static UInt8 *AllocateDownloadBuffer(UInt16 *capacityP)
+{
+    *capacityP = DOWNLOAD_IO_CAPACITY;
+    UInt8 *bufferP = (UInt8 *)MemPtrNew(*capacityP);
+    if (bufferP == 0) {
+        *capacityP = DOWNLOAD_IO_FALLBACK_CAPACITY;
+        bufferP = (UInt8 *)MemPtrNew(*capacityP);
+    }
+    return bufferP;
+}
 
 typedef struct DownloadSinkContext {
     DownloadStore *storeP;
@@ -340,7 +352,7 @@ static Boolean FeedResponse(HttpParser *parserP,
 }
 
 static Boolean ReadTls(UInt32 sessionId, HttpParser *parserP,
-                       DownloadStore *storeP, UInt8 *bufferP,
+                       DownloadStore *storeP, UInt8 *bufferP, UInt16 bufferCapacity,
                        const DownloadClientConfig *configP,
                        DownloadClientResult *resultP)
 {
@@ -358,7 +370,7 @@ static Boolean ReadTls(UInt32 sessionId, HttpParser *parserP,
         params.structSize = sizeof(params);
         params.sessionId = sessionId;
         params.bufferP = bufferP;
-        params.length = DOWNLOAD_IO_CAPACITY;
+        params.length = bufferCapacity;
         params.timeoutTicks = configP->stepTimeoutTicks;
         params.options = PALM_TLS_IO_COOPERATIVE;
         result.structSize = sizeof(result);
@@ -401,7 +413,7 @@ static Boolean ReadTls(UInt32 sessionId, HttpParser *parserP,
 
 static Boolean ReadPlain(UInt16 netRefNum, NetSocketRef socket,
                          HttpParser *parserP,
-                         DownloadStore *storeP, UInt8 *bufferP,
+                         DownloadStore *storeP, UInt8 *bufferP, UInt16 bufferCapacity,
                          const DownloadClientConfig *configP,
                          DownloadClientResult *resultP)
 {
@@ -414,7 +426,7 @@ static Boolean ReadPlain(UInt16 netRefNum, NetSocketRef socket,
             return false;
         }
         received = (Int16)NetLibReceive(netRefNum, socket, bufferP,
-            DOWNLOAD_IO_CAPACITY, 0, 0, 0, configP->stepTimeoutTicks,
+            bufferCapacity, 0, 0, 0, configP->stepTimeoutTicks,
             &error);
         if (received > 0) {
             idleStart = TimGetTicks();
@@ -464,6 +476,7 @@ void DownloadClientRun(const Char *urlTextP, Boolean defaultSecure,
     DownloadSinkContext sink;
     HttpUrl url;
     UInt8 *bufferP = 0;
+    UInt16 bufferCapacity;
     Char *requestP = 0;
     UInt16 netRefNum = 0;
     UInt16 interfaceErrors = 0;
@@ -490,8 +503,8 @@ void DownloadClientRun(const Char *urlTextP, Boolean defaultSecure,
         resultP->status = downloadClientAlreadyComplete;
         goto cleanup;
     }
-    bufferP = (UInt8 *)MemPtrNew(DOWNLOAD_IO_CAPACITY);
     requestP = (Char *)MemPtrNew(DOWNLOAD_REQUEST_CAPACITY);
+    bufferP = AllocateDownloadBuffer(&bufferCapacity);
     if (bufferP == 0 || requestP == 0) {
         resultP->status = downloadClientStorageError;
         resultP->platformError = memErrNotEnoughSpace;
@@ -580,8 +593,8 @@ void DownloadClientRun(const Char *urlTextP, Boolean defaultSecure,
             StoreBody, &sink);
         Phase(configP, downloadPhaseTransfer);
         operationOk = url.secure
-            ? ReadTls(sessionId, &parser, &store, bufferP, configP, resultP)
-            : ReadPlain(netRefNum, socket, &parser, &store, bufferP, configP,
+            ? ReadTls(sessionId, &parser, &store, bufferP, bufferCapacity, configP, resultP)
+            : ReadPlain(netRefNum, socket, &parser, &store, bufferP, bufferCapacity, configP,
                 resultP);
         if (operationOk && !parser.redirect) {
             Phase(configP, downloadPhaseFinalize);
@@ -647,6 +660,7 @@ struct DownloadClientJob {
     NetHostInfoBufType hostBuffer;
     NetSocketAddrINType address;
     UInt8 *bufferP;
+    UInt16 bufferCapacity;
     Char *requestP;
     UInt16 requestLength;
     UInt16 sent;
@@ -778,8 +792,8 @@ Boolean DownloadClientStart(const Char *urlTextP, Boolean defaultSecure,
         return false;
     }
     resultP->status = downloadClientOk;
-    jobP->bufferP = (UInt8 *)MemPtrNew(DOWNLOAD_IO_CAPACITY);
     jobP->requestP = (Char *)MemPtrNew(DOWNLOAD_REQUEST_CAPACITY);
+    jobP->bufferP = AllocateDownloadBuffer(&jobP->bufferCapacity);
     if (jobP->bufferP == 0 || jobP->requestP == 0) {
         resultP->status = downloadClientStorageError;
         resultP->platformError = memErrNotEnoughSpace;
@@ -1080,7 +1094,7 @@ UInt16 DownloadClientStep(DownloadClientJob **jobPP)
                 params.structSize = sizeof(params);
                 params.sessionId = jobP->sessionId;
                 params.bufferP = jobP->bufferP;
-                params.length = DOWNLOAD_IO_CAPACITY;
+                params.length = jobP->bufferCapacity;
                 params.timeoutTicks = jobP->config.stepTimeoutTicks;
                 params.options = PALM_TLS_IO_COOPERATIVE;
                 tlsResult.structSize = sizeof(tlsResult);
@@ -1100,7 +1114,7 @@ UInt16 DownloadClientStep(DownloadClientJob **jobPP)
                 }
             } else {
                 received = (Int16)NetLibReceive(jobP->netRefNum,
-                    jobP->socket, jobP->bufferP, DOWNLOAD_IO_CAPACITY,
+                    jobP->socket, jobP->bufferP, jobP->bufferCapacity,
                     0, 0, 0, jobP->config.stepTimeoutTicks, &error);
                 eof = received == 0 || error == netErrSocketClosedByRemote ||
                     error == netErrSocketNotConnected;

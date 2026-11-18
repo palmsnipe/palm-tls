@@ -16,8 +16,8 @@ typedef char Char;
 #endif
 
 /* Maximum length of a single response header line. The parser consumes one
- * line at a time, so the total header block is not capped. Lines longer than
- * this are ignored. */
+ * line at a time, so the total header block is not capped. Oversized lines
+ * that affect framing or decoding are rejected. */
 #ifndef HTTP_HEADER_LINE_CAPACITY
 #define HTTP_HEADER_LINE_CAPACITY 512
 #endif
@@ -39,7 +39,7 @@ typedef Int16 (*HttpBodyProc)(void *contextP, const UInt8 *dataP,
 typedef enum HttpStatus {
     httpOk = 0,
     httpMalformed,
-    httpHeadersTooLarge, /* Retained for source compatibility; not returned. */
+    httpHeadersTooLarge,
     httpUnsupportedEncoding,
     httpSinkFailed
 } HttpStatus;

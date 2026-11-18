@@ -164,18 +164,15 @@ measures about 39% fewer compression instructions for eight blocks. Short
 transcript hashes still use a single block, while certificate and
 record-sized inputs avoid most architecture-crossing overhead. AES-128-GCM keeps its counter, expanded AES-128 key, and a 4-bit GHASH
 table across bounded 512-byte native calls. Key expansion and table construction
-therefore happen once per record instead of once per chunk. AES rounds operate on
-four 32-bit columns through a 1 KiB Te0 table; the three companion tables are
-obtained by rotating Te0, so SubBytes, ShiftRows and MixColumns share word
-lookups instead of byte loops. The expanded key schedule is stored as native
+therefore happen once per record instead of once per chunk. AES rounds operate on four 32-bit columns. They use the byte S-box for
+SubBytes and compute MixColumns with word shifts and XORs. The expanded key schedule is stored as native
 32-bit words, so aligned requests read one word per round-key column instead
 of four bytes. Record updates take a word-wide fast path for
 whole blocks when the caller's buffers are 4-byte aligned, and keep the
 byte-wise path for partial blocks and unaligned pointers. The persistent GHASH
 table is built from aligned 32-bit
 words with masked power selection, and each native call decodes it into local
-words; GHASH then shifts and XORs four 32-bit words per nibble, uses a
-16-entry reduction table for the shifted-out low nibble, and runs a fully
+words. GHASH uses fixed shifts and XORs for reduction and runs a fully
 unrolled 32-nibble block loop. The state still fits in the existing
 528-byte request operand, supports TLS records of any size, and does not allocate
 a large exchange buffer. Protocol control, certificate parsing, memory

@@ -121,7 +121,7 @@ static UInt16 ParseStatusLine(HttpParser *parserP, const Char *lineP,
 }
 
 static UInt16 ParseHeaderLine(HttpParser *parserP, const Char *lineP,
-                              UInt16 length)
+                              UInt16 length, Boolean overflow)
 {
     const Char *endP = lineP + length;
     const Char *colonP = lineP;
@@ -129,6 +129,7 @@ static UInt16 ParseHeaderLine(HttpParser *parserP, const Char *lineP,
     if (colonP == endP) return httpMalformed;
     if ((UInt16)(colonP - lineP) == 14 &&
         StartsWithNoCase(lineP, "Content-Length")) {
+        if (overflow) return httpHeadersTooLarge;
         UInt32 lengthValue;
         if (!ParseUInt32(colonP + 1, endP, &lengthValue) ||
             (parserP->hasContentLength &&
@@ -138,35 +139,41 @@ static UInt16 ParseHeaderLine(HttpParser *parserP, const Char *lineP,
         parserP->hasContentLength = true;
     } else if ((UInt16)(colonP - lineP) == 17 &&
                StartsWithNoCase(lineP, "Transfer-Encoding")) {
+        if (overflow) return httpHeadersTooLarge;
         if (!MatchHeaderValue(colonP + 1, endP, "chunked"))
             return httpUnsupportedEncoding;
         if (parserP->chunked) return httpMalformed;
         parserP->chunked = true;
     } else if ((UInt16)(colonP - lineP) == 8 &&
                StartsWithNoCase(lineP, "Location")) {
-        if (!CopyTrimmed(parserP->location,
+        if (overflow || !CopyTrimmed(parserP->location,
                 sizeof(parserP->location), colonP + 1, endP))
             parserP->locationTruncated = true;
     } else if ((UInt16)(colonP - lineP) == 4 &&
                StartsWithNoCase(lineP, "ETag")) {
+        if (overflow) return httpOk;
         CopyTrimmed(parserP->etag, sizeof(parserP->etag), colonP + 1,
             endP);
     } else if ((UInt16)(colonP - lineP) == 13 &&
                StartsWithNoCase(lineP, "Last-Modified")) {
+        if (overflow) return httpOk;
         CopyTrimmed(parserP->lastModified,
             sizeof(parserP->lastModified), colonP + 1, endP);
     } else if ((UInt16)(colonP - lineP) == 19 &&
                StartsWithNoCase(lineP, "Content-Disposition")) {
+        if (overflow) return httpOk;
         CopyFilenameParameter(parserP->filename,
             sizeof(parserP->filename), colonP + 1, endP);
     } else if ((UInt16)(colonP - lineP) == 12 &&
                StartsWithNoCase(lineP, "Content-Type")) {
+        if (overflow) return httpOk;
         const Char *semiP = colonP + 1;
         while (semiP < endP && *semiP != ';') semiP++;
         CopyTrimmed(parserP->contentType, sizeof(parserP->contentType),
             colonP + 1, semiP);
     } else if ((UInt16)(colonP - lineP) == 13 &&
                StartsWithNoCase(lineP, "Content-Range")) {
+        if (overflow) return httpHeadersTooLarge;
         const Char *valueP = colonP + 1;
         const Char *slashP;
         while (valueP < endP && (*valueP == ' ' || *valueP == '\t'))
@@ -200,6 +207,7 @@ static UInt16 ParseHeaderLine(HttpParser *parserP, const Char *lineP,
         parserP->hasContentRange = true;
     } else if ((UInt16)(colonP - lineP) == 16 &&
                StartsWithNoCase(lineP, "Content-Encoding")) {
+        if (overflow) return httpHeadersTooLarge;
         if (parserP->gzip) return httpUnsupportedEncoding;
         if (parserP->acceptGzip && MatchHeaderValue(colonP + 1, endP, "gzip"))
             parserP->gzip = true;
@@ -207,6 +215,7 @@ static UInt16 ParseHeaderLine(HttpParser *parserP, const Char *lineP,
             return httpUnsupportedEncoding;
     } else if ((UInt16)(colonP - lineP) == 10 &&
                StartsWithNoCase(lineP, "Connection")) {
+        if (overflow) return httpHeadersTooLarge;
         const Char *valueP = colonP + 1;
         while (valueP < endP && (*valueP == ' ' || *valueP == '\t'))
             valueP++;
@@ -541,12 +550,13 @@ UInt16 HttpParserFeed(HttpParser *parserP,
                 if (parserP->hasContentLength &&
                     parserP->contentLength == 0)
                     MarkComplete(parserP);
-            } else if (!overflow) {
-                parserP->parseStatus = parserP->statusLineParsed
-                    ? ParseHeaderLine(parserP, parserP->headerLine,
-                        lineLength)
-                    : ParseStatusLine(parserP, parserP->headerLine,
-                        lineLength);
+            } else {
+                if (parserP->statusLineParsed)
+                    parserP->parseStatus = ParseHeaderLine(parserP,
+                        parserP->headerLine, lineLength, overflow);
+                else
+                    parserP->parseStatus = overflow ? httpHeadersTooLarge
+                        : ParseStatusLine(parserP, parserP->headerLine, lineLength);
                 if (parserP->parseStatus != httpOk)
                     return parserP->parseStatus;
             }

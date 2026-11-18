@@ -1,5 +1,10 @@
 # ARM performance review — November 1, 2026
 
+The November 17 snapshots below describe their individual experiment commits.
+The release implementation uses the original byte AES S-box, word arithmetic
+for MixColumns, and fixed shifts and XORs for GHASH reduction. Use the published
+release benchmark for end-to-end comparisons of the shipped binaries.
+
 ## Unrolled ChaCha20 record XOR
 
 `ChaChaCrypt` previously walked the 16-word keystream XOR with a

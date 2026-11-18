@@ -217,6 +217,21 @@ int main(void)
             "ignore a header line longer than the line buffer");
     }
 
+    /* Reject an oversized framing header before delivering any body bytes. */
+    {
+        static char longLength[1024];
+        char *p = longLength;
+        p += sprintf(p, "HTTP/1.1 200 OK\r\nContent-Length:");
+        memset(p, ' ', 600);
+        p += 600;
+        sprintf(p, " 2\r\n\r\nok");
+        memset(&capture, 0, sizeof(capture));
+        HttpParserInit(&parser, 0, CaptureBody, &capture);
+        failed += Check(FeedPieces(&parser, longLength, 7) == httpHeadersTooLarge &&
+            capture.body[0] == '\0' && !parser.connectionReusable,
+            "reject an oversized Content-Length before reading the body");
+    }
+
     /* A truncated Location must fail cleanly rather than redirect to a
      * partially parsed URL. */
     {
