@@ -1004,6 +1004,40 @@ static __inline__ __attribute__((always_inline)) u32 SubtractLimb(
 #endif
 }
 
+#if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
+#define FE_ARM_LIMB(op, word, offset) \
+    "ldr r3, [r2, #" #offset "]\n\t" \
+    #op " " #word ", " #word ", r3\n\t"
+
+/* Subtract in registers, then add p under a mask from the last borrow.
+ * The store follows all operand loads, including when pointers alias. */
+__attribute__((naked, noinline))
+static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
+                       const Fe256 *rightP)
+{
+    __asm__ volatile(
+        "push {r4-r11}\n\t"
+        "ldmia r1, {r4-r11}\n\t"
+        FE_ARM_LIMB(subs, r4, 0) FE_ARM_LIMB(sbcs, r5, 4)
+        FE_ARM_LIMB(sbcs, r6, 8) FE_ARM_LIMB(sbcs, r7, 12)
+        FE_ARM_LIMB(sbcs, r8, 16) FE_ARM_LIMB(sbcs, r9, 20)
+        FE_ARM_LIMB(sbcs, r10, 24) FE_ARM_LIMB(sbcs, r11, 28)
+        "sbc r2, r3, r3\n\t"
+        "and r3, r2, #1\n\t"
+        "adds r4, r4, r2\n\t"
+        "adcs r5, r5, r2\n\t"
+        "adcs r6, r6, r2\n\t"
+        "adcs r7, r7, #0\n\t"
+        "adcs r8, r8, #0\n\t"
+        "adcs r9, r9, #0\n\t"
+        "adcs r10, r10, r3\n\t"
+        "adc r11, r11, r2\n\t"
+        "stmia r0, {r4-r11}\n\t"
+        "pop {r4-r11}\n\t"
+        "bx lr\n\t"
+    );
+}
+#else
 static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
                        const Fe256 *rightP)
 {
@@ -1029,6 +1063,7 @@ static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
         carry = (u32)(value >> 32);
     }
 }
+#endif
 
 /* Cancel a low limb using p = (B-1,B-1,B-1,0,0,0,1,B-1), B=2^32.
  * m=t[0] since -p^-1 mod B=1. m*(B-1)=(m<<32)-m; m*p[0]+m
@@ -1078,22 +1113,6 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     }
 }
 
-static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
-{
-    Fe256 sum;
-    u32 carry = 0;
-    u32 index;
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-    for (index = 0; index < 8; index++) {
-        u64 value = (u64)leftP->v[index] + rightP->v[index] + carry;
-        sum.v[index] = (u32)value;
-        carry = (u32)(value >> 32);
-    }
-    FeFinishProduct(resultP, sum.v, carry);
-}
-
 #if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
 /* r1 points to the fixed multiplicand, r2 is the current multiplier,
  * r3 loads each limb, r0 carries between products, and lr stays zero. */
@@ -1128,9 +1147,12 @@ static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
     "adds " #t8 ", " #t8 ", r2\n\t" \
     "adc " #t0 ", r0, #0\n\t"
 
+/* The low product in each row has no incoming carry. */
 #define FE_MONT_ROW_PRODUCTS(t0, t1, t2, t3, t4, t5, t6, t7) \
+    "ldr r3, [r1]\n\t" \
     "mov r0, #0\n\t" \
-    FE_MONT_LIMB(t0, 0) FE_MONT_LIMB(t1, 4) FE_MONT_LIMB(t2, 8) \
+    "umlal " #t0 ", r0, r3, r2\n\t" \
+    FE_MONT_LIMB(t1, 4) FE_MONT_LIMB(t2, 8) \
     FE_MONT_LIMB(t3, 12) FE_MONT_LIMB(t4, 16) FE_MONT_LIMB(t5, 20) \
     FE_MONT_LIMB(t6, 24) FE_MONT_LIMB(t7, 28)
 
@@ -1140,38 +1162,61 @@ static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
     FE_MONT_ROW_PRODUCTS(t0, t1, t2, t3, t4, t5, t6, t7) \
     FE_MONT_CANCEL(t0, t3, t4, t5, t6, t7, t8)
 
-/* ARMv4T kernel using the three argument registers directly. Keep the
- * nine accumulator limbs in r4-r12. Each row reads fixed operand offsets
- * and writes no intermediate limbs to memory. The first row uses r2
- * directly, then later rows reload the multiplier pointer from the stack. */
+/* Reduce r4-r12, least significant limb first. Start the comparison
+ * with the three all-ones limbs of p. The accumulator is below
+ * 2^256+p, so the high limb and the comparison carry cannot both be
+ * one. Add them to get the selection bit and subtract p under its mask.
+ * r1-r3 are scratch. */
+#define FE_ARM_REDUCE \
+    "and r1, r4, r5\n\t" \
+    "and r1, r1, r6\n\t" \
+    "cmn r1, #1\n\t" \
+    "sbcs r1, r7, #0\n\t" \
+    "sbcs r1, r8, #0\n\t" \
+    "sbcs r1, r9, #0\n\t" \
+    "sbcs r1, r10, #1\n\t" \
+    "mvn r3, #0\n\t" \
+    "sbcs r1, r11, r3\n\t" \
+    "adc r2, r12, #0\n\t" \
+    "rsb r1, r2, #0\n\t" \
+    "subs r4, r4, r1\n\t" \
+    "sbcs r5, r5, r1\n\t" \
+    "sbcs r6, r6, r1\n\t" \
+    "sbcs r7, r7, #0\n\t" \
+    "sbcs r8, r8, #0\n\t" \
+    "sbcs r9, r9, #0\n\t" \
+    "sbcs r10, r10, r2\n\t" \
+    "sbc r11, r11, r1\n\t"
+
+/* Fixed ARMv4T multiply and reduction schedule. Keep the accumulator
+ * in nine registers and store the result after reading both inputs. */
 __attribute__((naked, noinline))
-static void FeMontgomeryAccum(u32 *resultP, const Fe256 *leftP, const Fe256 *rightP)
+static void FeMultiply(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
 {
     __asm__ volatile(
         "push {r0, r2, r4-r11, lr}\n\t"
         "mov lr, #0\n\t"
-        "mov r12, #0\n\t"
+        "mov r4, #0\n\t"
         "ldr r2, [r2]\n\t"
         "ldr r3, [r1]\n\t"
-        "umull r4, r0, r3, r2\n\t"
-        FE_MONT_FIRST_LIMB(r5, 4) FE_MONT_FIRST_LIMB(r6, 8)
-        FE_MONT_FIRST_LIMB(r7, 12) FE_MONT_FIRST_LIMB(r8, 16)
-        FE_MONT_FIRST_LIMB(r9, 20) FE_MONT_FIRST_LIMB(r10, 24)
-        FE_MONT_FIRST_LIMB(r11, 28)
-        FE_MONT_CANCEL(r4, r7, r8, r9, r10, r11, r12)
-        FE_MONT_ROW(4, r5, r6, r7, r8, r9, r10, r11, r12, r4)
-        FE_MONT_ROW(8, r6, r7, r8, r9, r10, r11, r12, r4, r5)
-        FE_MONT_ROW(12, r7, r8, r9, r10, r11, r12, r4, r5, r6)
-        FE_MONT_ROW(16, r8, r9, r10, r11, r12, r4, r5, r6, r7)
-        FE_MONT_ROW(20, r9, r10, r11, r12, r4, r5, r6, r7, r8)
-        FE_MONT_ROW(24, r10, r11, r12, r4, r5, r6, r7, r8, r9)
-        FE_MONT_ROW(28, r11, r12, r4, r5, r6, r7, r8, r9, r10)
-        /* Eight rotations leave the limbs in r12, then r4 through r11. */
+        "umull r5, r0, r3, r2\n\t"
+        FE_MONT_FIRST_LIMB(r6, 4) FE_MONT_FIRST_LIMB(r7, 8)
+        FE_MONT_FIRST_LIMB(r8, 12) FE_MONT_FIRST_LIMB(r9, 16)
+        FE_MONT_FIRST_LIMB(r10, 20) FE_MONT_FIRST_LIMB(r11, 24)
+        FE_MONT_FIRST_LIMB(r12, 28)
+        FE_MONT_CANCEL(r5, r8, r9, r10, r11, r12, r4)
+        FE_MONT_ROW(4, r6, r7, r8, r9, r10, r11, r12, r4, r5)
+        FE_MONT_ROW(8, r7, r8, r9, r10, r11, r12, r4, r5, r6)
+        FE_MONT_ROW(12, r8, r9, r10, r11, r12, r4, r5, r6, r7)
+        FE_MONT_ROW(16, r9, r10, r11, r12, r4, r5, r6, r7, r8)
+        FE_MONT_ROW(20, r10, r11, r12, r4, r5, r6, r7, r8, r9)
+        FE_MONT_ROW(24, r11, r12, r4, r5, r6, r7, r8, r9, r10)
+        FE_MONT_ROW(28, r12, r4, r5, r6, r7, r8, r9, r10, r11)
+        /* The starting rotation makes r4-r12 consecutive at the end. */
+        FE_ARM_REDUCE
         "ldr r0, [sp]\n\t"
-        "str r12, [r0], #4\n\t"
         "stmia r0, {r4-r11}\n\t"
-        "add sp, sp, #8\n\t"
-        "pop {r4-r11, lr}\n\t"
+        "pop {r0, r2, r4-r11, lr}\n\t"
         "bx lr\n\t"
     );
 }
@@ -1180,17 +1225,75 @@ static void FeMontgomeryAccum(u32 *resultP, const Fe256 *leftP, const Fe256 *rig
 #undef FE_MONT_CANCEL
 #undef FE_MONT_FIRST_LIMB
 #undef FE_MONT_LIMB
+
+/* Add both operands before the masked reduction and the final store. */
+__attribute__((naked, noinline))
+static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
+{
+    __asm__ volatile(
+        "push {r4-r11}\n\t"
+        "ldmia r1, {r4-r11}\n\t"
+        FE_ARM_LIMB(adds, r4, 0) FE_ARM_LIMB(adcs, r5, 4)
+        FE_ARM_LIMB(adcs, r6, 8) FE_ARM_LIMB(adcs, r7, 12)
+        FE_ARM_LIMB(adcs, r8, 16) FE_ARM_LIMB(adcs, r9, 20)
+        FE_ARM_LIMB(adcs, r10, 24) FE_ARM_LIMB(adcs, r11, 28)
+        "mov r12, #0\n\t"
+        "adc r12, r12, #0\n\t"
+        FE_ARM_REDUCE
+        "stmia r0, {r4-r11}\n\t"
+        "pop {r4-r11}\n\t"
+        "bx lr\n\t"
+    );
+}
+#undef FE_ARM_LIMB
+
+__attribute__((naked, noinline))
+static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
+{
+    __asm__ volatile(
+        "push {r4-r11}\n\t"
+        "ldmia r1, {r4-r11}\n\t"
+        "adds r4, r4, r4\n\t"
+        "adcs r5, r5, r5\n\t"
+        "adcs r6, r6, r6\n\t"
+        "adcs r7, r7, r7\n\t"
+        "adcs r8, r8, r8\n\t"
+        "adcs r9, r9, r9\n\t"
+        "adcs r10, r10, r10\n\t"
+        "adcs r11, r11, r11\n\t"
+        "mov r12, #0\n\t"
+        "adc r12, r12, #0\n\t"
+        FE_ARM_REDUCE
+        "stmia r0, {r4-r11}\n\t"
+        "pop {r4-r11}\n\t"
+        "bx lr\n\t"
+    );
+}
+
+#undef FE_ARM_REDUCE
+#else
+
+static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
+{
+    Fe256 sum;
+    u32 carry = 0;
+    u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
 #endif
+    for (index = 0; index < 8; index++) {
+        u64 value = (u64)leftP->v[index] + rightP->v[index] + carry;
+        sum.v[index] = (u32)value;
+        carry = (u32)(value >> 32);
+    }
+    FeFinishProduct(resultP, sum.v, carry);
+}
 
 /* Coarsely integrated operand-scanning Montgomery multiplication. P[0] is
  * 0xffffffff, therefore -P^-1 mod 2^32 is exactly one. */
 static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
                        const Fe256 *rightP)
 {
-#if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
-    u32 t[9];
-    FeMontgomeryAccum(t, leftP, rightP);
-#else
     u32 t[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     u32 outer;
     /* Unroll all eight outer rounds. This keeps the multiplicand limbs in
@@ -1222,32 +1325,7 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
             t[8] = (u32)((top >> 32) + (value >> 32));
         }
     }
-#endif
     FeFinishProduct(resultP, t, t[8]);
-}
-
-/* Montgomery-reduce a 512-bit value. P[0] is -1, so the reduction digit is
- * the low accumulator limb without an additional multiplication. */
-static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
-{
-    u32 pending = 0;
-    /* The carry beyond limb i+8 is untouched by the next digit
-     * cancellation. Add it when the next round reaches that limb. */
-    for (u32 i = 0; i < 8U; i++) {
-        u32 carry = FeCancelP256Digit(accumulatorP + i, accumulatorP + i + 1U);
-        u64 sum = (u64)accumulatorP[i + 8U] + carry + pending;
-        accumulatorP[i + 8U] = (u32)sum;
-        pending = (u32)(sum >> 32);
-    }
-    FeFinishProduct(resultP, accumulatorP + 8U, pending);
-}
-
-/* The integrated product accepts equal inputs and in-place output: it
- * consumes all input limbs before writing resultP. Keep one field product
- * implementation for both multiplication and squaring. */
-static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
-{
-    FeMultiply(resultP, valueP, valueP);
 }
 
 /* For a canonical x, 2*x needs one subtraction exactly when x >= (p+1)/2.
@@ -1278,6 +1356,31 @@ static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
         carry = (u32)(sum >> 32);
         previous = limb >> 31;
     }
+}
+#endif
+
+/* Montgomery-reduce a 512-bit value. P[0] is -1, so the reduction digit is
+ * the low accumulator limb without an additional multiplication. */
+static void FeReduceWide(Fe256 *resultP, u32 *accumulatorP)
+{
+    u32 pending = 0;
+    /* The carry beyond limb i+8 is untouched by the next digit
+     * cancellation. Add it when the next round reaches that limb. */
+    for (u32 i = 0; i < 8U; i++) {
+        u32 carry = FeCancelP256Digit(accumulatorP + i, accumulatorP + i + 1U);
+        u64 sum = (u64)accumulatorP[i + 8U] + carry + pending;
+        accumulatorP[i + 8U] = (u32)sum;
+        pending = (u32)(sum >> 32);
+    }
+    FeFinishProduct(resultP, accumulatorP + 8U, pending);
+}
+
+/* The integrated product accepts equal inputs and in-place output: it
+ * consumes all input limbs before writing resultP. Keep one field product
+ * implementation for both multiplication and squaring. */
+static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
+{
+    FeMultiply(resultP, valueP, valueP);
 }
 
 static void PointCopy(Point256 *destinationP, const Point256 *sourceP)
