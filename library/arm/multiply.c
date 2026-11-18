@@ -991,6 +991,19 @@ static u32 FeIsZero(const Fe256 *valueP)
     return ((value | (0U - value)) >> 31) ^ 1U;
 }
 
+/* Subtract one limb and propagate its borrow to the next limb. */
+static __inline__ __attribute__((always_inline)) u32 SubtractLimb(
+    u32 left, u32 right, u32 *borrowP)
+{
+#if defined(__clang__)
+    return __builtin_subc(left, right, *borrowP, borrowP);
+#else
+    u64 difference = (u64)left - right - *borrowP;
+    *borrowP = (u32)(difference >> 63);
+    return (u32)difference;
+#endif
+}
+
 static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
                        const Fe256 *rightP)
 {
@@ -1002,14 +1015,7 @@ static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
 #pragma clang loop unroll(full)
 #endif
     for (index = 0; index < 8; index++) {
-#if defined(__clang__)
-        difference.v[index] =
-            __builtin_subc(leftP->v[index], rightP->v[index], borrow, &borrow);
-#else
-        u64 word = (u64)leftP->v[index] - rightP->v[index] - borrow;
-        difference.v[index] = (u32)word;
-        borrow = (u32)(word >> 63);
-#endif
+        difference.v[index] = SubtractLimb(leftP->v[index], rightP->v[index], &borrow);
     }
     /* The difference is complete, so writing the correction directly
      * remains safe if the result aliases either input. */
@@ -1068,9 +1074,7 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
 #pragma clang loop unroll(full)
 #endif
     for (u32 index = 0; index < 8U; index++) {
-        u64 difference = (u64)limbsP[index] - (kP.v[index] & mask) - borrow;
-        resultP->v[index] = (u32)difference;
-        borrow = (u32)(difference >> 63);
+        resultP->v[index] = SubtractLimb(limbsP[index], kP.v[index] & mask, &borrow);
     }
 }
 
@@ -1090,11 +1094,103 @@ static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
     FeFinishProduct(resultP, sum.v, carry);
 }
 
+#if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
+/* r1 points to the fixed multiplicand, r2 is the current multiplier,
+ * r3 loads each limb, r0 carries between products, and lr stays zero. */
+#define FE_MONT_LIMB(t, offset) \
+    "ldr r3, [r1, #" #offset "]\n\t" \
+    "adds " #t ", " #t ", r0\n\t" \
+    "adc r0, lr, #0\n\t" \
+    "umlal " #t ", r0, r3, r2\n\t"
+
+/* The first row starts at zero, so the product only adds the incoming carry. */
+#define FE_MONT_FIRST_LIMB(t, offset) \
+    "ldr r3, [r1, #" #offset "]\n\t" \
+    "mov " #t ", r0\n\t" \
+    "mov r0, #0\n\t" \
+    "umlal " #t ", r0, r3, r2\n\t"
+
+/* Add m*p, where m=t0 and p=-1+B^3+B^6-B^7+B^8. The carry c
+ * into limb 7 is zero when m is zero, so m-c fits in one limb.
+ * Rotate the register names to divide by B. The register holding m
+ * becomes the new ninth limb. */
+#define FE_MONT_CANCEL(t0, t3, t4, t5, t6, t7, t8) \
+    "adds " #t8 ", " #t8 ", r0\n\t" \
+    "adc r0, lr, #0\n\t" \
+    "adds " #t3 ", " #t3 ", " #t0 "\n\t" \
+    "adcs " #t4 ", " #t4 ", #0\n\t" \
+    "adcs " #t5 ", " #t5 ", #0\n\t" \
+    "adcs " #t6 ", " #t6 ", " #t0 "\n\t" \
+    "adc r3, lr, #0\n\t" \
+    "sub r3, " #t0 ", r3\n\t" \
+    "subs " #t7 ", " #t7 ", r3\n\t" \
+    "sbc r2, " #t0 ", #0\n\t" \
+    "adds " #t8 ", " #t8 ", r2\n\t" \
+    "adc " #t0 ", r0, #0\n\t"
+
+#define FE_MONT_ROW_PRODUCTS(t0, t1, t2, t3, t4, t5, t6, t7) \
+    "mov r0, #0\n\t" \
+    FE_MONT_LIMB(t0, 0) FE_MONT_LIMB(t1, 4) FE_MONT_LIMB(t2, 8) \
+    FE_MONT_LIMB(t3, 12) FE_MONT_LIMB(t4, 16) FE_MONT_LIMB(t5, 20) \
+    FE_MONT_LIMB(t6, 24) FE_MONT_LIMB(t7, 28)
+
+#define FE_MONT_ROW(offset, t0, t1, t2, t3, t4, t5, t6, t7, t8) \
+    "ldr r2, [sp, #4]\n\t" \
+    "ldr r2, [r2, #" #offset "]\n\t" \
+    FE_MONT_ROW_PRODUCTS(t0, t1, t2, t3, t4, t5, t6, t7) \
+    FE_MONT_CANCEL(t0, t3, t4, t5, t6, t7, t8)
+
+/* ARMv4T kernel using the three argument registers directly. Keep the
+ * nine accumulator limbs in r4-r12. Each row reads fixed operand offsets
+ * and writes no intermediate limbs to memory. The first row uses r2
+ * directly, then later rows reload the multiplier pointer from the stack. */
+__attribute__((naked, noinline))
+static void FeMontgomeryAccum(u32 *resultP, const Fe256 *leftP, const Fe256 *rightP)
+{
+    __asm__ volatile(
+        "push {r0, r2, r4-r11, lr}\n\t"
+        "mov lr, #0\n\t"
+        "mov r12, #0\n\t"
+        "ldr r2, [r2]\n\t"
+        "ldr r3, [r1]\n\t"
+        "umull r4, r0, r3, r2\n\t"
+        FE_MONT_FIRST_LIMB(r5, 4) FE_MONT_FIRST_LIMB(r6, 8)
+        FE_MONT_FIRST_LIMB(r7, 12) FE_MONT_FIRST_LIMB(r8, 16)
+        FE_MONT_FIRST_LIMB(r9, 20) FE_MONT_FIRST_LIMB(r10, 24)
+        FE_MONT_FIRST_LIMB(r11, 28)
+        FE_MONT_CANCEL(r4, r7, r8, r9, r10, r11, r12)
+        FE_MONT_ROW(4, r5, r6, r7, r8, r9, r10, r11, r12, r4)
+        FE_MONT_ROW(8, r6, r7, r8, r9, r10, r11, r12, r4, r5)
+        FE_MONT_ROW(12, r7, r8, r9, r10, r11, r12, r4, r5, r6)
+        FE_MONT_ROW(16, r8, r9, r10, r11, r12, r4, r5, r6, r7)
+        FE_MONT_ROW(20, r9, r10, r11, r12, r4, r5, r6, r7, r8)
+        FE_MONT_ROW(24, r10, r11, r12, r4, r5, r6, r7, r8, r9)
+        FE_MONT_ROW(28, r11, r12, r4, r5, r6, r7, r8, r9, r10)
+        /* Eight rotations leave the limbs in r12, then r4 through r11. */
+        "ldr r0, [sp]\n\t"
+        "str r12, [r0], #4\n\t"
+        "stmia r0, {r4-r11}\n\t"
+        "add sp, sp, #8\n\t"
+        "pop {r4-r11, lr}\n\t"
+        "bx lr\n\t"
+    );
+}
+#undef FE_MONT_ROW
+#undef FE_MONT_ROW_PRODUCTS
+#undef FE_MONT_CANCEL
+#undef FE_MONT_FIRST_LIMB
+#undef FE_MONT_LIMB
+#endif
+
 /* Coarsely integrated operand-scanning Montgomery multiplication. P[0] is
  * 0xffffffff, therefore -P^-1 mod 2^32 is exactly one. */
 static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
                        const Fe256 *rightP)
 {
+#if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
+    u32 t[9];
+    FeMontgomeryAccum(t, leftP, rightP);
+#else
     u32 t[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     u32 outer;
     /* Unroll all eight outer rounds. This keeps the multiplicand limbs in
@@ -1126,6 +1222,7 @@ static void FeMultiply(Fe256 *resultP, const Fe256 *leftP,
             t[8] = (u32)((top >> 32) + (value >> 32));
         }
     }
+#endif
     FeFinishProduct(resultP, t, t[8]);
 }
 
@@ -1904,26 +2001,32 @@ static int OrderCompare(const Order256 *leftP, const Order256 *rightP)
     return 0;
 }
 
+/* Only used with the public signature or its inverse calculation. */
 static u32 OrderIsValue(const Order256 *valueP, u32 expected)
 {
-    u32 bits = valueP->v[0] ^ expected;
-    u32 index;
-    for (index = 1; index < 8; index++) bits |= valueP->v[index];
-    return bits == 0;
+    u32 remaining = 0;
+    if (valueP->v[0] != expected)
+        return 0;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 i = 1; i < 8U; i++)
+        remaining |= valueP->v[i];
+    return remaining == 0;
 }
 
 static u32 OrderSubtract(Order256 *resultP, const Order256 *leftP,
                          const Order256 *rightP)
 {
-    u64 borrow = 0;
+    u32 borrow = 0;
     u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++) {
-        u64 right = (u64)rightP->v[index] + borrow;
-        u32 left = leftP->v[index];
-        resultP->v[index] = left - (u32)right;
-        borrow = (u64)left < right;
+        resultP->v[index] = SubtractLimb(leftP->v[index], rightP->v[index], &borrow);
     }
-    return (u32)borrow;
+    return borrow;
 }
 
 static void OrderSubtractMod(Order256 *resultP, const Order256 *leftP,
@@ -1932,6 +2035,9 @@ static void OrderSubtractMod(Order256 *resultP, const Order256 *leftP,
     u32 borrow = OrderSubtract(resultP, leftP, rightP);
     u64 carry = 0;
     u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 0; index < 8; index++) {
         u64 sum = (u64)resultP->v[index] +
             (kOrder.v[index] & (0U - borrow)) + carry;
@@ -2010,6 +2116,9 @@ static void OrderMultiply(Order256 *resultP, const Order256 *leftP,
     for (outer = 0; outer < 8; outer++) {
         u64 carry = 0, top;
         u32 inner, multiplier;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
         for (inner = 0; inner < 8; inner++) {
             u64 value = (u64)leftP->v[inner] * rightP->v[outer] + t[inner] + carry;
             t[inner] = (u32)value;
@@ -2019,6 +2128,9 @@ static void OrderMultiply(Order256 *resultP, const Order256 *leftP,
         t[8] = (u32)top;
         multiplier = t[0] * 0xee00bc4fU; /* -n^-1 modulo 2^32 */
         carry = 0;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
         for (inner = 0; inner < 8; inner++) {
             u64 value = (u64)multiplier * kOrder.v[inner] + t[inner] + carry;
             if (inner != 0) t[inner - 1] = (u32)value;
