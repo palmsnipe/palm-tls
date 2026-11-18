@@ -1280,67 +1280,6 @@ static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
     }
 }
 
-/* Fold a small carry at 2^256 back into the low limbs. Here high is at
- * most seven, so adding high*(2^256-p) leaves a value below 2*p. For
- * nonzero high, the product with kR[3] produces a carry of high-1,
- * which propagates through kR[4..6] into the last correction limb. */
-static __inline__ void FeFoldSmall(Fe256 *resultP, Fe256 *lowP, u32 high)
-{
-    u32 mask = 0U - (high != 0U);
-    const u32 correction[8] = {high, 0, 0, 0U - high, mask, mask,
-                               mask - high, mask + high};
-    u32 carry = 0;
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-    for (u32 i = 0; i < 8U; i++) {
-        u64 sum = (u64)lowP->v[i] + correction[i] + carry;
-        lowP->v[i] = (u32)sum;
-        carry = (u32)(sum >> 32);
-    }
-    FeFinishProduct(resultP, lowP->v, carry);
-}
-
-static __inline__ void FeScaleShift(Fe256 *resultP, const Fe256 *valueP, u32 bits)
-{
-    Fe256 shifted;
-    u32 high = 0;
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-    for (u32 i = 0; i < 8U; i++) {
-        u32 word = valueP->v[i];
-        shifted.v[i] = (word << bits) | high;
-        high = word >> (32U - bits);
-    }
-    FeFoldSmall(resultP, &shifted, high);
-}
-
-static void FeTimes4(Fe256 *resultP, const Fe256 *valueP)
-{
-    FeScaleShift(resultP, valueP, 2U);
-}
-
-static void FeTimes8(Fe256 *resultP, const Fe256 *valueP)
-{
-    FeScaleShift(resultP, valueP, 3U);
-}
-
-static void FeTriple(Fe256 *resultP, const Fe256 *valueP)
-{
-    Fe256 tripled;
-    u32 high = 0;
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-    for (u32 i = 0; i < 8U; i++) {
-        u64 word = 3U * (u64)valueP->v[i] + high;
-        tripled.v[i] = (u32)word;
-        high = (u32)(word >> 32);
-    }
-    FeFoldSmall(resultP, &tripled, high);
-}
-
 static void PointCopy(Point256 *destinationP, const Point256 *sourceP)
 {
     FeCopy(&destinationP->x, &sourceP->x);
@@ -1377,8 +1316,29 @@ static u32 FeEqual(const Fe256 *leftP, const Fe256 *rightP)
     return ((difference | (0U - difference)) >> 31) ^ 1U;
 }
 
-/* Jacobian doubling for y^2 = x^3 - 3x + b. Each input coordinate is
- * consumed before its output is written, so resultP may alias pointP. */
+/* Compute 3*x/2 in the field. Add p to 3*x when x is odd, then
+ * assemble the shifted integer and reduce it. It is below 2*p. */
+static void FeThreeHalves(Fe256 *resultP, const Fe256 *valueP)
+{
+    Fe256 scaled;
+    u32 mask = 0U - (valueP->v[0] & 1U);
+    u64 sum = 3U * (u64)valueP->v[0] + (kP.v[0] & mask);
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 i = 1; i < 8U; i++) {
+        u32 word = (u32)sum;
+        sum = 3U * (u64)valueP->v[i] + (kP.v[i] & mask) + (sum >> 32);
+        scaled.v[i - 1U] = (word >> 1) | ((u32)sum << 31);
+    }
+    scaled.v[7] = (u32)(sum >> 1);
+    FeFinishProduct(resultP, scaled.v, (u32)(sum >> 33));
+}
+
+/* Jacobian doubling for y^2 = x^3 - 3x + b, scaled by 1/2 in Z.
+ * With alpha = 3*(X^2 - Z^4)/2 and beta = X*Y^2, the outputs are
+ * alpha^2 - 2*beta, alpha*(beta - X') - Y^4, and Y*Z.
+ * Each input coordinate is consumed before writing its output. */
 static void PointDouble(Point256 *resultP, const Point256 *pointP)
 {
     Fe256 delta, gamma, beta, alpha, temporary1, temporary2;
@@ -1388,20 +1348,15 @@ static void PointDouble(Point256 *resultP, const Point256 *pointP)
     FeSubtract(&temporary1, &pointP->x, &delta);
     FeAdd(&temporary2, &pointP->x, &delta);
     FeMultiply(&alpha, &temporary1, &temporary2);
-    FeTriple(&alpha, &alpha);
+    FeThreeHalves(&alpha, &alpha);
     FeSquare(&resultP->x, &alpha);
-    /* Reuse 4*beta in the formulas for X' and Y'. */
-    FeTimes4(&beta, &beta);
     FeDouble(&temporary1, &beta);
     FeSubtract(&resultP->x, &resultP->x, &temporary1);
-    /* Z' = 2*Y*Z directly, with fewer field additions. */
-    FeMultiply(&temporary1, &pointP->y, &pointP->z);
-    FeDouble(&resultP->z, &temporary1);
+    FeMultiply(&resultP->z, &pointP->y, &pointP->z);
     FeSubtract(&temporary1, &beta, &resultP->x);
     FeMultiply(&resultP->y, &alpha, &temporary1);
     FeSquare(&temporary1, &gamma);
-    FeTimes8(&temporary2, &temporary1);
-    FeSubtract(&resultP->y, &resultP->y, &temporary2);
+    FeSubtract(&resultP->y, &resultP->y, &temporary1);
 }
 
 /* Always read all three operands. The output may alias the accumulator. */
@@ -1646,18 +1601,16 @@ void PalmTlsArmletTestInverse(const u8 *inputP, u8 *outputP)
 
 #ifdef PALM_ARMLET_HOST_TEST
 /* Preserve the raw input so tests can hit the exact reduction thresholds. */
-void PalmTlsArmletTestScale(const u8 *inputP, u8 *outputP, u32 scale, u32 inPlace)
+void PalmTlsArmletTestDoublingField(const u8 *inputP, u8 *outputP,
+                                       u32 slope, u32 inPlace)
 {
     Fe256 value, scaled;
     Fe256 *resultP = inPlace ? &value : &scaled;
     FeReadRawBigEndian(&value, inputP);
-    switch (scale) {
-    case 2U: FeDouble(resultP, &value); break;
-    case 3U: FeTriple(resultP, &value); break;
-    case 4U: FeTimes4(resultP, &value); break;
-    case 8U: FeTimes8(resultP, &value); break;
-    default: return;
-    }
+    if (slope)
+        FeThreeHalves(resultP, &value);
+    else
+        FeDouble(resultP, &value);
     FeWriteRawBigEndian(outputP, resultP);
 }
 #endif
@@ -1885,6 +1838,33 @@ typedef struct PublicPointTable {
     const Affine256 *affineP;
 } PublicPointTable;
 
+/* Co-Z addition with update (Goundar et al., IACR ePrint 2010/309).
+ * Both public points share a nonzero Z. Update stepP to the sum's Z
+ * for the next addition. The caller handles H=0 with complete addition. */
+static u32 PointAddSameZ(Point256 *resultP, Point256 *stepP, const Point256 *oddP)
+{
+    Fe256 h, r, hSquared, oddX, temporary;
+    FeSubtract(&h, &oddP->x, &stepP->x);
+    if (FeIsZero(&h))
+        return 0;
+    FeSubtract(&r, &oddP->y, &stepP->y);
+    FeSquare(&hSquared, &h);
+    FeMultiply(&stepP->x, &stepP->x, &hSquared);
+    FeMultiply(&oddX, &oddP->x, &hSquared);
+    /* The difference of the rescaled X coordinates is H^3. */
+    FeSubtract(&temporary, &oddX, &stepP->x);
+    FeMultiply(&stepP->y, &stepP->y, &temporary);
+    FeSquare(&resultP->x, &r);
+    FeSubtract(&resultP->x, &resultP->x, &stepP->x);
+    FeSubtract(&resultP->x, &resultP->x, &oddX);
+    FeSubtract(&temporary, &stepP->x, &resultP->x);
+    FeMultiply(&resultP->y, &r, &temporary);
+    FeSubtract(&resultP->y, &resultP->y, &stepP->y);
+    FeMultiply(&stepP->z, &stepP->z, &h);
+    FeCopy(&resultP->z, &stepP->z);
+    return 1;
+}
+
 static void BuildPublicPointTable(PublicPointTable *tableP,
                                   const Fe256 *xP, const Fe256 *yP)
 {
@@ -1905,10 +1885,28 @@ static void BuildPublicPointTable(PublicPointTable *tableP,
     PointDouble(&twice, &firstP->point);
     FeSquare(&twiceZ2, &twice.z);
     FeMultiply(&twiceZ3, &twice.z, &twiceZ2);
-    for (u32 index = 1; index < 8U; index++) {
+    u32 index = 1;
+    if (!FeIsZero(&twice.z)) {
+        Point256 step, odd;
+        /* Start with Q and the fixed step 2Q at the same Z. */
+        PointCopy(&step, &twice);
+        FeMultiply(&odd.x, xP, &twiceZ2);
+        FeMultiply(&odd.y, yP, &twiceZ3);
+        FeCopy(&odd.z, &twice.z);
+        const Point256 *previousP = &odd;
+        for (; index < 8U; index++) {
+            Point256 *entryP = &tableP->jacobian[index].point;
+            if (!PointAddSameZ(entryP, &step, previousP))
+                break;
+            previousP = entryP;
+        }
+    }
+    for (; index < 8U; index++) {
+        PointAddPublic(&tableP->jacobian[index].point,
+            &tableP->jacobian[index - 1U].point, &twice, &twiceZ2, &twiceZ3, 0);
+    }
+    for (index = 1; index < 8U; index++) {
         PublicPointEntry *entryP = &tableP->jacobian[index];
-        PointAddPublic(&entryP->point, &tableP->jacobian[index - 1U].point,
-            &twice, &twiceZ2, &twiceZ3, 0);
         FeSquare(&entryP->zSquared, &entryP->point.z);
         FeMultiply(&entryP->zCubed, &entryP->point.z, &entryP->zSquared);
     }
@@ -1918,17 +1916,23 @@ static void AddWnafDigit(Point256 *resultP, const PublicPointTable *tableP,
                          int digit)
 {
     u32 magnitude = digit < 0 ? (u32)(-digit) : (u32)digit;
-    if (tableP->affineP != 0) {
-        const Affine256 *affineP = &tableP->affineP[magnitude >> 1];
-        Fe256 y;
-        if (digit < 0) {
-            FeSubtract(&y, &kZero, &affineP->y);
-            PointAddMixedPublic(resultP, resultP, &affineP->x, &y);
+    if (tableP->affineP != 0 || magnitude == 1U) {
+        const Fe256 *xP, *yP;
+        if (tableP->affineP != 0) {
+            const Affine256 *pointP = &tableP->affineP[magnitude >> 1];
+            xP = &pointP->x;
+            yP = &pointP->y;
         } else {
-            PointAddMixedPublic(resultP, resultP, &affineP->x, &affineP->y);
+            xP = &tableP->jacobian[0].point.x;
+            yP = &tableP->jacobian[0].point.y;
         }
-    }
-    else {
+        Fe256 negated;
+        if (digit < 0) {
+            FeSubtract(&negated, &kZero, yP);
+            yP = &negated;
+        }
+        PointAddMixedPublic(resultP, resultP, xP, yP);
+    } else {
         const PublicPointEntry *entryP = &tableP->jacobian[magnitude >> 1];
         PointAddPublic(resultP, resultP, &entryP->point,
             &entryP->zSquared, &entryP->zCubed, digit < 0);
@@ -1959,15 +1963,18 @@ static void P256Multiply2AddPoint(Point256 *resultP,
     /* All inputs here are public. Leading zero columns leave infinity. */
     for (bit = 256; bit >= 0 && leftDigits[bit] == 0 && rightDigits[bit] == 0; bit--)
         ;
-    for (; bit >= 0; bit--) {
-        int digit;
-        if (!FeIsZero(&resultP->z))
-            PointDouble(resultP, resultP);
-        digit = leftDigits[bit];
+    if (bit < 0)
+        return;
+    do {
+        int digit = leftDigits[bit];
         if (digit != 0) AddWnafDigit(resultP, &leftTable, digit);
         digit = rightDigits[bit];
         if (digit != 0) AddWnafDigit(resultP, &rightTable, digit);
-    }
+        if (--bit < 0)
+            break;
+        /* Infinity stays at infinity under doubling. */
+        PointDouble(resultP, resultP);
+    } while (1);
 }
 
 static u32 P256Multiply2Add(const volatile u8 *scalarsP,

@@ -25,9 +25,9 @@ class Host:
         self.inverse = self.library.PalmTlsArmletTestInverse
         self.inverse.argtypes = [ctypes.c_void_p] * 2
         self.inverse.restype = None
-        self.scale = self.library.PalmTlsArmletTestScale
-        self.scale.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32]
-        self.scale.restype = None
+        self.doubling_field = self.library.PalmTlsArmletTestDoublingField
+        self.doubling_field.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32]
+        self.doubling_field.restype = None
 
     def invoke(self, request, skew=0):
         storage = bytearray(skew) + request
@@ -215,19 +215,20 @@ def field_arithmetic(backend):
         doubles = [0, P - 1, 2**255 - 1, 2**255, half]
         for bit in (0, 95, 96, 128, 159, 160, 191, 192, 223, 224):
             doubles.extend((half - (1 << bit), half + (1 << bit)))
-        for scale in (2, 3, 4, 8):
-            values = doubles.copy() if scale == 2 else [0, 1, P - 1]
-            # Exercise each change in the reduction quotient and in the
-            # carry above the low 256 bits.
-            for multiple in range(1, scale):
-                for modulus in (P, r):
-                    threshold = (multiple * modulus + scale - 1) // scale
-                    values.extend((threshold - 1, threshold, threshold + 1))
+        # Straddle the two thresholds in (3*x + (x & 1)*p)/2, for
+        # both parities. The shifted value can reach p and then 2^256.
+        slopes = [0, 1, 2, P - 2, P - 1]
+        for correction in (0, P):
+            for bound in (P, r):
+                threshold = (2 * bound - correction) // 3
+                slopes.extend(range(threshold - 3, threshold + 4))
+        for slope, values, factor in ((False, doubles, 2),
+                                      (True, slopes, 3 * pow(2, -1, P))):
             for value in values:
                 for in_place in (False, True):
                     output = ctypes.create_string_buffer(32)
-                    backend.scale(integer(value), output, scale, in_place)
-                    assert output.raw == integer(scale * value % P), ('field scale', scale, value, in_place)
+                    backend.doubling_field(integer(value), output, slope, in_place)
+                    assert output.raw == integer(factor * value % P), ('doubling field', slope, value, in_place)
     return cases
 
 
