@@ -1274,11 +1274,11 @@ static u32 FeEqual(const Fe256 *leftP, const Fe256 *rightP)
     return ((difference | (0U - difference)) >> 31) ^ 1U;
 }
 
-/* Jacobian doubling for y^2 = x^3 - 3x + b. */
+/* Jacobian doubling for y^2 = x^3 - 3x + b. Each input coordinate is
+ * consumed before its output is written, so resultP may alias pointP. */
 static void PointDouble(Point256 *resultP, const Point256 *pointP)
 {
     Fe256 delta, gamma, beta, alpha, temporary1, temporary2;
-    Point256 result;
     FeSquare(&delta, &pointP->z);
     FeSquare(&gamma, &pointP->y);
     FeMultiply(&beta, &pointP->x, &gamma);
@@ -1287,20 +1287,19 @@ static void PointDouble(Point256 *resultP, const Point256 *pointP)
     FeMultiply(&alpha, &temporary1, &temporary2);
     FeDouble(&temporary1, &alpha);
     FeAdd(&alpha, &temporary1, &alpha);
-    FeSquare(&result.x, &alpha);
+    FeSquare(&resultP->x, &alpha);
     /* Reuse 4*beta in the formulas for X' and Y'. */
     FeTimes4(&beta, &beta);
     FeDouble(&temporary1, &beta);
-    FeSubtract(&result.x, &result.x, &temporary1);
+    FeSubtract(&resultP->x, &resultP->x, &temporary1);
     /* Z' = 2*Y*Z directly, with fewer field additions. */
     FeMultiply(&temporary1, &pointP->y, &pointP->z);
-    FeDouble(&result.z, &temporary1);
-    FeSubtract(&temporary1, &beta, &result.x);
-    FeMultiply(&result.y, &alpha, &temporary1);
+    FeDouble(&resultP->z, &temporary1);
+    FeSubtract(&temporary1, &beta, &resultP->x);
+    FeMultiply(&resultP->y, &alpha, &temporary1);
     FeSquare(&temporary1, &gamma);
     FeTimes8(&temporary2, &temporary1);
-    FeSubtract(&result.y, &result.y, &temporary2);
-    PointCopy(resultP, &result);
+    FeSubtract(&resultP->y, &resultP->y, &temporary2);
 }
 
 /* Always read all three operands. The output may alias the accumulator. */
@@ -1364,7 +1363,6 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
                            const Fe256 *rightZ3P, u32 negate)
 {
     Fe256 z1z1, u1, u2, s1, s2, h, hh, hhh, r, v, temporary;
-    Point256 added;
     if (FeIsZero(&leftP->z)) {
         PointCopy(resultP, rightP);
         if (negate) FeSubtract(&resultP->y, &kZero, &resultP->y);
@@ -1394,26 +1392,25 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
     FeSquare(&hh, &h);
     FeMultiply(&hhh, &h, &hh);
     FeMultiply(&v, &u1, &hh);
-    FeSquare(&added.x, &r);
-    FeSubtract(&added.x, &added.x, &hhh);
+    FeSquare(&resultP->x, &r);
+    FeSubtract(&resultP->x, &resultP->x, &hhh);
     FeDouble(&temporary, &v);
-    FeSubtract(&added.x, &added.x, &temporary);
-    FeSubtract(&temporary, &v, &added.x);
-    FeMultiply(&added.y, &r, &temporary);
+    FeSubtract(&resultP->x, &resultP->x, &temporary);
+    FeSubtract(&temporary, &v, &resultP->x);
+    FeMultiply(&resultP->y, &r, &temporary);
     FeMultiply(&temporary, &s1, &hhh);
-    FeSubtract(&added.y, &added.y, &temporary);
+    FeSubtract(&resultP->y, &resultP->y, &temporary);
     FeMultiply(&temporary, &leftP->z, &rightP->z);
-    FeMultiply(&added.z, &temporary, &h);
-    PointCopy(resultP, &added);
+    FeMultiply(&resultP->z, &temporary, &h);
 }
 
 /* Complete mixed addition for public verification data. The affine operand
- * is finite. Handle equal and opposite points before the mixed formula. */
+ * is finite. Save the Y product until after reading the accumulator's Y so
+ * resultP may alias pointP. */
 static void PointAddMixedPublic(Point256 *resultP, const Point256 *pointP,
                                 const Fe256 *affineXP, const Fe256 *affineYP)
 {
     Fe256 zSquared, u2, s2, h, hh, hhh, r, v, temporary;
-    Point256 added;
     if (FeIsZero(&pointP->z)) {
         FeCopy(&resultP->x, affineXP);
         FeCopy(&resultP->y, affineYP);
@@ -1436,16 +1433,15 @@ static void PointAddMixedPublic(Point256 *resultP, const Point256 *pointP,
     FeSquare(&hh, &h);
     FeMultiply(&hhh, &h, &hh);
     FeMultiply(&v, &pointP->x, &hh);
-    FeSquare(&added.x, &r);
-    FeSubtract(&added.x, &added.x, &hhh);
+    FeSquare(&resultP->x, &r);
+    FeSubtract(&resultP->x, &resultP->x, &hhh);
     FeDouble(&temporary, &v);
-    FeSubtract(&added.x, &added.x, &temporary);
-    FeSubtract(&temporary, &v, &added.x);
-    FeMultiply(&added.y, &r, &temporary);
+    FeSubtract(&resultP->x, &resultP->x, &temporary);
+    FeSubtract(&temporary, &v, &resultP->x);
+    FeMultiply(&s2, &r, &temporary);
     FeMultiply(&temporary, &pointP->y, &hhh);
-    FeSubtract(&added.y, &added.y, &temporary);
-    FeMultiply(&added.z, &pointP->z, &h);
-    PointCopy(resultP, &added);
+    FeSubtract(&resultP->y, &s2, &temporary);
+    FeMultiply(&resultP->z, &pointP->z, &h);
 }
 
 static void FeSquareN(Fe256 *resultP, const Fe256 *valueP, u32 count)
@@ -1742,39 +1738,32 @@ static u32 P256Map(const volatile u8 *inputP, volatile u8 *outputP)
  * the precomputed generator and width five for a runtime point table. */
 static void ScalarWnaf(s8 *digitsP, const volatile u8 *scalarP, u32 width)
 {
-    u32 words[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-    u32 index, radix = 1U << width;
-    for (index = 0; index < 8U; index++)
+    u32 words[9];
+    u32 radix = 1U << width;
+    u32 carry = 0, bit = 0;
+    for (u32 index = 0; index < 8U; index++)
         words[index] = ReadBigEndian32(scalarP + (7U - index) * 4U);
-    for (index = 0; index < 257U; index++) {
-        int digit = 0;
-        u32 word;
-        if ((words[0] & 1U) != 0U) {
-            u32 low = words[0] & (radix - 1U);
-            digit = low > radix / 2U ? (int)low - (int)radix : (int)low;
-            if (digit > 0) {
-                u32 borrow = (u32)digit;
-                for (word = 0; word < 9U; word++) {
-                    u32 value = words[word];
-                    words[word] = value - borrow;
-                    borrow = value < borrow;
-                }
-            } else {
-                u32 carry = (u32)(-digit);
-                for (word = 0; word < 9U; word++) {
-                    u64 value = (u64)words[word] + carry;
-                    words[word] = (u32)value;
-                    carry = (u32)(value >> 32);
-                }
-            }
+    words[8] = 0;
+    for (u32 index = 0; index < 257U; index++)
+        digitsP[index] = 0;
+    while (bit < 257U) {
+        u32 word = bit >> 5;
+        u32 shift = bit & 31U;
+        u32 value = (words[word] >> shift) + carry;
+        if (value & 1U) {
+            /* The low odd digit clears this whole window. Carry out of a
+             * negative digit into the next window. */
+            if (shift + width > 32U)
+                value += words[word + 1U] << (32U - shift);
+            value &= radix - 1U;
+            carry = value >> (width - 1U);
+            digitsP[bit] = (s8)((int)value - (int)(carry * radix));
+            bit += width;
+        } else {
+            /* An even bit plus carry is either zero or two. In both cases
+             * the same carry applies at the next bit. */
+            bit++;
         }
-        digitsP[index] = (s8)digit;
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-        for (word = 0; word < 8U; word++)
-            words[word] = (words[word] >> 1) | (words[word + 1U] << 31);
-        words[8] >>= 1;
     }
 }
 
@@ -1859,9 +1848,13 @@ static void P256Multiply2AddPoint(Point256 *resultP,
     ScalarWnaf(leftDigits, scalarsP, leftTable.affineP ? 7U : 5U);
     ScalarWnaf(rightDigits, scalarsP + 32, rightTable.affineP ? 7U : 5U);
     PointSetInfinity(resultP);
-    for (bit = 256; bit >= 0; bit--) {
+    /* All inputs here are public. Leading zero columns leave infinity. */
+    for (bit = 256; bit >= 0 && leftDigits[bit] == 0 && rightDigits[bit] == 0; bit--)
+        ;
+    for (; bit >= 0; bit--) {
         int digit;
-        PointDouble(resultP, resultP);
+        if (!FeIsZero(&resultP->z))
+            PointDouble(resultP, resultP);
         digit = leftDigits[bit];
         if (digit != 0) AddWnafDigit(resultP, &leftTable, digit);
         digit = rightDigits[bit];
@@ -1939,6 +1932,9 @@ static void OrderSubtractMod(Order256 *resultP, const Order256 *leftP,
 static void OrderShiftRight(Order256 *valueP, u32 top)
 {
     int index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
     for (index = 7; index >= 0; index--) {
         u32 next = valueP->v[index] & 1U;
         valueP->v[index] = (valueP->v[index] >> 1) | (top << 31);
@@ -1946,19 +1942,25 @@ static void OrderShiftRight(Order256 *valueP, u32 top)
     }
 }
 
+/* The order and inputs are public. For an odd coefficient, shift the
+ * sum as it is assembled. Keep the carry above the top limb. */
 static void OrderHalfMod(Order256 *valueP)
 {
-    u64 carry = 0;
-    if ((valueP->v[0] & 1U) != 0) {
-        u32 index;
-        for (index = 0; index < 8; index++) {
-            u64 sum = (u64)valueP->v[index] + kOrder.v[index] + carry;
-            valueP->v[index] = (u32)sum;
-            carry = sum >> 32;
-        }
+    if ((valueP->v[0] & 1U) == 0) {
+        OrderShiftRight(valueP, 0);
+        return;
     }
-    /* Preserve the 257th bit of value+n when halving an odd coefficient. */
-    OrderShiftRight(valueP, (u32)carry);
+
+    u64 sum = (u64)valueP->v[0] + kOrder.v[0];
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 index = 1; index < 8U; index++) {
+        u32 low = (u32)sum;
+        sum = (u64)valueP->v[index] + kOrder.v[index] + (sum >> 32);
+        valueP->v[index - 1U] = (low >> 1) | ((u32)sum << 31);
+    }
+    valueP->v[7] = (u32)(sum >> 1);
 }
 
 static void OrderInverse(Order256 *resultP, const Order256 *valueP)
