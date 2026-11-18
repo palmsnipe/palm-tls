@@ -1009,6 +1009,17 @@ static __inline__ __attribute__((always_inline)) u32 SubtractLimb(
     "ldr r3, [r2, #" #offset "]\n\t" \
     #op " " #word ", " #word ", r3\n\t"
 
+/* Add p under the word mask in r2 and the bit mask in r3. */
+#define FE_ARM_ADD_MASKED_P(last) \
+    "adds r4, r4, r2\n\t" \
+    "adcs r5, r5, r2\n\t" \
+    "adcs r6, r6, r2\n\t" \
+    "adcs r7, r7, #0\n\t" \
+    "adcs r8, r8, #0\n\t" \
+    "adcs r9, r9, #0\n\t" \
+    "adcs r10, r10, r3\n\t" \
+    #last " r11, r11, r2\n\t"
+
 /* Subtract in registers, then add p under a mask from the last borrow.
  * The store follows all operand loads, including when pointers alias. */
 __attribute__((naked, noinline))
@@ -1024,14 +1035,7 @@ static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
         FE_ARM_LIMB(sbcs, r10, 24) FE_ARM_LIMB(sbcs, r11, 28)
         "sbc r2, r3, r3\n\t"
         "and r3, r2, #1\n\t"
-        "adds r4, r4, r2\n\t"
-        "adcs r5, r5, r2\n\t"
-        "adcs r6, r6, r2\n\t"
-        "adcs r7, r7, #0\n\t"
-        "adcs r8, r8, #0\n\t"
-        "adcs r9, r9, #0\n\t"
-        "adcs r10, r10, r3\n\t"
-        "adc r11, r11, r2\n\t"
+        FE_ARM_ADD_MASKED_P(adc)
         "stmia r0, {r4-r11}\n\t"
         "pop {r4-r11}\n\t"
         "bx lr\n\t"
@@ -1139,13 +1143,13 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     "sbc r2, " #t0 ", #0\n\t"
 
 /* Rotate the accumulator registers between multiplication rows.
- * The canceled low register becomes the new high limb. */
+ * Move the previous top bit into C. Add the two word carries with
+ * that bit and put the new top bit in the canceled register. */
 #define FE_MONT_CANCEL(t0, t3, t4, t5, t6, t7, t8) \
-    "adds " #t8 ", " #t8 ", r0\n\t" \
-    "adc r0, lr, #0\n\t" \
     FE_MONT_CANCEL_LOW(t0, t3, t4, t5, t6, t7) \
-    "adds " #t8 ", " #t8 ", r2\n\t" \
-    "adc " #t0 ", r0, #0\n\t"
+    "lsrs " #t8 ", " #t8 ", #1\n\t" \
+    "adcs " #t8 ", r0, r2\n\t" \
+    "adc " #t0 ", lr, #0\n\t"
 
 /* The low product in each row has no incoming carry. */
 #define FE_MONT_ROW_PRODUCTS(t0, t1, t2, t3, t4, t5, t6, t7) \
@@ -1282,15 +1286,14 @@ static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
     );
 }
 
-/* Read the next upper limb after dropping m. The previous
- * row's carry belongs at this limb, above the eight-limb window. */
+/* Read the next upper limb after dropping m. Shift the pending bit
+ * into C and add it together with the correction for this limb. */
 #define FE_MONT_WIDE_ROW(offset, t0, t3, t4, t5, t6, t7) \
     FE_MONT_CANCEL_LOW(t0, t3, t4, t5, t6, t7) \
     "ldr " #t0 ", [r1, #" #offset "]\n\t" \
-    "adds " #t0 ", " #t0 ", r12\n\t" \
-    "adc r12, lr, #0\n\t" \
-    "adds " #t0 ", " #t0 ", r2\n\t" \
-    "adc r12, r12, #0\n\t"
+    "lsrs r12, r12, #1\n\t" \
+    "adcs " #t0 ", " #t0 ", r2\n\t" \
+    "adc r12, lr, #0\n\t"
 
 /* Eight rotations return the output to r4-r11, with carry in r12. */
 #define FE_MONT_WIDE_ROWS \
@@ -1478,14 +1481,7 @@ static void FeThreeHalves(Fe256 *resultP, const Fe256 *valueP)
         "ldmia r1, {r4-r11}\n\t"
         "and r3, r4, #1\n\t"
         "rsb r2, r3, #0\n\t"
-        "adds r4, r4, r2\n\t"
-        "adcs r5, r5, r2\n\t"
-        "adcs r6, r6, r2\n\t"
-        "adcs r7, r7, #0\n\t"
-        "adcs r8, r8, #0\n\t"
-        "adcs r9, r9, #0\n\t"
-        "adcs r10, r10, r3\n\t"
-        "adcs r11, r11, r2\n\t"
+        FE_ARM_ADD_MASKED_P(adcs)
         P256_ARM_SHIFT_RIGHT("rrx")
         "ldr r3, [r1, #0]\n\t"
         "adds r4, r4, r3\n\t"
@@ -1680,6 +1676,60 @@ static u32 FeEqual(const Fe256 *leftP, const Fe256 *rightP)
     return ((difference | (0U - difference)) >> 31) ^ 1U;
 }
 
+#if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
+/* Subtract 2*y as a 257-bit integer. The difference is in
+ * (-2*p, p), so two masked corrections produce a canonical field value. */
+#define FE_ARM_SUBTRACT_SHIFTED(op, word, offset) \
+    "ldr r3, [r2, #" #offset "]\n\t" \
+    "orr r1, r12, r3, lsl #1\n\t" \
+    "mov r12, r3, lsr #31\n\t" \
+    #op " " #word ", " #word ", r1\n\t"
+
+#define FE_ARM_RESTORE_P(last) \
+    "mov r2, r12, asr #31\n\t" \
+    "and r3, r2, #1\n\t" \
+    FE_ARM_ADD_MASKED_P(last)
+
+__attribute__((naked, noinline))
+static void FeSubtractTwice(Fe256 *resultP, const Fe256 *leftP,
+                            const Fe256 *rightP)
+{
+    __asm__ volatile(
+        "push {r4-r11}\n\t"
+        "ldmia r1, {r4-r11}\n\t"
+        "mov r12, #0\n\t"
+        FE_ARM_SUBTRACT_SHIFTED(subs, r4, 0)
+        FE_ARM_SUBTRACT_SHIFTED(sbcs, r5, 4)
+        FE_ARM_SUBTRACT_SHIFTED(sbcs, r6, 8)
+        FE_ARM_SUBTRACT_SHIFTED(sbcs, r7, 12)
+        FE_ARM_SUBTRACT_SHIFTED(sbcs, r8, 16)
+        FE_ARM_SUBTRACT_SHIFTED(sbcs, r9, 20)
+        FE_ARM_SUBTRACT_SHIFTED(sbcs, r10, 24)
+        FE_ARM_SUBTRACT_SHIFTED(sbcs, r11, 28)
+        "rsc r12, r12, #0\n\t"
+        FE_ARM_RESTORE_P(adcs)
+        "adc r12, r12, #0\n\t"
+        FE_ARM_RESTORE_P(adc)
+        "stmia r0, {r4-r11}\n\t"
+        "pop {r4-r11}\n\t"
+        "bx lr\n\t"
+    );
+}
+#undef FE_ARM_RESTORE_P
+#undef FE_ARM_ADD_MASKED_P
+#undef FE_ARM_SUBTRACT_SHIFTED
+
+#else
+static void FeSubtractTwice(Fe256 *resultP, const Fe256 *leftP,
+                            const Fe256 *rightP)
+{
+    Fe256 doubled;
+    FeDouble(&doubled, rightP);
+    FeSubtract(resultP, leftP, &doubled);
+}
+
+#endif
+
 /* Jacobian doubling for y^2 = x^3 - 3x + b, scaled by 1/2 in Z.
  * With alpha = 3*(X^2 - Z^4)/2 and beta = X*Y^2, the outputs are
  * alpha^2 - 2*beta, alpha*(beta - X') - Y^4, and Y*Z.
@@ -1695,8 +1745,7 @@ static void PointDouble(Point256 *resultP, const Point256 *pointP)
     FeMultiply(&alpha, &temporary1, &temporary2);
     FeThreeHalves(&alpha, &alpha);
     FeSquare(&resultP->x, &alpha);
-    FeDouble(&temporary1, &beta);
-    FeSubtract(&resultP->x, &resultP->x, &temporary1);
+    FeSubtractTwice(&resultP->x, &resultP->x, &beta);
     FeMultiply(&resultP->z, &pointP->y, &pointP->z);
     FeSubtract(&temporary1, &beta, &resultP->x);
     FeMultiply(&resultP->y, &alpha, &temporary1);
@@ -1737,8 +1786,7 @@ static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
     FeMultiply(&v, &pointP->x, &hh);
     FeSquare(&result.x, &r);
     FeSubtract(&result.x, &result.x, &hhh);
-    FeDouble(&temporary, &v);
-    FeSubtract(&result.x, &result.x, &temporary);
+    FeSubtractTwice(&result.x, &result.x, &v);
     FeSubtract(&temporary, &v, &result.x);
     FeMultiply(&result.y, &r, &temporary);
     FeMultiply(&temporary, &pointP->y, &hhh);
@@ -1755,24 +1803,26 @@ static void PointAddMixed(Point256 *resultP, const Point256 *pointP,
                           keepMask, sumMask, affineMask);
 }
 
-/* ECDSA verification points and scalars are public. This complete addition
- * can therefore branch on exceptional cases and avoids calculating a
- * Jacobian doubling during every ordinary table addition. Secret-scalar
- * multiplication uses the masked mixed addition above.
- * Reuse the table operand's precomputed Z powers for either sign of Y. */
-static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
+/* Add public Jacobian points using the right operand's cached Z powers.
+ * With scaledP, also return the left operand at the result's Z. Return
+ * zero on exceptional inputs in that mode so the caller can fall back. */
+static u32 PointAddPrepared(Point256 *resultP, const Point256 *leftP,
                            const Point256 *rightP, const Fe256 *rightZ2P,
-                           const Fe256 *rightZ3P, u32 negate)
+                           const Fe256 *rightZ3P, u32 negate, Point256 *scaledP)
 {
     Fe256 z1z1, u1, u2, s1, s2, h, hh, hhh, r, v, temporary;
     if (FeIsZero(&leftP->z)) {
+        if (scaledP)
+            return 0;
         PointCopy(resultP, rightP);
         if (negate) FeSubtract(&resultP->y, &kZero, &resultP->y);
-        return;
+        return 1;
     }
     if (FeIsZero(&rightP->z)) {
+        if (scaledP)
+            return 0;
         PointCopy(resultP, leftP);
-        return;
+        return 1;
     }
     FeSquare(&z1z1, &leftP->z);
     FeMultiply(&u1, &leftP->x, rightZ2P);
@@ -1784,11 +1834,13 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
     FeSubtract(&h, &u2, &u1);
     FeSubtract(&r, &s2, &s1);
     if (FeIsZero(&h)) {
+        if (scaledP)
+            return 0;
         if (FeIsZero(&r))
             PointDouble(resultP, leftP);
         else
             PointSetInfinity(resultP);
-        return;
+        return 1;
     }
     /* Use the unscaled Jacobian formula: H = U2 - U1, R = S2 - S1. */
     FeSquare(&hh, &h);
@@ -1796,28 +1848,42 @@ static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
     FeMultiply(&v, &u1, &hh);
     FeSquare(&resultP->x, &r);
     FeSubtract(&resultP->x, &resultP->x, &hhh);
-    FeDouble(&temporary, &v);
-    FeSubtract(&resultP->x, &resultP->x, &temporary);
+    FeSubtractTwice(&resultP->x, &resultP->x, &v);
     FeSubtract(&temporary, &v, &resultP->x);
     FeMultiply(&resultP->y, &r, &temporary);
     FeMultiply(&temporary, &s1, &hhh);
     FeSubtract(&resultP->y, &resultP->y, &temporary);
+    if (scaledP) {
+        FeCopy(&scaledP->x, &v);
+        FeCopy(&scaledP->y, &temporary);
+    }
     FeMultiply(&temporary, &leftP->z, &rightP->z);
     FeMultiply(&resultP->z, &temporary, &h);
+    if (scaledP)
+        FeCopy(&scaledP->z, &resultP->z);
+    return 1;
 }
 
-/* Complete mixed addition for public verification data. The affine operand
- * is finite. Save the Y product until after reading the accumulator's Y so
- * resultP may alias pointP. */
-static void PointAddMixedPublic(Point256 *resultP, const Point256 *pointP,
-                                const Fe256 *affineXP, const Fe256 *affineYP)
+static void PointAddPublic(Point256 *resultP, const Point256 *leftP,
+                           const Point256 *rightP, const Fe256 *rightZ2P,
+                           const Fe256 *rightZ3P, u32 negate)
+{
+    PointAddPrepared(resultP, leftP, rightP, rightZ2P, rightZ3P, negate, 0);
+}
+
+/* Mixed addition uses an affine right operand. As with the Jacobian
+ * variant, the caller can request the left operand at the result's Z. */
+static u32 PointAddMixedPrepared(Point256 *resultP, const Point256 *pointP,
+                                const Fe256 *affineXP, const Fe256 *affineYP, Point256 *scaledP)
 {
     Fe256 zSquared, u2, s2, h, hh, hhh, r, v, temporary;
     if (FeIsZero(&pointP->z)) {
+        if (scaledP)
+            return 0;
         FeCopy(&resultP->x, affineXP);
         FeCopy(&resultP->y, affineYP);
         FeCopy(&resultP->z, &kR);
-        return;
+        return 1;
     }
     FeSquare(&zSquared, &pointP->z);
     FeMultiply(&u2, affineXP, &zSquared);
@@ -1826,24 +1892,31 @@ static void PointAddMixedPublic(Point256 *resultP, const Point256 *pointP,
     FeSubtract(&h, &u2, &pointP->x);
     FeSubtract(&r, &s2, &pointP->y);
     if (FeIsZero(&h)) {
+        if (scaledP)
+            return 0;
         if (FeIsZero(&r))
             PointDouble(resultP, pointP);
         else
             PointSetInfinity(resultP);
-        return;
+        return 1;
     }
     FeSquare(&hh, &h);
     FeMultiply(&hhh, &h, &hh);
     FeMultiply(&v, &pointP->x, &hh);
     FeSquare(&resultP->x, &r);
     FeSubtract(&resultP->x, &resultP->x, &hhh);
-    FeDouble(&temporary, &v);
-    FeSubtract(&resultP->x, &resultP->x, &temporary);
+    FeSubtractTwice(&resultP->x, &resultP->x, &v);
     FeSubtract(&temporary, &v, &resultP->x);
     FeMultiply(&s2, &r, &temporary);
     FeMultiply(&temporary, &pointP->y, &hhh);
     FeSubtract(&resultP->y, &s2, &temporary);
     FeMultiply(&resultP->z, &pointP->z, &h);
+    if (scaledP) {
+        FeCopy(&scaledP->x, &v);
+        FeCopy(&scaledP->y, &temporary);
+        FeCopy(&scaledP->z, &resultP->z);
+    }
+    return 1;
 }
 
 static void FeSquareN(Fe256 *resultP, const Fe256 *valueP, u32 count)
@@ -2184,8 +2257,8 @@ typedef struct PublicPointTable {
 } PublicPointTable;
 
 /* Co-Z addition with update (Goundar et al., IACR ePrint 2010/309).
- * Both public points share a nonzero Z. Update stepP to the sum's Z
- * for the next addition. The caller handles H=0 with complete addition. */
+ * Both public points share a nonzero Z. Update stepP to the sum's Z.
+ * The result may alias oddP. For H=0, leave the inputs and output intact. */
 static u32 PointAddSameZ(Point256 *resultP, Point256 *stepP, const Point256 *oddP)
 {
     Fe256 h, r, hSquared, oddX, temporary;
@@ -2232,19 +2305,20 @@ static void BuildPublicPointTable(PublicPointTable *tableP,
     FeMultiply(&twiceZ3, &twice.z, &twiceZ2);
     u32 index = 1;
     if (!FeIsZero(&twice.z)) {
-        Point256 step, odd;
-        /* Start with Q and the fixed step 2Q at the same Z. */
-        PointCopy(&step, &twice);
-        FeMultiply(&odd.x, xP, &twiceZ2);
-        FeMultiply(&odd.y, yP, &twiceZ3);
-        FeCopy(&odd.z, &twice.z);
-        const Point256 *previousP = &odd;
+        /* The first output entry can hold the scaled Q until it is read. */
+        Point256 *oddP = &tableP->jacobian[1].point;
+        FeMultiply(&oddP->x, xP, &twiceZ2);
+        FeMultiply(&oddP->y, yP, &twiceZ3);
+        const Point256 *previousP = oddP;
         for (; index < 8U; index++) {
             Point256 *entryP = &tableP->jacobian[index].point;
-            if (!PointAddSameZ(entryP, &step, previousP))
+            if (!PointAddSameZ(entryP, &twice, previousP))
                 break;
             previousP = entryP;
         }
+        /* Restore the original 2Q before an exceptional fallback. */
+        if (index > 1U && index < 8U)
+            PointDouble(&twice, &firstP->point);
     }
     for (; index < 8U; index++) {
         PointAddPublic(&tableP->jacobian[index].point,
@@ -2257,8 +2331,9 @@ static void BuildPublicPointTable(PublicPointTable *tableP,
     }
 }
 
-static void AddWnafDigit(Point256 *resultP, const PublicPointTable *tableP,
-                         int digit)
+static u32 AddWnafDigit(Point256 *resultP, const Point256 *pointP,
+                        const PublicPointTable *tableP, int digit,
+                        Point256 *scaledP)
 {
     u32 magnitude = digit < 0 ? (u32)(-digit) : (u32)digit;
     if (tableP->affineP != 0 || magnitude == 1U) {
@@ -2276,12 +2351,22 @@ static void AddWnafDigit(Point256 *resultP, const PublicPointTable *tableP,
             FeSubtract(&negated, &kZero, yP);
             yP = &negated;
         }
-        PointAddMixedPublic(resultP, resultP, xP, yP);
+        return PointAddMixedPrepared(resultP, pointP, xP, yP, scaledP);
     } else {
         const PublicPointEntry *entryP = &tableP->jacobian[magnitude >> 1];
-        PointAddPublic(resultP, resultP, &entryP->point,
-            &entryP->zSquared, &entryP->zCubed, digit < 0);
+        return PointAddPrepared(resultP, pointP, &entryP->point,
+            &entryP->zSquared, &entryP->zCubed, digit < 0, scaledP);
     }
+}
+
+/* Compute 2P+Q by adding Q to P, then using their shared Z to add P
+ * again. Keep the original accumulator intact if an addition fails. */
+static u32 PointDoubleAddDigit(Point256 *resultP, const PublicPointTable *tableP,
+                               int digit)
+{
+    Point256 sum, scaled;
+    return AddWnafDigit(&sum, resultP, tableP, digit, &scaled) &&
+        PointAddSameZ(resultP, &scaled, &sum);
 }
 
 /* ECDSA verification needs u1*G + u2*Q. Keeping both public scalar products,
@@ -2310,15 +2395,20 @@ static void P256Multiply2AddPoint(Point256 *resultP,
         ;
     if (bit < 0)
         return;
+    int left = leftDigits[bit], right = rightDigits[bit];
     do {
-        int digit = leftDigits[bit];
-        if (digit != 0) AddWnafDigit(resultP, &leftTable, digit);
-        digit = rightDigits[bit];
-        if (digit != 0) AddWnafDigit(resultP, &rightTable, digit);
+        if (left) AddWnafDigit(resultP, resultP, &leftTable, left, 0);
+        if (right) AddWnafDigit(resultP, resultP, &rightTable, right, 0);
         if (--bit < 0)
             break;
-        /* Infinity stays at infinity under doubling. */
-        PointDouble(resultP, resultP);
+        left = leftDigits[bit];
+        right = rightDigits[bit];
+        if (left && PointDoubleAddDigit(resultP, &leftTable, left))
+            left = 0;
+        else if (!left && right && PointDoubleAddDigit(resultP, &rightTable, right))
+            right = 0;
+        else
+            PointDouble(resultP, resultP);
     } while (1);
 }
 

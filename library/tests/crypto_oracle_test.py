@@ -399,6 +399,7 @@ def p256(backend, rng):
         vectors += [(scalar, 0, G, q), (0, scalar, q, G)]
     minus_g = (G[0], -G[1] % P)
     minus_q = (q[0], -q[1] % P)
+    minus_two_g = multiply(N - 2, G)
     other = multiply(3, G)
     vectors += [
         (1, 1, G, G), (1, N - 1, G, G), (N - 1, 1, G, G),
@@ -406,6 +407,9 @@ def p256(backend, rng):
         (1, 1, minus_g, G), (1, 2, G, minus_g), (2, 1, minus_g, G),
         # Cancel at bit 5, then recover from infinity at the low nonzero digit.
         (32, 33, minus_g, G), (33, 32, G, minus_g),
+        # The second shared-Z addition in 2P+Q can cancel. Exercise the
+        # fallback both at the final bit and before a later nonzero digit.
+        (2, 1, G, minus_two_g), (129, 64, G, minus_two_g),
         (1, 1, q, q), (1, 1, q, minus_q), (0, 0, q, other),
         (0, 1, G, q), (1, 0, q, G), (1, 1, q, other),
     ]
