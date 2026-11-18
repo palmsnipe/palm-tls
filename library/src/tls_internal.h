@@ -65,6 +65,7 @@ typedef struct PalmTlsEngineControl {
     Boolean pinned;
     Boolean pinMatched;
     Boolean browserStylusRandom;
+    Boolean cooperative;
     UInt16 negotiatedProtocol;
 } PalmTlsEngineControl;
 

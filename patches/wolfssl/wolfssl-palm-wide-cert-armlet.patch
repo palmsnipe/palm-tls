@@ -1,0 +1,24 @@
+diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
+--- a/wolfcrypt/src/tfm.c
++++ b/wolfcrypt/src/tfm.c
+@@ -4078,7 +4078,7 @@
+    fp_digit small[2 * 16 + 1];
+ #endif
+ 
+-#if defined(PALM_WOLFSSL_BROWSER) && defined(PALM_WOLFSSL_ARMLET_MATH) && \
++#if defined(PALM_WOLFSSL_WIDE_CERTS) && defined(PALM_WOLFSSL_ARMLET_MATH) && \
+     defined(WOLFSSL_RSA_VERIFY_ONLY)
+    if (m->used == 256 || m->used == 128 || m->used == 24) {
+       extern int PalmTlsArmletRsaReduce(fp_int* value, fp_int* modulus);
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -10463,7 +10463,7 @@
+        }
+    }
+ 
+-#if defined(PALM_WOLFSSL_BROWSER) && defined(PALM_WOLFSSL_ARMLET_MATH)
++#if defined(PALM_WOLFSSL_WIDE_CERTS) && defined(PALM_WOLFSSL_ARMLET_MATH)
+    if (key->dp->id == ECC_SECP384R1) {
+        extern void PalmTlsArmletVerifyP384(int enabled);
+        PalmTlsArmletVerifyP384(1);

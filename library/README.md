@@ -30,9 +30,11 @@ verification, caller-supplied DER/PEM trust anchors, exact-peer trust, and an
 explicitly unverified diagnostic mode. It intentionally does not implement
 DNS, TCP connection setup, HTTP parsing, or a built-in root store.
 
-The modern profile is restricted to P-256, SHA-256, AES-128-GCM, the
-ECDHE/ECDSA or ECDHE/RSA TLS 1.2 suites, and the P-256/AES-GCM TLS 1.3 profile.
-On ARM, TLS 1.3 also offers ChaCha20-Poly1305, first; see [ARM.md](ARM.md).
+The modern profile offers ECDHE/ECDSA and ECDHE/RSA TLS 1.2 suites with
+P-256 and AES-128-GCM/SHA-256. TLS 1.3 uses a P-256 key share and
+AES-128-GCM/SHA-256. On ARM, TLS 1.3 also offers ChaCha20-Poly1305 first
+and verifies certificate chains that use RSA-4096 or P-384/SHA-384.
+See [ARM.md](ARM.md).
 The isolated TLS 1.1 engine instead enables static RSA key exchange,
 AES-CBC, SHA-1, and the legacy MD5/SHA-1 PRF. TLS 1.1 is obsolete and should
 only be selected to interoperate with a known legacy service. The Palm entropy

@@ -68,7 +68,12 @@ struct tm *WolfPalmGmtime(const time_t *timerP, struct tm *resultP)
 
 void *WolfPalmMalloc(unsigned long size)
 {
-    return MemPtrNew((UInt32)size);
+    void *memoryP = MemPtrNew((UInt32)size);
+    if (memoryP && MemPtrSetOwner(memoryP, 0) != errNone) {
+        MemPtrFree(memoryP);
+        return 0;
+    }
+    return memoryP;
 }
 
 void WolfPalmFree(void *pointerP)
@@ -134,7 +139,6 @@ void WolfPalmCopyPlaintext(void *outputP, const void *inputP, UInt32 length)
 Int32 PalmTlsReceive(UInt32 netRefNum, Int32 socket, void *bufferP,
                      UInt32 length, Int32 timeout, Err *errorP)
 {
-    EvtResetAutoOffTimer();
     return NetLibReceive((UInt16)netRefNum, (NetSocketRef)socket, bufferP,
                          (UInt16)length, 0, 0, 0, timeout, errorP);
 }
@@ -142,7 +146,6 @@ Int32 PalmTlsReceive(UInt32 netRefNum, Int32 socket, void *bufferP,
 Int32 PalmTlsSend(UInt32 netRefNum, Int32 socket, const void *bufferP,
                   UInt32 length, Int32 timeout, Err *errorP)
 {
-    EvtResetAutoOffTimer();
     return NetLibSend((UInt16)netRefNum, (NetSocketRef)socket, (void *)bufferP,
                       (UInt16)length, 0, 0, 0, timeout, errorP);
 }

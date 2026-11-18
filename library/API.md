@@ -239,6 +239,13 @@ the engine, contexts, trust copies, profiles, and resumption state. If a session
 cancels it as part of unloading the engine. This makes purge the recovery path
 when a caller cannot cleanly close or cancel a session it owns.
 
+The application controls the Palm OS auto-off timer for sessions opened with
+`PALM_TLS_SESSION_COOPERATIVE`. TLS I/O in those sessions leaves the display and
+auto-off timer alone. Blocking sessions still reset the timer during I/O.
+An explicitly open library keeps its engine and session allocations across
+foreground application switches. The caller owns the underlying NetLib socket
+and is responsible for closing the session and library when finished.
+
 ## Results and errors
 
 Every session trap returns a Palm `Err` and fills a result. A zero trap error

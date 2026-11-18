@@ -114,20 +114,23 @@ extern void PalmTlsTrustProfileLeave(void);
 #ifdef PALM_WOLFSSL_ENABLE_ARMLET_MATH
 #define PALM_WOLFSSL_ARMLET_MATH
 #endif
+#if defined(PALM_WOLFSSL_BROWSER) && !defined(PALM_WOLFSSL_WIDE_CERTS)
+#define PALM_WOLFSSL_WIDE_CERTS
+#endif
 #ifndef PALM_WOLFSSL_TLS11_ONLY
 #define HAVE_ECC
 #define ECC_USER_CURVES
 #undef NO_ECC256
 #define TFM_ECC256
-#ifdef PALM_WOLFSSL_BROWSER
+#ifdef PALM_WOLFSSL_WIDE_CERTS
 #define HAVE_ECC384
 #define TFM_ECC384
 #define WOLFSSL_SHA384
 /* TFM requires space for products twice the modulus size. */
 #define FP_MAX_BITS 8192
 #endif
-/* The native P-256 bridge precedes the Browser's Shamir fallback for P-384. */
-#if !defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) || defined(PALM_WOLFSSL_BROWSER)
+/* The native P-256 bridge precedes the Shamir fallback for P-384. */
+#if !defined(PALM_WOLFSSL_ENABLE_ARMLET_MATH) || defined(PALM_WOLFSSL_WIDE_CERTS)
 #define ECC_SHAMIR
 #endif
 #define ECC_TIMING_RESISTANT

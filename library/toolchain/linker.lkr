@@ -64,6 +64,8 @@ SECTIONS
 
     .tls2 : {
         KEEP(*tls_engine_*.o(.tlsentry))
+        /* Leave room for the wider certificate verifier in the math segment. */
+        *libwolfssl-tls13-armlet.a:src_libwolfssl_la-tfm.o(.text.fp_mul_comba8 .text.fp_sqr_comba8 .text.fp_mul_comba12 .text.fp_sqr_comba12)
         *libwolfssl*.a:libwolfssl_la-ssl.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:libwolfssl_la-internal.o(.text .text.* .rodata .rodata.*)
         *libwolfssl*.a:src_libwolfssl_la-sp_c32.o(.text.sp_256_sqr_9*)

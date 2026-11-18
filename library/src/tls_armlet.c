@@ -6,6 +6,7 @@
 #include "palm_tls.h"
 #include "tls_armlet.h"
 #include "tls_arm_compat.h"
+#include "tls_palm.h"
 #include "../arm/armlet_abi.h"
 
 #define PALM_TLS_ARMLET_TYPE 'armc'
@@ -361,7 +362,7 @@ void PalmTlsArmletInitialize(void)
     if (!IsArmProcessor()) return;
     databaseId = DmFindDatabase(0, PALM_TLS_LIB_NAME);
     if (databaseId == 0) return;
-    gArmletDatabaseP = DmOpenDatabase(0, databaseId, dmModeReadOnly);
+    gArmletDatabaseP = DmOpenDatabase(0, databaseId, dmModeReadOnly | dmModeLeaveOpen);
     if (gArmletDatabaseP == 0) return;
     resourceIndex = DmFindResource(gArmletDatabaseP, PALM_TLS_ARMLET_TYPE,
         PALM_TLS_ARMLET_ID, 0);
@@ -370,7 +371,7 @@ void PalmTlsArmletInitialize(void)
     if (gArmletHandle == 0) goto unavailable;
     gArmletEntryP = (NativeFuncType *)MemHandleLock(gArmletHandle);
     if (gArmletEntryP != 0) {
-        gRequestP = (PalmTlsArmletMultiplyRequest *)MemPtrNew(
+        gRequestP = (PalmTlsArmletMultiplyRequest *)WolfPalmMalloc(
             sizeof(*gRequestP));
         if (gRequestP != 0) {
             gArmletEnabled = RunMultiplyKnownAnswer() &&
@@ -607,7 +608,7 @@ void PalmTlsArmletDisable(void)
     gRawP256PointP = 0;
 }
 
-#if defined(PALM_WOLFSSL_BROWSER) && defined(WOLFSSL_RSA_VERIFY_ONLY)
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && defined(WOLFSSL_RSA_VERIFY_ONLY)
 /* The variable-width reduction is used only for public verification. */
 static Boolean gVerifyP384;
 
@@ -663,7 +664,7 @@ int PalmTlsArmletMultiply(fp_int *leftP, fp_int *rightP, fp_int *outputP)
         outputP == 0 ||
         leftP->used < 0 || rightP->used < 0)
         return FP_VAL;
-#if defined(PALM_WOLFSSL_BROWSER) && defined(WOLFSSL_RSA_VERIFY_ONLY)
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && defined(WOLFSSL_RSA_VERIFY_ONLY)
     if (((UInt32)leftP->used + rightP->used >= PALM_TLS_ARMLET_MAX_DIGITS ||
          (gVerifyP384 && leftP->used >= 12 && rightP->used >= 12)) &&
         leftP->used <= PALM_TLS_ARMLET_RSA_MAX_DIGITS &&

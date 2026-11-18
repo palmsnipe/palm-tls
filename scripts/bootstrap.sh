@@ -49,6 +49,7 @@ patches=(
   wolfssl-palm-m68k-tfm.patch
   wolfssl-palm-m68k-tfm-carries.patch
   wolfssl-palm-m68k-tfm-workspace.patch
+  wolfssl-palm-wide-cert-armlet.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
@@ -94,7 +95,7 @@ build_variant() {
   if [[ "$defines" == *-DWOLFSSL_NO_TLS12* || "$defines" == *-DPALM_WOLFSSL_BROWSER* ]]; then
     sha512=--enable-sha512
   fi
-  if [[ "$defines" == *-DPALM_WOLFSSL_BROWSER* ]]; then
+  if [[ "$defines" == *-DPALM_WOLFSSL_BROWSER* || "$defines" == *-DPALM_WOLFSSL_WIDE_CERTS* ]]; then
     sha384=--enable-sha384
   fi
   rm -rf "$build_dir"
@@ -138,7 +139,7 @@ build_variant wolfssl-palm-tls13-68k \
   '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_IGNORE_TLS13_TICKETS' \
   --disable-oldtls libwolfssl-tls13.a copy
 build_variant wolfssl-palm-tls13-armlet \
-  '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_ENABLE_ARMLET_MATH -DPALM_WOLFSSL_PARSED_CA_CACHE' \
+  '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_ENABLE_ARMLET_MATH -DPALM_WOLFSSL_PARSED_CA_CACHE -DPALM_WOLFSSL_WIDE_CERTS' \
   --disable-oldtls libwolfssl-tls13-armlet.a copy
 build_variant wolfssl-palm-tls11-68k \
   '-DWOLFSSL_USER_SETTINGS -DPALM_WOLFSSL_TLS11_ONLY' \

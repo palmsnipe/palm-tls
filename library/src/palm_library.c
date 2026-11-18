@@ -360,6 +360,11 @@ Err PalmTlsLibOpen(UInt16 refNum)
     if (stateP == 0) {
         stateP = (PalmTlsLibraryState *)MemPtrNew(sizeof(*stateP));
         if (stateP == 0) return memErrNotEnoughSpace;
+        Err error = MemPtrSetOwner(stateP, 0);
+        if (error != errNone) {
+            MemPtrFree(stateP);
+            return error;
+        }
         MemSet(stateP, sizeof(*stateP), 0);
 #ifdef PALM_TLS_INSECURE_TEST_RANDOM
         LoadTestSeed(&stateP->drbg);

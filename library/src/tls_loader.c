@@ -237,7 +237,7 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
         goto cleanup;
     }
     engineP->workDbID = DmFindDatabase(0, PALM_TLS_WORK_DB_NAME);
-    engineP->workDbP = DmOpenDatabase(0, engineP->workDbID, dmModeReadWrite);
+    engineP->workDbP = DmOpenDatabase(0, engineP->workDbID, dmModeReadWrite | dmModeLeaveOpen);
     if (engineP->workDbP == 0) {
         resultP->status = palmTlsStatusNoMemory;
         resultP->platformError = DmGetLastErr();
@@ -273,6 +273,15 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
             resultP->status = palmTlsStatusNoMemory;
             resultP->platformError = DmGetLastErr();
             goto cleanup;
+        }
+        if (index == PALM_TLS_WRITABLE_SEGMENT) {
+            Err error = MemHandleSetOwner(engineP->segmentHandles[index], 0);
+            if (error != errNone) {
+                MemHandleUnlock(resourceHandles[index]);
+                resultP->status = palmTlsStatusNoMemory;
+                resultP->platformError = error;
+                goto cleanup;
+            }
         }
         engineP->segments[index] = (UInt8 *)MemHandleLock(
             engineP->segmentHandles[index]);

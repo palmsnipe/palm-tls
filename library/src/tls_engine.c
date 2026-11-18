@@ -374,6 +374,7 @@ static int TlsReceive(WOLFSSL *sslP, char *bufferP, int length, void *contextP)
     (void)sslP;
     controlP->lastError = errNone;
     PalmTlsHandshakeProfileEnter(palmTlsHsNetwork);
+    if (!controlP->cooperative) EvtResetAutoOffTimer();
     received = (Int16)PalmTlsReceive(controlP->netRefNum, controlP->socket,
         bufferP, chunk, controlP->timeoutTicks, &controlP->lastError);
     PalmTlsHandshakeProfileLeave();
@@ -404,6 +405,7 @@ static int TlsSend(WOLFSSL *sslP, char *bufferP, int length, void *contextP)
     (void)sslP;
     controlP->lastError = errNone;
     PalmTlsHandshakeProfileEnter(palmTlsHsNetwork);
+    if (!controlP->cooperative) EvtResetAutoOffTimer();
     sent = (Int16)PalmTlsSend(controlP->netRefNum, controlP->socket,
         bufferP, chunk, controlP->timeoutTicks, &controlP->lastError);
     PalmTlsHandshakeProfileLeave();
@@ -463,7 +465,7 @@ static void SaveResumeSession(PalmTlsEngineControl *controlP)
     }
 #endif
     if (controlP->contextTrustLength) {
-        trustP = MemPtrNew(controlP->contextTrustLength);
+        trustP = WolfPalmMalloc(controlP->contextTrustLength);
         if (!trustP) { wolfSSL_SESSION_free(savedP); return; }
         MemMove(trustP, controlP->contextTrustP, controlP->contextTrustLength);
     }
@@ -689,7 +691,7 @@ static int LoadParsedTrust(WOLFSSL_CTX *contextP, const UInt8 *bytesP,
         return ret;
 
     WOLFSSL_CERT_MANAGER *anchorsP = wolfSSL_CertManagerNew();
-    void *ownedP = MemPtrNew(size);
+    void *ownedP = WolfPalmMalloc(size);
     if (anchorsP && ownedP && PalmTlsWolfCloneAnchors(anchorsP, destP) == WOLFSSL_SUCCESS) {
         MemMove(ownedP, bytesP, size);
         parsedTrust.anchorsP = anchorsP;
@@ -778,7 +780,7 @@ static int ConfigureContext(const PalmTlsEngineParams *paramsP)
     }
 #endif
     if (length) {
-        controlP->contextTrustP = MemPtrNew(length);
+        controlP->contextTrustP = WolfPalmMalloc(length);
         if (!controlP->contextTrustP) ret = MEMORY_E;
         else {
             MemMove(controlP->contextTrustP, paramsP->trustedPeerP, length);
@@ -964,6 +966,7 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
     controlP->netRefNum = paramsP->netRefNum;
     controlP->socket = (NetSocketRef)paramsP->socket;
     controlP->timeoutTicks = paramsP->timeoutTicks;
+    controlP->cooperative = (paramsP->options & PALM_TLS_SESSION_COOPERATIVE) != 0;
     controlP->lastError = errNone;
     wolfSSL_SetIOReadCtx(sessionP, controlP);
     wolfSSL_SetIOWriteCtx(sessionP, controlP);
