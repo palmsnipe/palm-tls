@@ -991,23 +991,6 @@ static u32 FeIsZero(const Fe256 *valueP)
     return ((value | (0U - value)) >> 31) ^ 1U;
 }
 
-static void FeSelect(Fe256 *resultP, const Fe256 *zeroP,
-                     const Fe256 *oneP, u32 selectOne)
-{
-    u32 mask = 0U - (selectOne & 1U);
-    u32 index;
-    /* Both loads are observable: otherwise Clang can turn the bit mask into
-     * a conditional pointer selection and load only one secret-dependent
-     * address. Preserve the fixed read pattern, including in-place aliases. */
-    const volatile u32 *zeroWordsP = zeroP->v;
-    const volatile u32 *oneWordsP = oneP->v;
-    for (index = 0; index < 8; index++) {
-        u32 zero = zeroWordsP[index];
-        u32 one = oneWordsP[index];
-        resultP->v[index] = (zero & ~mask) | (one & mask);
-    }
-}
-
 static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
                        const Fe256 *rightP)
 {
@@ -1019,9 +1002,14 @@ static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
 #pragma clang loop unroll(full)
 #endif
     for (index = 0; index < 8; index++) {
-        u64 right = (u64)rightP->v[index] + borrow;
-        difference.v[index] = leftP->v[index] - (u32)right;
-        borrow = ((u64)leftP->v[index] < right);
+#if defined(__clang__)
+        difference.v[index] =
+            __builtin_subc(leftP->v[index], rightP->v[index], borrow, &borrow);
+#else
+        u64 word = (u64)leftP->v[index] - rightP->v[index] - borrow;
+        difference.v[index] = (u32)word;
+        borrow = (u32)(word >> 63);
+#endif
     }
     /* The difference is complete, so writing the correction directly
      * remains safe if the result aliases either input. */
@@ -1034,32 +1022,6 @@ static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
         resultP->v[index] = (u32)value;
         carry = (u32)(value >> 32);
     }
-}
-
-static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
-{
-    Fe256 sum;
-    Fe256 reduced;
-    u32 carry = 0;
-    u32 borrow = 0;
-    u32 index;
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-    for (index = 0; index < 8; index++) {
-        u64 value = (u64)leftP->v[index] + rightP->v[index] + carry;
-        sum.v[index] = (u32)value;
-        carry = (u32)(value >> 32);
-    }
-#if defined(__clang__)
-#pragma clang loop unroll(full)
-#endif
-    for (index = 0; index < 8; index++) {
-        u64 right = (u64)kP.v[index] + borrow;
-        reduced.v[index] = sum.v[index] - (u32)right;
-        borrow = ((u64)sum.v[index] < right);
-    }
-    FeSelect(resultP, &sum, &reduced, (u32)carry | ((u32)borrow ^ 1U));
 }
 
 /* Cancel a low limb using p = (B-1,B-1,B-1,0,0,0,1,B-1), B=2^32.
@@ -1089,8 +1051,8 @@ static __inline__ u32 FeCancelP256Digit(const u32 *t, u32 *out)
     return (u32)(value >> 32);
 }
 
-/* The Montgomery accumulator is less than 2*p. Inline this step to keep
- * the integrated multiplier's last limbs in registers. */
+/* Reduce an intermediate below 2*p. Inline this step to keep the integrated
+ * multiplier's last limbs in registers. */
 static __inline__ __attribute__((always_inline)) void FeFinishProduct(
     Fe256 *resultP, const u32 *limbsP, u32 high)
 {
@@ -1110,6 +1072,22 @@ static __inline__ __attribute__((always_inline)) void FeFinishProduct(
         resultP->v[index] = (u32)difference;
         borrow = (u32)(difference >> 63);
     }
+}
+
+static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
+{
+    Fe256 sum;
+    u32 carry = 0;
+    u32 index;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (index = 0; index < 8; index++) {
+        u64 value = (u64)leftP->v[index] + rightP->v[index] + carry;
+        sum.v[index] = (u32)value;
+        carry = (u32)(value >> 32);
+    }
+    FeFinishProduct(resultP, sum.v, carry);
 }
 
 /* Coarsely integrated operand-scanning Montgomery multiplication. P[0] is
@@ -1177,46 +1155,93 @@ static void FeSquare(Fe256 *resultP, const Fe256 *valueP)
 
 /* For a canonical x, 2*x needs one subtraction exactly when x >= (p+1)/2.
  * Compare the high limbs against that threshold, whose low 95 bits are zero.
- * Keeping only the chosen subtraction lets the shift and borrow share one
- * pass. Read each input limb before storing so in-place doubling works. */
+ * Subtract p modulo 2^256 by adding 2^256-p (kR). Read each input limb
+ * before storing so in-place doubling works. */
 static void FeDouble(Fe256 *resultP, const Fe256 *valueP)
 {
     const u32 highBit = 0x80000000U;
     u32 top = valueP->v[7];
     u32 next = valueP->v[6];
     u32 middle = valueP->v[5];
-    u32 lower = valueP->v[4] | valueP->v[3];
+    u32 lower = valueP->v[4] | valueP->v[3] | (valueP->v[2] >> 31);
     u32 middleAtLeast = (middle >> 31) &
-        ((middle != highBit) | (lower != 0U) | (valueP->v[2] >> 31));
+        (((middle & (highBit - 1U)) | lower) != 0U);
     u32 subtract = (top >> 31) | ((top == highBit - 1U) &
         ((next > highBit) | ((next == highBit) & middleAtLeast)));
     u32 mask = 0U - subtract;
-    u32 previous = 0, borrow = 0;
+    u32 previous = 0, carry = 0;
 #if defined(__clang__)
 #pragma clang loop unroll(full)
 #endif
     for (u32 i = 0; i < 8; i++) {
         u32 limb = valueP->v[i];
         u32 word = (limb << 1) | previous;
-        u64 difference = (u64)word - (kP.v[i] & mask) - borrow;
-        resultP->v[i] = (u32)difference;
-        borrow = (u32)(difference >> 63);
+        u64 sum = (u64)word + (kR.v[i] & mask) + carry;
+        resultP->v[i] = (u32)sum;
+        carry = (u32)(sum >> 32);
         previous = limb >> 31;
     }
 }
 
+/* Fold a small carry at 2^256 back into the low limbs. Here high is at
+ * most seven, so adding high*(2^256-p) leaves a value below 2*p. For
+ * nonzero high, the product with kR[3] produces a carry of high-1,
+ * which propagates through kR[4..6] into the last correction limb. */
+static __inline__ void FeFoldSmall(Fe256 *resultP, Fe256 *lowP, u32 high)
+{
+    u32 mask = 0U - (high != 0U);
+    const u32 correction[8] = {high, 0, 0, 0U - high, mask, mask,
+                               mask - high, mask + high};
+    u32 carry = 0;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 i = 0; i < 8U; i++) {
+        u64 sum = (u64)lowP->v[i] + correction[i] + carry;
+        lowP->v[i] = (u32)sum;
+        carry = (u32)(sum >> 32);
+    }
+    FeFinishProduct(resultP, lowP->v, carry);
+}
+
+static __inline__ void FeScaleShift(Fe256 *resultP, const Fe256 *valueP, u32 bits)
+{
+    Fe256 shifted;
+    u32 high = 0;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 i = 0; i < 8U; i++) {
+        u32 word = valueP->v[i];
+        shifted.v[i] = (word << bits) | high;
+        high = word >> (32U - bits);
+    }
+    FeFoldSmall(resultP, &shifted, high);
+}
+
 static void FeTimes4(Fe256 *resultP, const Fe256 *valueP)
 {
-    Fe256 temporary;
-    FeDouble(&temporary, valueP);
-    FeDouble(resultP, &temporary);
+    FeScaleShift(resultP, valueP, 2U);
 }
 
 static void FeTimes8(Fe256 *resultP, const Fe256 *valueP)
 {
-    Fe256 temporary;
-    FeTimes4(&temporary, valueP);
-    FeDouble(resultP, &temporary);
+    FeScaleShift(resultP, valueP, 3U);
+}
+
+static void FeTriple(Fe256 *resultP, const Fe256 *valueP)
+{
+    Fe256 tripled;
+    u32 high = 0;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 i = 0; i < 8U; i++) {
+        u64 word = 3U * (u64)valueP->v[i] + high;
+        tripled.v[i] = (u32)word;
+        high = (u32)(word >> 32);
+    }
+    FeFoldSmall(resultP, &tripled, high);
 }
 
 static void PointCopy(Point256 *destinationP, const Point256 *sourceP)
@@ -1266,8 +1291,7 @@ static void PointDouble(Point256 *resultP, const Point256 *pointP)
     FeSubtract(&temporary1, &pointP->x, &delta);
     FeAdd(&temporary2, &pointP->x, &delta);
     FeMultiply(&alpha, &temporary1, &temporary2);
-    FeDouble(&temporary1, &alpha);
-    FeAdd(&alpha, &temporary1, &alpha);
+    FeTriple(&alpha, &alpha);
     FeSquare(&resultP->x, &alpha);
     /* Reuse 4*beta in the formulas for X' and Y'. */
     FeTimes4(&beta, &beta);
@@ -1524,13 +1548,19 @@ void PalmTlsArmletTestInverse(const u8 *inputP, u8 *outputP)
 #endif
 
 #ifdef PALM_ARMLET_HOST_TEST
-/* Preserve the raw input so tests can hit the exact reduction threshold. */
-void PalmTlsArmletTestDouble(const u8 *inputP, u8 *outputP, u32 inPlace)
+/* Preserve the raw input so tests can hit the exact reduction thresholds. */
+void PalmTlsArmletTestScale(const u8 *inputP, u8 *outputP, u32 scale, u32 inPlace)
 {
-    Fe256 value, doubled;
-    Fe256 *resultP = inPlace ? &value : &doubled;
+    Fe256 value, scaled;
+    Fe256 *resultP = inPlace ? &value : &scaled;
     FeReadRawBigEndian(&value, inputP);
-    FeDouble(resultP, &value);
+    switch (scale) {
+    case 2U: FeDouble(resultP, &value); break;
+    case 3U: FeTriple(resultP, &value); break;
+    case 4U: FeTimes4(resultP, &value); break;
+    case 8U: FeTimes8(resultP, &value); break;
+    default: return;
+    }
     FeWriteRawBigEndian(outputP, resultP);
 }
 #endif
