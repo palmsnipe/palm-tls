@@ -1,0 +1,256 @@
+diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
+--- a/wolfcrypt/src/tfm.c
++++ b/wolfcrypt/src/tfm.c
+@@ -635,13 +635,51 @@
+         : "+&d" (*lo), "+d" (*hi)
+         : "d" (product), "d" ((fp_digit)0) : "cc");
+ }
++
++/* Each column scans one operand forward and the other backward. Mode is
++ * constant at the call site and selects one or two adds for each product. */
++static WC_INLINE __attribute__((always_inline)) void PalmCombaColumn(
++    const fp_digit* left, const fp_digit* right, int count,
++    fp_word* lo, fp_digit* hi, int twice)
++{
++    fp_word product;
++
++    if (count <= 0)
++        return;
++    --count;
++    ++right;
++    #define PALM_COMBA_ADD \
++        "add.l %[product],%[lo]\n\t" \
++        "addx.w %[zero],%[hi]\n\t"
++    #define PALM_COMBA_COLUMN(accumulate) \
++        __asm__ ( \
++            "1: move.w (%[left])+,%[product]\n\t" \
++            "mulu.w -(%[right]),%[product]\n\t" \
++            accumulate \
++            "dbra %[count],1b" \
++            : [left] "+&a"(left), [right] "+&a"(right), [count] "+&d"(count), \
++              [lo] "+&d"(*lo), [hi] "+&d"(*hi), [product] "=&d"(product) \
++            : [zero] "d"((fp_digit)0) : "cc", "memory")
++    if (twice) {
++        PALM_COMBA_COLUMN(PALM_COMBA_ADD PALM_COMBA_ADD);
++    }
++    else {
++        PALM_COMBA_COLUMN(PALM_COMBA_ADD);
++    }
++    #undef PALM_COMBA_COLUMN
++    #undef PALM_COMBA_ADD
++}
+ #endif
+
+ /*  C = (A * B)   */
+ int fp_mul_comba(fp_int *A, fp_int *B, fp_int *C)
+ {
+    int       ret = 0;
++#ifdef PALM_TFM_68K
++   int       ix, iy, tx, ty, pa;
++#else
+    int       ix, iy, iz, tx, ty, pa;
++#endif
+    fp_digit  *tmpx, *tmpy;
+ #ifdef PALM_TFM_68K
+    fp_word lo = 0;
+@@ -695,18 +733,15 @@
+ #ifdef PALM_TFM_68K
+       lo = (lo >> DIGIT_BIT) | ((fp_word)hi << DIGIT_BIT);
+       hi = 0;
++      PalmCombaColumn(tmpx, tmpy, iy, &lo, &hi, 0);
+ #else
+       COMBA_FORWARD;
+-#endif
+       for (iz = 0; iz < iy; ++iz) {
+           fp_digit _tmpx = *tmpx++;
+           fp_digit _tmpy = *tmpy--;
+-#ifdef PALM_TFM_68K
+-          PalmCombaAdd(&lo, &hi, (fp_word)_tmpx * _tmpy);
+-#else
+           MULADD(_tmpx, _tmpy);
+-#endif
+       }
++#endif
+
+       /* store term */
+ #ifdef PALM_TFM_68K
+@@ -1718,6 +1753,52 @@
+   return FP_OKAY;
+ }
+
++#ifdef PALM_TFM_68K
++static void PalmAddMod16(const fp_digit* a, const fp_digit* b,
++    const fp_digit* modulus, fp_digit* result)
++{
++    fp_digit reduced[16];
++    fp_digit word, other, count = 15, carry = 0, borrow, mask;
++    fp_digit* dst = result;
++    int i;
++
++    /* Sum the words into result, retaining the carry out. */
++    __asm__ volatile(
++        "add.w %[carry],%[carry]\n"
++        "1: move.w (%[a])+,%[word]\n\t"
++        "move.w (%[b])+,%[other]\n\t"
++        "addx.w %[other],%[word]\n\t"
++        "move.w %[word],(%[dst])+\n\t"
++        "dbra %[count],1b\n\t"
++        "addx.w %[carry],%[carry]"
++        : [a] "+&a"(a), [b] "+&a"(b), [dst] "+&a"(dst),
++          [word] "=&d"(word), [other] "=&d"(other),
++          [count] "+&d"(count), [carry] "+&d"(carry)
++        : : "cc", "memory");
++
++    /* Compute the candidate reduction and a mask from its borrow out. */
++    count = 15;
++    dst = reduced;
++    const fp_digit* sum = result;
++    __asm__ volatile(
++        "moveq #0,%[borrow]\n\t"
++        "sub.w %[borrow],%[borrow]\n"
++        "1: move.w (%[sum])+,%[word]\n\t"
++        "move.w (%[modulus])+,%[borrow]\n\t"
++        "subx.w %[borrow],%[word]\n\t"
++        "move.w %[word],(%[dst])+\n\t"
++        "dbra %[count],1b\n\t"
++        "subx.w %[borrow],%[borrow]"
++        : [sum] "+&a"(sum), [modulus] "+&a"(modulus), [dst] "+&a"(dst),
++          [word] "=&d"(word), [borrow] "=&d"(borrow), [count] "+&d"(count)
++        : : "cc", "memory");
++
++    mask = (fp_digit)(0 - carry) | (fp_digit)~borrow;
++    for (i = 0; i < 16; i++)
++        result[i] ^= (result[i] ^ reduced[i]) & mask;
++}
++#endif
++
+ /* d = a + b (mod c) - constant time (a < c and b < c and all positive)
+  * c and d must not be the same pointers.
+  */
+@@ -1731,6 +1812,16 @@
+   if (c == d) {
+     return FP_VAL;
+   }
++
++#ifdef PALM_TFM_68K
++  if (c->used == 16) {
++    PalmAddMod16(a->dp, b->dp, c->dp, d->dp);
++    d->used = 16;
++    d->sign = FP_ZPOS;
++    fp_clamp(d);
++    return FP_OKAY;
++  }
++#endif
+
+   /* Add a to b into d. Do the subtract of modulus but don't store result.
+    * When subtract result is negative, the overflow will be negative.
+@@ -3465,23 +3556,14 @@
+   return err;
+ }
+
+-#ifdef PALM_TFM_68K
+-static WC_INLINE __attribute__((always_inline)) void PalmCombaAddDouble(
+-    fp_word* lo, fp_digit* hi, fp_word product)
+-{
+-    __asm__ ("add.l %2,%0\n\t"
+-             "addx.w %3,%1\n\t"
+-             "add.l %2,%0\n\t"
+-             "addx.w %3,%1"
+-        : "+&d" (*lo), "+&d" (*hi)
+-        : "d" (product), "d" ((fp_digit)0) : "cc");
+-}
+-#endif
+-
+ /* generic comba squarer */
+ int fp_sqr_comba(fp_int *A, fp_int *B)
+ {
++#ifdef PALM_TFM_68K
++  int       pa, ix;
++#else
+   int       pa, ix, iz;
++#endif
+ #ifdef PALM_TFM_68K
+   fp_word lo = 0;
+   fp_digit hi = 0;
+@@ -3545,19 +3627,13 @@
+ #ifdef PALM_TFM_68K
+       lo = (lo >> DIGIT_BIT) | ((fp_word)hi << DIGIT_BIT);
+       hi = 0;
++      PalmCombaColumn(tmpx, tmpy, iy, &lo, &hi, 1);
+ #else
+       COMBA_FORWARD;
+-#endif
+-
+-      /* execute loop */
+       for (iz = 0; iz < iy; iz++) {
+-#ifdef PALM_TFM_68K
+-          fp_word product = (fp_word)*tmpx++ * *tmpy--;
+-          PalmCombaAddDouble(&lo, &hi, product);
+-#else
+           SQRADD2(*tmpx++, *tmpy--);
+-#endif
+       }
++#endif
+
+       /* even columns have the square term in them */
+       if ((ix&1) == 0) {
+@@ -3853,29 +3929,41 @@
+     0, 0, 0, 0, 1, 0, 0xffff, 0xffff
+ };
+
+-static WC_INLINE __attribute__((always_inline)) fp_digit PalmMontgomeryWord(
+-    fp_digit* digit, fp_digit carry, fp_word product)
+-{
+-    fp_word sum = product + *digit + carry;
+-    *digit = (fp_digit)sum;
+-    return (fp_digit)(sum >> DIGIT_BIT);
+-}
+-
++/* For radix R = 2^256, P = R - 2^224 + 2^192 + 2^96 - 1.
++ * The low word is mu: subtracting mu clears it with no borrow. Add the two
++ * positive shifted terms, subtract the 224-bit term, and return the high word. */
+ static WC_INLINE __attribute__((always_inline)) fp_digit PalmP256MontgomeryRow(
+     fp_digit* row)
+ {
+     fp_digit mu = row[0];
+-    fp_word ones = ((fp_word)mu << DIGIT_BIT) - mu;
+-    fp_digit carry = 0;
+-    int i;
+-    for (i = 0; i < 6; i++)
+-        carry = PalmMontgomeryWord(&row[i], carry, ones);
+-    for (; i < 12; i++)
+-        carry = PalmMontgomeryWord(&row[i], carry, 0);
+-    carry = PalmMontgomeryWord(&row[12], carry, mu);
+-    carry = PalmMontgomeryWord(&row[13], carry, 0);
+-    carry = PalmMontgomeryWord(&row[14], carry, ones);
+-    return PalmMontgomeryWord(&row[15], carry, ones);
++    fp_digit carry = 0, word, count = 4;
++    fp_digit* next = row + 7;
++    fp_sword diff;
++
++    row[0] = 0;
++    /* Carry the additions from words 6 and 12 through word 13. */
++    __asm__ volatile(
++        "add.w %[mu],-2(%[next])\n"
++        "1: move.w (%[next]),%[word]\n\t"
++        "addx.w %[carry],%[word]\n\t"
++        "move.w %[word],(%[next])+\n\t"
++        "dbra %[count],1b\n\t"
++        "move.w (%[next]),%[word]\n\t"
++        "addx.w %[mu],%[word]\n\t"
++        "move.w %[word],(%[next])+\n\t"
++        "move.w (%[next]),%[word]\n\t"
++        "addx.w %[carry],%[word]\n\t"
++        "move.w %[word],(%[next])\n\t"
++        "addx.w %[carry],%[carry]"
++        : [next] "+&a"(next), [count] "+&d"(count),
++          [carry] "+&d"(carry), [word] "=&d"(word)
++        : [mu] "d"(mu) : "cc", "memory");
++
++    diff = (fp_sword)carry + row[14] - mu;
++    row[14] = (fp_digit)diff;
++    diff = (diff >> DIGIT_BIT) + row[15];
++    row[15] = (fp_digit)diff;
++    return (fp_digit)(mu + (diff >> DIGIT_BIT));
+ }
+ #endif
