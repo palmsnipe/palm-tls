@@ -855,6 +855,9 @@ static void ChaChaCrypt(u32 *stateP, const u8 *inputP, u8 *outputP,
         if (ARMLET_ALIGNED(inputP) && ARMLET_ALIGNED(outputP)) {
             const AliasU32 *inWordsP = (const AliasU32 *)inputP;
             AliasU32 *outWordsP = (AliasU32 *)outputP;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
             for (index = 0; index < 16; index++)
                 outWordsP[index] = inWordsP[index] ^ stream[index];
         } else {

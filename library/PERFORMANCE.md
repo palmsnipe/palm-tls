@@ -1,5 +1,54 @@
 # ARM performance review — November 1, 2026
 
+## Unrolled ChaCha20 record XOR
+
+`ChaChaCrypt` previously walked the 16-word keystream XOR with a
+four-instruction loop body plus a counter, branch and address increments: seven
+instructions per word. The sixteen words are now fully unrolled, so each word
+is one load, one XOR and one store, and the keystream buffer is loaded four
+words at a time.
+
+The ChaCha double-rounds, Poly1305 code, block counter, state layout and
+request ABI are unchanged.
+
+The baseline is the committed **`45f3c4a`** image. Both sides use the same
+supplied Frankenpilot / Tungsten E3 session, native `cp-uarm` binary, **100
+MIPS**, ARMv4T `-Os` flags and 100 Hz clock. The candidate was reproduced by a
+second fresh-session run.
+
+| Operation | Baseline | Candidate | Repeat | Less elapsed time |
+| --- | ---: | ---: | ---: | ---: |
+| ChaCha20-Poly1305, 16 bytes | 195.312 us | 195.312 us | 195.312 us | unchanged |
+| ChaCha20-Poly1305, 512 bytes | 312.500 us | 302.734 us | 302.734 us | 3.1% |
+| ChaCha20-Poly1305, 4096 bytes | 1171.875 us | 1132.812 us | 1171.875 us | 3.2–6.5% |
+| ChaCha20-Poly1305, 16384 bytes | 4218.750 us | 4062.500 us | 4062.500 us | 3.7% |
+
+Large-record throughput rises from about **3793 to 3938 KiB/s** (3.8%). Direct
+instruction counts for the whole call on PXA270 fall from **16,001 to 15,583**
+(512 bytes), **104,257 to 100,927** (4096 bytes) and **406,847 to 393,535**
+(16384 bytes), a 3.3% reduction for the largest record; the 16-byte call is
+unchanged. `ChaChaCrypt` falls from about **127 to 75 instructions per 64-byte
+block**; the remaining work is the 16 loads, 16 XORs, 16 stores and four
+keystream loads. The ten double-rounds of `ChaChaBlock` are already fully
+unrolled and account for about 60% of the call. AES-GCM, P-256, SHA-256 and
+generic-multiply rows are unchanged.
+
+The native image grows from **49,420 to 49,636 bytes** (+216). Its SHA-256 is
+`e5bd1779eeaed6bddbf3504148cb5c0219581784746db5670f19b3538cfb29b1`.
+All existing ARM profiles and both benchmark apps carry this one ARMv4T image;
+no processor-specific PRC is added.
+
+Host C and the extracted image under **TI925T and PXA270** pass 336 AES-GCM
+records, 99 ChaCha records, 1,881 raw-field chains, 69 inversions/maps, 88
+scalar products, 181 double-scalar cases, 432 order preparations, 270 point
+validations, 30 ECDSA valid/tampered cases, 397 Ed25519 field cases and 79
+public-key arithmetic cases, with request alignment offsets 0–3. These are
+emulator instruction-budget results, not physical XScale cache/pipeline
+measurements or end-to-end network throughput.
+
+Raw samples, manifests, comparisons and the candidate source diff are saved
+under [bench/baselines/2026-11-17-arm-chacha-xor](bench/baselines/2026-11-17-arm-chacha-xor).
+
 ## AES key schedule in native words
 
 The AES key schedule is now stored as native little-endian words instead of
