@@ -596,12 +596,28 @@ static void GcmHashBytes(u8 *xP, const u32 table[16][4],
     }
 }
 
+/* Aligned record data is read and written a word at a time. On the host
+ * test, addresses are offsets into a buffer the test provides. */
+typedef u32 __attribute__((may_alias)) AliasU32;
+
+#ifdef PALM_ARMLET_HOST_TEST
+u8 *PalmTlsArmletHostMemory;
+#define ARMLET_POINTER(address) (PalmTlsArmletHostMemory + (address))
+#define ARMLET_ALIGNED(pointer) \
+    ((((unsigned long)(pointer)) & 3UL) == 0UL)
+#else
+#define ARMLET_POINTER(address) ((u8 *)(address))
+#define ARMLET_ALIGNED(pointer) ((((u32)(pointer)) & 3U) == 0U)
+#endif
+
 static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
                   volatile u8 *outputP, u32 keyLength)
 {
     volatile u8 *roundKeyP = stateP + GCM_ROUND_KEY_OFFSET;
     volatile u8 *ghashTableP = stateP + GCM_GHASH_TABLE_OFFSET;
-    u8 counter[16], initial[16], h[16], x[16], block[16], stream[16];
+    u8 counter[16], initial[16], h[16], x[16];
+    u8 block[16] __attribute__((aligned(4)));
+    u8 stream[16] __attribute__((aligned(4)));
     u32 table[16][4];
     u32 operation = stateP[0], length = ((u32)stateP[1] << 8) | stateP[2];
     u32 decrypt = stateP[3], offset, index, aadLength, dataLength;
@@ -638,16 +654,39 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
     dataLength=Load32(stateP+GCM_DATA_LENGTH_OFFSET);
     GhashLoadTable(table, ghashTableP, h);
     if (operation == PALM_TLS_ARMLET_AES_GCM_UPDATE) {
+        u32 aligned = ARMLET_ALIGNED(inputP) && ARMLET_ALIGNED(outputP);
         if (length > PALM_TLS_ARMLET_AES_GCM_CHUNK) return PALM_TLS_ARMLET_ERROR;
         for (offset=0; offset<length; offset+=16) {
             u32 count=length-offset; if (count>16) count=16;
             for (index=16; index>12; index--) if (++counter[index-1] != 0) break;
             AesEncrypt(roundKeyP, counter, stream, rounds);
-            for (index=0; index<16; index++) block[index]=0;
-            for (index=0; index<count; index++) {
-                u8 source=inputP[offset+index];
-                outputP[offset+index]=(u8)(source^stream[index]);
-                block[index]=decrypt ? source : outputP[offset+index];
+            if (count == 16U && aligned) {
+                /* Whole-block fast path: one word per keystream word, with
+                 * the ciphertext kept for GHASH. */
+                const AliasU32 *inWordsP = (const AliasU32 *)(inputP + offset);
+                AliasU32 *outWordsP = (AliasU32 *)(outputP + offset);
+                const AliasU32 *streamWordsP = (const AliasU32 *)stream;
+                AliasU32 *blockWordsP = (AliasU32 *)block;
+                if (decrypt) {
+                    for (index=0; index<4; index++) {
+                        u32 source=inWordsP[index];
+                        outWordsP[index]=source^streamWordsP[index];
+                        blockWordsP[index]=source;
+                    }
+                } else {
+                    for (index=0; index<4; index++) {
+                        u32 cipher=inWordsP[index]^streamWordsP[index];
+                        outWordsP[index]=cipher;
+                        blockWordsP[index]=cipher;
+                    }
+                }
+            } else {
+                for (index=0; index<16; index++) block[index]=0;
+                for (index=0; index<count; index++) {
+                    u8 source=inputP[offset+index];
+                    outputP[offset+index]=(u8)(source^stream[index]);
+                    block[index]=decrypt ? source : outputP[offset+index];
+                }
             }
             GhashBlock(x,table,block);
         }
@@ -668,9 +707,7 @@ static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
 }
 
 /* ChaCha20 and Poly1305 are little-endian, like the ARM, so aligned record
- * data is read and written a word at a time. On the host test, addresses
- * are offsets into a buffer the test provides. */
-typedef u32 __attribute__((may_alias)) AliasU32;
+ * data is read and written a word at a time. */
 
 /* Volatile stores keep secret-buffer clearing in optimized ARM builds. */
 static void ClearSecret(volatile void *pointerP, u32 length)
@@ -681,16 +718,6 @@ static void ClearSecret(volatile void *pointerP, u32 length)
         length--;
     }
 }
-
-#ifdef PALM_ARMLET_HOST_TEST
-u8 *PalmTlsArmletHostMemory;
-#define ARMLET_POINTER(address) (PalmTlsArmletHostMemory + (address))
-#define ARMLET_ALIGNED(pointer) \
-    ((((unsigned long)(pointer)) & 3UL) == 0UL)
-#else
-#define ARMLET_POINTER(address) ((u8 *)(address))
-#define ARMLET_ALIGNED(pointer) ((((u32)(pointer)) & 3U) == 0U)
-#endif
 
 static __inline__ u32 RotateLeft(u32 value, u32 count)
 {

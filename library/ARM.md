@@ -63,7 +63,7 @@ also cleared using volatile stores.
 ChaCha20-Poly1305 is much faster than AES-128-GCM here. Its ten double-rounds
 are fully unrolled, which cuts the emulator instruction count for a 16 KB
 record by about 9%. In the emulator, a 16 KB record takes about 25 ARM
-instructions per byte, against about 1,700 for AES-GCM. It also needs one native call instead of 34. It avoids AES-GCM's
+instructions per byte, against about 122 for AES-GCM. It also needs one native call instead of 34. It avoids AES-GCM's
 secret-dependent table lookups, but constant-time execution is not guaranteed
 on every supported processor: XScale multiplication can terminate early based
 on secret Poly1305 operands. The emulator's instruction count does not measure
@@ -166,7 +166,10 @@ table across bounded 512-byte native calls. Key expansion and table construction
 therefore happen once per record instead of once per chunk. AES rounds operate on
 four 32-bit columns through a 1 KiB Te0 table; the three companion tables are
 obtained by rotating Te0, so SubBytes, ShiftRows and MixColumns share word
-lookups instead of byte loops. The persistent GHASH table is built from aligned 32-bit
+lookups instead of byte loops. Record updates take a word-wide fast path for
+whole blocks when the caller's buffers are 4-byte aligned, and keep the
+byte-wise path for partial blocks and unaligned pointers. The persistent GHASH
+table is built from aligned 32-bit
 words with masked power selection, and each native call decodes it into local
 words; GHASH then shifts and XORs four 32-bit words per nibble, uses a
 16-entry reduction table for the shifted-out low nibble, and runs a fully
