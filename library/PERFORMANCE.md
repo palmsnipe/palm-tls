@@ -1406,39 +1406,55 @@ not a model of physical caches, memory wait states or pipeline timing.
    of both PRCs before installation and verify that they contain identical ARM
    images, so later builds cannot change an in-progress run's inputs.
 
-2. **Record protection is a strong target for download throughput.**
-   [`GhashBlock`](arm/multiply.c) performs 32 nibble steps per 16-byte block;
-   each step shifts a 16-byte accumulator four times before a table XOR. AES
-   also uses byte-oriented rounds. The baseline sustains about **57 KiB/s** on
-   16 KiB records in both directions. Profile GHASH and AES separately next;
-   test a word-oriented GHASH accumulator/reduction and measure the native
-   call/copy costs before enlarging the exchange buffer. A 16 KiB record
-   currently requires 34 calls: START, 32 UPDATEs, FINAL. The benchmark already
-   models that schedule and input/output copies. It does not establish which
-   share of the measured record time belongs to GHASH versus AES.
+2. **Record protection is close to its measured floor.**
+   Rounds 6–10 took AES-GCM on 16 KiB records from 22500 to 17500 us and ChaCha
+   from 4687.5 to 4062.5 us. [`GhashBlock`](arm/multiply.c) is now fully
+   unrolled with a register-resident 128-bit accumulator and a 4-bit table, and
+   accounts for roughly 49% of GCM at about 814 instructions per block. AES is
+   about 66 instructions per round, Poly1305 about 115 instructions per block,
+   and SHA-256 about 2373 instructions per block; measured micro-variants
+   (flat GHASH table, reloaded multiplicands, extra unrolling) changed results
+   by about 1% or less. A 16 KiB record still requires 34 native calls
+   (START, 32 UPDATEs, FINAL). Real transfer throughput is not established by
+   these rows: a 1 MiB download in the emulator is paced by the emulated NetLib
+   path, not by record protection, so treat the native rows as kernel cost.
 
-3. **ECDSA still has substantial work outside native point multiplication.**
-   The pinned wolfSSL `ecc_verify_hash` computes `s^-1 mod n`, `e*w mod n`, and
-   `r*w mod n` before the hook added by
-   [`wolfssl-palm-armlet-math.patch`](../patches/wolfssl/wolfssl-palm-armlet-math.patch).
-   Those operations retain 68K control/reduction/inversion, although the generic
-   multiplication hook may accelerate individual products. Measure these stages
-   and their crossing counts before moving complete order arithmetic or full
-   verification native. The native double-scalar case is 95 ms versus a 300 ms
-   full verification self-test at `-Os`; the inputs differ, so this gap is a
-   profiling lead, not a precise subtraction of overhead. Include RSA chain
-   verification in network-backed measurements: this suite does not cover it.
+3. **ECDSA order arithmetic is already native; the handshake signature phase
+   is now the top warm-handshake cost.**
+   `s^-1 mod n`, `e*s^-1 mod n` and `r*s^-1 mod n` execute in one native call
+   (see [2026-11-01-ecdsa-order](bench/baselines/2026-11-01-ecdsa-order)),
+   which took the self-test TLS 1.2/1.3 verification rows from 300 to 220 ms.
+   In a real TLS 1.3 handshake the exclusive signature phase is still **80–90
+   ms**, while the direct `wc_ecc_verify_hash` benchmark row is about 40 ms.
+   The gap is not explained by the instrumented verify sub-phases (point 20–30
+   ms, DER signature decode 10 ms, order arithmetic 0–10 ms); profile the
+   certificate-key import and `ConfirmSignature` wrapper before changing the
+   native bridge.
 
-4. **Field inversion is a bounded optimization with broad P-256 benefit.**
-   [`FeInverse`](arm/multiply.c) performs 256 squarings and 128 multiplications
-   for the fixed public exponent `p-2`. Replace it experimentally with a verified
-   fixed addition chain. Keep the schedule independent of secret values and
-   retain mapped/unmapped, general-point and verification tests. Mapping alone
-   costs about 8.44 ms; fixed-base raw multiplication costs 27.5 ms, so mapping
-   is roughly one quarter of the measured mapped fixed-base operation. This
-   puts a practical upper bound on its end-to-end benefit.
+4. **Field inversion already uses a fixed addition chain.**
+   [`FeInverse`](arm/multiply.c) now follows Go's `p256Inverse` schedule:
+   255 squarings and 12 multiplications for `p-2`, independent of the field
+   value. The earlier claim of 256 squarings and 128 multiplications was
+   stale. The remaining P-256 cost is [`FeMultiply`](arm/multiply.c) at about
+   568 instructions with 175 stack accesses; forcing operand reloads measured
+   about 0.8% worse, so further gains need a different algorithm or
+   hand-written assembly rather than compiler coaxing.
 
-5. **Separate cold startup from steady-state work.**
+5. **Real handshake profiles shift the next targets to trust setup and P-256.**
+   A local TLS 1.3 fixture (ECDSA P-256, SHA-256, 8-certificate PEM bundle) at
+   100 MIPS measures **330 ms** for a cold full handshake, **210 ms** with a
+   reused context, and **110 ms** resumed. Exclusive phases for the warm full
+   handshake are signature 80–90 ms, key agreement 40–50 ms (import ~10,
+   multiply ~30), key share 30 ms, certificate 20 ms and KDF 20 ms. A cold
+   handshake additionally spends **120 ms in trust setup**, split into about
+   70 ms PEM-to-DER conversion and 40–50 ms certificate decode. The context
+   cache removes that cost only for repeated connections to the same host, so
+   the next structural candidates are a CA store reused across host contexts,
+   converting PEM anchors to DER at install time, and X25519 key agreement to
+   replace the two P-256 ECDHE phases. Raw samples are in
+   [2026-11-17-arm-handshake-profile](bench/baselines/2026-11-17-arm-handshake-profile).
+
+6. **Separate cold startup from steady-state work.**
    [`LoadEngine`](src/tls_loader.c) times resource allocation/relocation **and**
    engine initialization, ARM known-answer tests and key decoding. Its `loadTicks`
    is not pure loader overhead. Protocol switching in the self-test deliberately
@@ -1446,6 +1462,34 @@ not a model of physical caches, memory wait states or pipeline timing.
    session cache. Keep cold load, warm handshake, resumed handshake and transfer
    timings separate. Certificate parsing, RSA, networking and output storage
    remain candidates only after real-request phase measurements identify them.
+
+## Real TLS 1.3 handshake profile
+
+[`run-handshake.py`](bench/run-handshake.py) runs a real TLS 1.3 handshake
+against a local OpenSSL fixture and records exclusive library phases. The
+2026-11-17 run (ECDSA P-256, SHA-256, 8-certificate PEM bundle, 100 MIPS, five
+samples, reproduced in a second run) measured:
+
+| Case | Handshake | Load |
+| --- | ---: | ---: |
+| cold, fresh context | 330 ms | 80 ms |
+| warm, reused context | 210 ms | 0 ms |
+| resumed, reused context | 110 ms | 0 ms |
+| cold, no context reuse | 330 ms | 80 ms |
+| resumed, no context reuse | 230 ms | 0 ms |
+
+Exclusive phases for the warm full handshake: signature **80–90 ms**, key
+agreement **40–50 ms**, key share **30 ms**, certificate 20 ms, KDF 20 ms. A
+cold handshake adds **120 ms of trust setup** (about 70 ms PEM-to-DER and
+40–50 ms certificate decode). ECDHE detail is import 10 ms and variable-base
+multiply 30 ms; load detail is copy 10 ms, relocate 40–50 ms, native 20 ms and
+qualify 10 ms.
+
+Raw samples, the server-side connection log and both runs are in
+[2026-11-17-arm-handshake-profile](bench/baselines/2026-11-17-arm-handshake-profile).
+Palm ticks are 10 ms, so only the 80–120 ms phases support confident
+comparisons. These are emulator instruction-budget measurements, not physical
+device timings.
 
 ## Benchmark coverage and validation
 

@@ -1,0 +1,31 @@
+{
+  "benchmark_version": 1,
+  "benchmark_type": "tls13_handshake",
+  "mips": 100,
+  "device": "auto",
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "emulator_sha256": "f1ce6b0dae71caf60f26694336056974cdf02c51b14429ade7222871d90c13f3",
+  "prc_sha256": "ada42833050e280b80595f33d6dc432878e0cd67965c4f0f9fb6a0d708b6ff8a",
+  "library_sha256": "66d495ed3d070949482c23e2233e344189a50be459da0a1748002cdf06e0ffe1",
+  "arm_image_sha256": "e5bd1779eeaed6bddbf3504148cb5c0219581784746db5670f19b3538cfb29b1",
+  "arm_image_bytes": 49636,
+  "git_revision": "702a3303f58532c839d6949dcd101f437349abda",
+  "git_dirty": true,
+  "command": [
+    "/Users/cyril/projects/cloudpilot-emu/src/uarm/cp-uarm",
+    "--net-native",
+    "--mips",
+    "100",
+    "--no-sound",
+    "--device",
+    "auto",
+    "/Users/cyril/projects/palm-tls/library/bench/baselines/2026-11-17-arm-handshake-profile/repeat1/session.img"
+  ],
+  "local_arm_build_config": "clang --target=armv4t-none-eabi -mcpu=arm7tdmi -march=armv4t -marm -Os",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "a931f335932ae2228edddf94cd7c8a593f146387adeeb0a5f80f82063ddff57e"
+  }
+}
