@@ -93,6 +93,23 @@ static __inline__ void WriteBigEndian32(volatile u8 *bytesP, u32 value)
     bytesP[3] = (u8)value;
 }
 
+/* ARM is little-endian, so native-order words avoid a byte swap. The key
+ * schedule keeps values this way and is read a word at a time when the
+ * caller's request buffer is 4-byte aligned. */
+static __inline__ u32 ReadLittle32(const volatile u8 *bytesP)
+{
+    return (u32)bytesP[0] | ((u32)bytesP[1] << 8) |
+           ((u32)bytesP[2] << 16) | ((u32)bytesP[3] << 24);
+}
+
+static __inline__ void WriteLittle32(volatile u8 *bytesP, u32 value)
+{
+    bytesP[0] = (u8)value;
+    bytesP[1] = (u8)(value >> 8);
+    bytesP[2] = (u8)(value >> 16);
+    bytesP[3] = (u8)(value >> 24);
+}
+
 /* Use 32-bit limbs for ARM's long multiply while keeping packed 16-bit
  * digits in the 68K interface. These paths operate on public RSA values. */
 enum { rsaWords = PALM_TLS_ARMLET_RSA_MAX_DIGITS / 2 };
@@ -383,79 +400,147 @@ static const u32 kAesTe0[256] = {
     0x7bb0b0cbU, 0xa85454fcU, 0x6dbbbbd6U, 0x2c16163aU,
 };
 
+static u32 AesSubWord(u32 word)
+{
+    return ((u32)kAesSbox[word >> 24] << 24) |
+        ((u32)kAesSbox[(word >> 16) & 255U] << 16) |
+        ((u32)kAesSbox[(word >> 8) & 255U] << 8) |
+        kAesSbox[word & 255U];
+}
+
 static void AesExpand(const volatile u8 *keyP, volatile u8 *roundKeyP,
                       u32 keyLength, u32 rounds)
 {
     static const u8 rcon[10] = {1,2,4,8,16,32,64,128,27,54};
-    u32 index, roundConstant = 0;
-    for (index = 0; index < keyLength; index++) roundKeyP[index] = keyP[index];
-    for (index = keyLength; index < 16 * (rounds + 1); index += 4) {
-        u8 a = roundKeyP[index - 4], b = roundKeyP[index - 3];
-        u8 c = roundKeyP[index - 2], d = roundKeyP[index - 1];
-        u32 position = index & (keyLength - 1);
-        if (position == 0) {
-            u8 old = a;
-            a = (u8)(kAesSbox[b] ^ rcon[roundConstant++]);
-            b = kAesSbox[c]; c = kAesSbox[d]; d = kAesSbox[old];
-        } else if (position == 16) {
-            a = kAesSbox[a]; b = kAesSbox[b]; c = kAesSbox[c]; d = kAesSbox[d];
+    u32 words[60];
+    u32 keyWords = keyLength / 4U;
+    u32 totalWords = 4U * (rounds + 1U);
+    u32 index, position = 0, roundConstant = 0;
+    for (index = 0; index < keyWords; index++)
+        words[index] = ReadBigEndian32(keyP + index * 4U);
+    for (index = keyWords; index < totalWords; index++) {
+        u32 temp = words[index - 1U];
+        if (position == 0U) {
+            temp = (temp << 8) | (temp >> 24);
+            temp = AesSubWord(temp) ^ ((u32)rcon[roundConstant++] << 24);
+        } else if (keyWords > 6U && position == 4U) {
+            temp = AesSubWord(temp);
         }
-        roundKeyP[index] = (u8)(roundKeyP[index - keyLength] ^ a);
-        roundKeyP[index + 1] = (u8)(roundKeyP[index + 1 - keyLength] ^ b);
-        roundKeyP[index + 2] = (u8)(roundKeyP[index + 2 - keyLength] ^ c);
-        roundKeyP[index + 3] = (u8)(roundKeyP[index + 3 - keyLength] ^ d);
+        words[index] = words[index - keyWords] ^ temp;
+        if (++position == keyWords) position = 0;
     }
+    for (index = 0; index < totalWords; index++)
+        WriteLittle32(roundKeyP + index * 4U, words[index]);
 }
+
+/* Aligned record data is read and written a word at a time. On the host
+ * test, addresses are offsets into a buffer the test provides. */
+typedef u32 __attribute__((may_alias)) AliasU32;
+
+#ifdef PALM_ARMLET_HOST_TEST
+u8 *PalmTlsArmletHostMemory;
+#define ARMLET_POINTER(address) (PalmTlsArmletHostMemory + (address))
+#define ARMLET_ALIGNED(pointer) \
+    ((((unsigned long)(pointer)) & 3UL) == 0UL)
+#else
+#define ARMLET_POINTER(address) ((u8 *)(address))
+#define ARMLET_ALIGNED(pointer) ((((u32)(pointer)) & 3U) == 0U)
+#endif
 
 /* Four 32-bit columns per round. SubBytes, ShiftRows and MixColumns become
  * table lookups plus word rotations; the final round uses the S-box directly
  * because it has no MixColumns step. */
+/* Final round: SubBytes and ShiftRows without MixColumns. */
+static __inline__ void AesFinalRound(u32 s0, u32 s1, u32 s2, u32 s3,
+                                     u32 k0, u32 k1, u32 k2, u32 k3,
+                                     u8 *outputP)
+{
+    u32 t0 = ((u32)kAesSbox[s0 >> 24] << 24) |
+        ((u32)kAesSbox[(s1 >> 16) & 255U] << 16) |
+        ((u32)kAesSbox[(s2 >> 8) & 255U] << 8) | kAesSbox[s3 & 255U];
+    u32 t1 = ((u32)kAesSbox[s1 >> 24] << 24) |
+        ((u32)kAesSbox[(s2 >> 16) & 255U] << 16) |
+        ((u32)kAesSbox[(s3 >> 8) & 255U] << 8) | kAesSbox[s0 & 255U];
+    u32 t2 = ((u32)kAesSbox[s2 >> 24] << 24) |
+        ((u32)kAesSbox[(s3 >> 16) & 255U] << 16) |
+        ((u32)kAesSbox[(s0 >> 8) & 255U] << 8) | kAesSbox[s1 & 255U];
+    u32 t3 = ((u32)kAesSbox[s3 >> 24] << 24) |
+        ((u32)kAesSbox[(s0 >> 16) & 255U] << 16) |
+        ((u32)kAesSbox[(s1 >> 8) & 255U] << 8) | kAesSbox[s2 & 255U];
+    WriteBigEndian32(outputP, t0 ^ k0);
+    WriteBigEndian32(outputP + 4, t1 ^ k1);
+    WriteBigEndian32(outputP + 8, t2 ^ k2);
+    WriteBigEndian32(outputP + 12, t3 ^ k3);
+}
+
 static void AesEncrypt(const volatile u8 *roundKeyP, const u8 *inputP,
                        u8 *outputP, u32 rounds)
 {
     u32 s0, s1, s2, s3, round;
-    s0 = ReadBigEndian32(inputP) ^ ReadBigEndian32(roundKeyP);
-    s1 = ReadBigEndian32(inputP + 4) ^ ReadBigEndian32(roundKeyP + 4);
-    s2 = ReadBigEndian32(inputP + 8) ^ ReadBigEndian32(roundKeyP + 8);
-    s3 = ReadBigEndian32(inputP + 12) ^ ReadBigEndian32(roundKeyP + 12);
-    for (round = 1; round < rounds; round++) {
-        const volatile u8 *rk = roundKeyP + round * 16U;
-        u32 t0 = kAesTe0[s0 >> 24] ^
-            RotateRight(kAesTe0[(s1 >> 16) & 255U], 8) ^
-            RotateRight(kAesTe0[(s2 >> 8) & 255U], 16) ^
-            RotateRight(kAesTe0[s3 & 255U], 24) ^ ReadBigEndian32(rk);
-        u32 t1 = kAesTe0[s1 >> 24] ^
-            RotateRight(kAesTe0[(s2 >> 16) & 255U], 8) ^
-            RotateRight(kAesTe0[(s3 >> 8) & 255U], 16) ^
-            RotateRight(kAesTe0[s0 & 255U], 24) ^ ReadBigEndian32(rk + 4);
-        u32 t2 = kAesTe0[s2 >> 24] ^
-            RotateRight(kAesTe0[(s3 >> 16) & 255U], 8) ^
-            RotateRight(kAesTe0[(s0 >> 8) & 255U], 16) ^
-            RotateRight(kAesTe0[s1 & 255U], 24) ^ ReadBigEndian32(rk + 8);
-        u32 t3 = kAesTe0[s3 >> 24] ^
-            RotateRight(kAesTe0[(s0 >> 16) & 255U], 8) ^
-            RotateRight(kAesTe0[(s1 >> 8) & 255U], 16) ^
-            RotateRight(kAesTe0[s2 & 255U], 24) ^ ReadBigEndian32(rk + 12);
-        s0 = t0; s1 = t1; s2 = t2; s3 = t3;
-    }
-    {
-        const volatile u8 *rk = roundKeyP + rounds * 16U;
-        u32 t0 = ((u32)kAesSbox[s0 >> 24] << 24) |
-            ((u32)kAesSbox[(s1 >> 16) & 255U] << 16) |
-            ((u32)kAesSbox[(s2 >> 8) & 255U] << 8) | kAesSbox[s3 & 255U];
-        u32 t1 = ((u32)kAesSbox[s1 >> 24] << 24) |
-            ((u32)kAesSbox[(s2 >> 16) & 255U] << 16) |
-            ((u32)kAesSbox[(s3 >> 8) & 255U] << 8) | kAesSbox[s0 & 255U];
-        u32 t2 = ((u32)kAesSbox[s2 >> 24] << 24) |
-            ((u32)kAesSbox[(s3 >> 16) & 255U] << 16) |
-            ((u32)kAesSbox[(s0 >> 8) & 255U] << 8) | kAesSbox[s1 & 255U];
-        u32 t3 = ((u32)kAesSbox[s3 >> 24] << 24) |
-            ((u32)kAesSbox[(s0 >> 16) & 255U] << 16) |
-            ((u32)kAesSbox[(s1 >> 8) & 255U] << 8) | kAesSbox[s2 & 255U];
-        WriteBigEndian32(outputP, t0 ^ ReadBigEndian32(rk));
-        WriteBigEndian32(outputP + 4, t1 ^ ReadBigEndian32(rk + 4));
-        WriteBigEndian32(outputP + 8, t2 ^ ReadBigEndian32(rk + 8));
-        WriteBigEndian32(outputP + 12, t3 ^ ReadBigEndian32(rk + 12));
+    if (ARMLET_ALIGNED(roundKeyP)) {
+        /* Native-order key schedule: one word load per column. */
+        const AliasU32 *rkP = (const AliasU32 *)roundKeyP;
+        s0 = ReadBigEndian32(inputP) ^ rkP[0];
+        s1 = ReadBigEndian32(inputP + 4) ^ rkP[1];
+        s2 = ReadBigEndian32(inputP + 8) ^ rkP[2];
+        s3 = ReadBigEndian32(inputP + 12) ^ rkP[3];
+        for (round = 1; round < rounds; round++) {
+            const AliasU32 *rk = rkP + round * 4U;
+            u32 t0 = kAesTe0[s0 >> 24] ^
+                RotateRight(kAesTe0[(s1 >> 16) & 255U], 8) ^
+                RotateRight(kAesTe0[(s2 >> 8) & 255U], 16) ^
+                RotateRight(kAesTe0[s3 & 255U], 24) ^ rk[0];
+            u32 t1 = kAesTe0[s1 >> 24] ^
+                RotateRight(kAesTe0[(s2 >> 16) & 255U], 8) ^
+                RotateRight(kAesTe0[(s3 >> 8) & 255U], 16) ^
+                RotateRight(kAesTe0[s0 & 255U], 24) ^ rk[1];
+            u32 t2 = kAesTe0[s2 >> 24] ^
+                RotateRight(kAesTe0[(s3 >> 16) & 255U], 8) ^
+                RotateRight(kAesTe0[(s0 >> 8) & 255U], 16) ^
+                RotateRight(kAesTe0[s1 & 255U], 24) ^ rk[2];
+            u32 t3 = kAesTe0[s3 >> 24] ^
+                RotateRight(kAesTe0[(s0 >> 16) & 255U], 8) ^
+                RotateRight(kAesTe0[(s1 >> 8) & 255U], 16) ^
+                RotateRight(kAesTe0[s2 & 255U], 24) ^ rk[3];
+            s0 = t0; s1 = t1; s2 = t2; s3 = t3;
+        }
+        {
+            const AliasU32 *rk = rkP + rounds * 4U;
+            AesFinalRound(s0, s1, s2, s3, rk[0], rk[1], rk[2], rk[3],
+                          outputP);
+        }
+    } else {
+        /* Byte-addressed request: keep the original byte-wise reads. */
+        s0 = ReadBigEndian32(inputP) ^ ReadLittle32(roundKeyP);
+        s1 = ReadBigEndian32(inputP + 4) ^ ReadLittle32(roundKeyP + 4);
+        s2 = ReadBigEndian32(inputP + 8) ^ ReadLittle32(roundKeyP + 8);
+        s3 = ReadBigEndian32(inputP + 12) ^ ReadLittle32(roundKeyP + 12);
+        for (round = 1; round < rounds; round++) {
+            const volatile u8 *rk = roundKeyP + round * 16U;
+            u32 t0 = kAesTe0[s0 >> 24] ^
+                RotateRight(kAesTe0[(s1 >> 16) & 255U], 8) ^
+                RotateRight(kAesTe0[(s2 >> 8) & 255U], 16) ^
+                RotateRight(kAesTe0[s3 & 255U], 24) ^ ReadLittle32(rk);
+            u32 t1 = kAesTe0[s1 >> 24] ^
+                RotateRight(kAesTe0[(s2 >> 16) & 255U], 8) ^
+                RotateRight(kAesTe0[(s3 >> 8) & 255U], 16) ^
+                RotateRight(kAesTe0[s0 & 255U], 24) ^ ReadLittle32(rk + 4);
+            u32 t2 = kAesTe0[s2 >> 24] ^
+                RotateRight(kAesTe0[(s3 >> 16) & 255U], 8) ^
+                RotateRight(kAesTe0[(s0 >> 8) & 255U], 16) ^
+                RotateRight(kAesTe0[s1 & 255U], 24) ^ ReadLittle32(rk + 8);
+            u32 t3 = kAesTe0[s3 >> 24] ^
+                RotateRight(kAesTe0[(s0 >> 16) & 255U], 8) ^
+                RotateRight(kAesTe0[(s1 >> 8) & 255U], 16) ^
+                RotateRight(kAesTe0[s2 & 255U], 24) ^ ReadLittle32(rk + 12);
+            s0 = t0; s1 = t1; s2 = t2; s3 = t3;
+        }
+        {
+            const volatile u8 *rk = roundKeyP + rounds * 16U;
+            AesFinalRound(s0, s1, s2, s3, ReadLittle32(rk),
+                          ReadLittle32(rk + 4), ReadLittle32(rk + 8),
+                          ReadLittle32(rk + 12), outputP);
+        }
     }
 }
 
@@ -595,20 +680,6 @@ static void GcmHashBytes(u8 *xP, const u32 table[16][4],
         GhashBlock(xP, table, block);
     }
 }
-
-/* Aligned record data is read and written a word at a time. On the host
- * test, addresses are offsets into a buffer the test provides. */
-typedef u32 __attribute__((may_alias)) AliasU32;
-
-#ifdef PALM_ARMLET_HOST_TEST
-u8 *PalmTlsArmletHostMemory;
-#define ARMLET_POINTER(address) (PalmTlsArmletHostMemory + (address))
-#define ARMLET_ALIGNED(pointer) \
-    ((((unsigned long)(pointer)) & 3UL) == 0UL)
-#else
-#define ARMLET_POINTER(address) ((u8 *)(address))
-#define ARMLET_ALIGNED(pointer) ((((u32)(pointer)) & 3U) == 0U)
-#endif
 
 static u32 AesGcm(volatile u8 *stateP, const volatile u8 *inputP,
                   volatile u8 *outputP, u32 keyLength)
