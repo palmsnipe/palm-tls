@@ -37,6 +37,7 @@ patches=(
   wolfssl-palm-parsed-ca-cache.patch
   wolfssl-palm-m68k-tfm.patch
   wolfssl-palm-m68k-tfm-carries.patch
+  wolfssl-palm-m68k-tfm-workspace.patch
   wolfssl-palm-armlet-chacha.patch
   wolfssl-palm-16bit-int64.patch
   wolfssl-palm-client-auth.patch
