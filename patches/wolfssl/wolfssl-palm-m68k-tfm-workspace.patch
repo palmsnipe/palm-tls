@@ -4,6 +4,7 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 @@ -671,6 +671,38 @@
  }
  #endif
+ 
 +#if defined(PALM_TFM_68K) && defined(WC_DECLARE_VAR_IS_HEAP_ALLOC) && \
 +    !defined(ALT_ECC_SIZE) && !defined(HAVE_WOLF_BIGINT)
 +#define PALM_SMALL_COMBA
@@ -47,8 +48,11 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 +   fp_digit small[PALM_COMBA_WORDS];
 +   fp_digit* words = small;
 +#endif
+ 
     if (A->used + B->used >= FP_SIZE) return FP_VAL;
+ 
     IF_HAVE_INTEL_MULX(ret = fp_mul_comba_mulx(A, B, C), return ret) ;
+ 
 +#ifdef PALM_SMALL_COMBA
 +   if (A->used + B->used > PALM_COMBA_WORDS) {
 +#endif
@@ -57,9 +61,11 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 +#ifdef PALM_SMALL_COMBA
 +   }
 +#endif
+ 
     COMBA_START;
  #ifndef PALM_TFM_68K
 @@ -710,10 +752,18 @@
+ 
     /* Always take branch to use tmp variable. This avoids a cache attack for
      * determining if C equals A */
 +#ifdef PALM_SMALL_COMBA
@@ -74,9 +80,11 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
        dst = tmp;
     }
 +#endif
+ 
     for (ix = 0; ix < pa; ix++) {
        /* get offsets into the two bignums */
 @@ -745,12 +795,23 @@
+ 
        /* store term */
  #ifdef PALM_TFM_68K
 +#ifdef PALM_SMALL_COMBA
@@ -96,7 +104,9 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 +      return FP_OKAY;
 +  }
 +#endif
+ 
    dst->used = pa;
+ 
 @@ -3575,9 +3636,19 @@
  #endif
     fp_int    *dst;
@@ -115,11 +125,13 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 +#ifdef PALM_SMALL_COMBA
 +   }
 +#endif
+ 
    /* get size of output and trim */
    pa = A->used + A->used;
 @@ -3591,6 +3662,10 @@
    COMBA_CLEAR;
  #endif
+ 
 +#ifdef PALM_SMALL_COMBA
 +  dst = tmp;
 +  if (tmp != NULL) {
@@ -135,9 +147,11 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 +     words = dst->dp;
 +  }
 +#endif
+ 
    for (ix = 0; ix < pa; ix++) {
        int      tx, ty, iy;
 @@ -3648,13 +3727,24 @@
+ 
        /* store it */
  #ifdef PALM_TFM_68K
 +#ifdef PALM_SMALL_COMBA
@@ -149,6 +163,7 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
        COMBA_STORE(dst->dp[ix]);
  #endif
    }
+ 
    COMBA_FINI;
 +
 +#ifdef PALM_SMALL_COMBA
@@ -157,6 +172,7 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 +     return FP_OKAY;
 +  }
 +#endif
+ 
    /* setup dest */
    dst->used = pa;
 @@ -3936,18 +4026,19 @@
@@ -168,6 +184,7 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
      fp_digit* next = row + 7;
 -    fp_sword diff;
 +    fp_word tail, amount;
+ 
      row[0] = 0;
      /* Carry the additions from words 6 and 12 through word 13. */
      __asm__ volatile(
@@ -190,6 +207,7 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 +        : [next] "+&a"(next),
            [carry] "+&d"(carry), [word] "=&d"(word)
          : [mu] "d"(mu) : "cc", "memory");
+ 
 -    diff = (fp_sword)carry + row[14] - mu;
 -    row[14] = (fp_digit)diff;
 -    diff = (diff >> DIGIT_BIT) + row[15];
@@ -211,3 +229,4 @@ diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
 +    return mu;
  }
  #endif
+ 
