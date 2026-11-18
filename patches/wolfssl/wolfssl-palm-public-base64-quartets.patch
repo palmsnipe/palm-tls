@@ -1,0 +1,37 @@
+diff --git a/wolfcrypt/src/coding.c b/wolfcrypt/src/coding.c
+--- a/wolfcrypt/src/coding.c
++++ b/wolfcrypt/src/coding.c
+@@ -183,6 +183,33 @@
+         int pad4 = 0;
+         byte b1, b2, b3;
+         byte e1, e2, e3, e4;
++
++#ifdef PALM_WOLFSSL_PUBLIC_CA_PEM
++        /* PEM uses runs of complete, unpadded quartets. Decode those without
++         * calling the whitespace parser for each byte. Keep the existing
++         * path for padding, whitespace, invalid input and short output. */
++        e1 = in[j];
++        e2 = in[j + 1];
++        e3 = in[j + 2];
++        e4 = in[j + 3];
++        if (e1 >= BASE64_MIN && e1 <= maxIdx &&
++            e2 >= BASE64_MIN && e2 <= maxIdx &&
++            e3 >= BASE64_MIN && e3 <= maxIdx &&
++            e4 >= BASE64_MIN && e4 <= maxIdx && i + 3 <= *outLen) {
++            b1 = Base64_Char2Val_by_table(e1);
++            b2 = Base64_Char2Val_by_table(e2);
++            b3 = Base64_Char2Val_by_table(e3);
++            byte fourth = Base64_Char2Val_by_table(e4);
++            if ((b1 | b2 | b3 | fourth) < 64) {
++                out[i++] = (byte)((b1 << 2) | (b2 >> 4));
++                out[i++] = (byte)(((b2 & 0xF) << 4) | (b3 >> 2));
++                out[i++] = (byte)(((b3 & 0x3) << 6) | fourth);
++                j += 4;
++                inLen -= 4;
++                continue;
++            }
++        }
++#endif
+ 
+         if ((ret = Base64_SkipNewline(in, &inLen, &j)) != 0) {
+             if (ret == WC_NO_ERR_TRACE(BUFFER_E)) {

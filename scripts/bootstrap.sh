@@ -33,6 +33,7 @@ patches=(
   wolfssl-palm-p256-validation.patch
   wolfssl-palm-trust-profile.patch
   wolfssl-palm-public-ca-pem.patch
+  wolfssl-palm-public-base64-quartets.patch
   wolfssl-palm-armlet-chacha.patch
   wolfssl-palm-16bit-int64.patch
   wolfssl-palm-client-auth.patch
