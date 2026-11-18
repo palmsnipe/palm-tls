@@ -35,9 +35,6 @@ patches=(
   wolfssl-palm-public-ca-pem.patch
   wolfssl-palm-public-base64-quartets.patch
   wolfssl-palm-parsed-ca-cache.patch
-  wolfssl-palm-m68k-tfm.patch
-  wolfssl-palm-m68k-tfm-carries.patch
-  wolfssl-palm-m68k-tfm-workspace.patch
   wolfssl-palm-armlet-chacha.patch
   wolfssl-palm-16bit-int64.patch
   wolfssl-palm-client-auth.patch
@@ -49,6 +46,9 @@ patches=(
   wolfssl-palm-armlet-shamir.patch
   wolfssl-palm-ipv4-san.patch
   wolfssl-palm-projective-verify.patch
+  wolfssl-palm-m68k-tfm.patch
+  wolfssl-palm-m68k-tfm-carries.patch
+  wolfssl-palm-m68k-tfm-workspace.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
