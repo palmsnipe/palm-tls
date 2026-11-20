@@ -1,0 +1,78 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -9148,6 +9148,65 @@
+     return err;
+ }
+ 
++/* Double a finite P-256 point in place with a = -3. Reuse the public
++ * verification scalars as scratch once their window digits are available.
++ * This uses the same field operations as the generic Jacobian doubling. */
++static int PalmPublicDouble(ecc_point* point, mp_int* modulus, mp_digit mp,
++    mp_int* t1, mp_int* t2)
++{
++    mp_int* x = point->x;
++    mp_int* y = point->y;
++    mp_int* z = point->z;
++    int err;
++
++    if (mp_iszero(y))
++        return ecc_set_point_infinity(point);
++
++    /* Z' = 2YZ. Compute the slope numerator from the original Z. */
++    err = PalmPublicSquare(z, t1, modulus, mp);
++    if (err == MP_OKAY)
++        err = PalmPublicProduct(z, y, z, modulus, mp);
++    if (err == MP_OKAY)
++        err = mp_addmod_ct(z, z, modulus, z);
++    if (err == MP_OKAY)
++        err = mp_submod_ct(x, t1, modulus, t2);
++    if (err == MP_OKAY)
++        err = mp_addmod_ct(x, t1, modulus, t1);
++    if (err == MP_OKAY)
++        err = PalmPublicProduct(t1, t2, t2, modulus, mp);
++    if (err == MP_OKAY)
++        err = mp_addmod_ct(t2, t2, modulus, t1);
++    if (err == MP_OKAY)
++        err = mp_addmod_ct(t1, t2, modulus, t1);
++
++    /* T2 = 8Y^4 and Y becomes 4XY^2. */
++    if (err == MP_OKAY)
++        err = mp_addmod_ct(y, y, modulus, y);
++    if (err == MP_OKAY)
++        err = PalmPublicSquare(y, y, modulus, mp);
++    if (err == MP_OKAY)
++        err = PalmPublicSquare(y, t2, modulus, mp);
++    if (err == MP_OKAY)
++        err = mp_div_2_mod_ct(t2, modulus, t2);
++    if (err == MP_OKAY)
++        err = PalmPublicProduct(y, x, y, modulus, mp);
++
++    /* X' = T1^2 - 2(4XY^2) and Y' = T1(4XY^2 - X') - T2. */
++    if (err == MP_OKAY)
++        err = PalmPublicSquare(t1, x, modulus, mp);
++    if (err == MP_OKAY)
++        err = mp_submod_ct(x, y, modulus, x);
++    if (err == MP_OKAY)
++        err = mp_submod_ct(x, y, modulus, x);
++    if (err == MP_OKAY)
++        err = mp_submod_ct(y, x, modulus, y);
++    if (err == MP_OKAY)
++        err = PalmPublicProduct(y, t1, y, modulus, mp);
++    if (err == MP_OKAY)
++        err = mp_submod_ct(y, t2, modulus, y);
++    return err;
++}
++
+ /* Batch-invert the Z coordinates, then use the mixed-add sentinel Z == 0.
+  * The accumulator uses an explicit Montgomery Z, including after a copy. */
+ static int PalmPublicNormalize(ecc_point** table, ecc_point* scratch,
+@@ -9264,7 +9323,7 @@
+ 
+     for (i = PALM_P256_SCALAR_BITS; i >= 0 && err == MP_OKAY; --i) {
+         if (!PalmPublicIsInfinity(result))
+-            err = ecc_projective_dbl_point_safe(result, result, a, modulus, mp);
++            err = PalmPublicDouble(result, modulus, mp, u1, u2);
+         if (err == MP_OKAY && left[i] != 0)
+             err = PalmPublicAddDigit(result, table, left[i], a, modulus, mp, &one);
+         if (err == MP_OKAY && right[i] != 0)

@@ -1,0 +1,73 @@
+{
+  "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+  "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+  "prc_sha256": "57ff124cd021b203e880e189820bbea7891b7c7ff276fd8f54deecec41d64b36",
+  "git_revision": "43c43560ea0069c2e29000ada6cd4c1d305f104a",
+  "dragonball_overclock": 16,
+  "session": "m515.img, PalmM515, Palm OS 4.1",
+  "toolchain": "m68k-none-elf-gcc 16.1.0, -m68000 -mshort -Os for wolfSSL",
+  "wolfssl": "5.9.4 (3c5eead44904df64e6a5a1f4ebdce377d35a849a)",
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "956bd2d265a0c780fbe255835dbf6c437b6bed2e6aeb5c6dee799c58fa0673aa",
+    "leaf_sha256": "aea233816457e554350bbd55c4e553891e0a0a553b3fd52ac8458c40b4fe8d8b",
+    "port": 23443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026"
+  },
+  "fixture_protocol": "TLS 1.3 / TLS_AES_128_GCM_SHA256 / P-256",
+  "patch_sha256_in_build_order": {
+    "wolfssl-palm-m68k-clear.patch": "dbb01ecb08b71dbfd89e0683f9f76fe5cead0a06efb2cc837ff73413a0b7ab86",
+    "wolfssl-palm-m68k-comba.patch": "860cfbc8e38c177da46ac1ac3daf9b00119a1e9678f9d50fcbc41d321b161a75",
+    "wolfssl-palm-m68k-field.patch": "71156aac48c2dd58569fd81e8592b8b237e5f08d4628bf20a02edcc863ee2318",
+    "wolfssl-palm-m68k-select.patch": "e213b26e163c12850f79e43e923a2142574bbd642809e58a4da0246d71e2216b",
+    "wolfssl-palm-m68k-init.patch": "c9c98e8f6e0afbda92be88c8ea7f132caa136b40bb62621fb8164db5c5f9026a"
+  },
+  "runs": {
+    "baseline": {
+      "last_patch": null,
+      "library_sha256": "c820549c8525ac6118b915787d300aa3d8ff4708104a486c7dacf636a389434f",
+      "library_bytes": 625787
+    },
+    "round-1": {
+      "last_patch": "wolfssl-palm-m68k-clear.patch",
+      "library_sha256": "04aab877126d001f7be973f9371cb530318cef35bed4e8cbf41376f6a8fa202b",
+      "library_bytes": 625841
+    },
+    "round-2": {
+      "last_patch": "wolfssl-palm-m68k-comba.patch",
+      "library_sha256": "c59155fb4d4c5e32b629acddc043a3f5868d4d8425991ae762762f551e588c91",
+      "library_bytes": 626027
+    },
+    "round-3": {
+      "last_patch": "wolfssl-palm-m68k-field.patch",
+      "library_sha256": "102e031ae6a4679babdeb9db32ae62fd9f08ddf4150aaf87c16eadbbfff03026",
+      "library_bytes": 626259
+    },
+    "round-4": {
+      "last_patch": "wolfssl-palm-m68k-select.patch",
+      "library_sha256": "f5b2852b4e9e8dea8c4743e39b64a01e99c63f861f94b61863d9d95e25403bf6",
+      "library_bytes": 626127
+    },
+    "round-5": {
+      "last_patch": "wolfssl-palm-m68k-init.patch",
+      "library_sha256": "3cf9bf431f182f46b15d783bbdf88f55456c558afaba48f7994947bebfbb88a7",
+      "library_bytes": 625887
+    },
+    "baseline-repeat": {
+      "last_patch": null,
+      "library_sha256": "c820549c8525ac6118b915787d300aa3d8ff4708104a486c7dacf636a389434f",
+      "library_bytes": 625787
+    },
+    "round-4-repeat": {
+      "last_patch": "wolfssl-palm-m68k-select.patch",
+      "library_sha256": "f5b2852b4e9e8dea8c4743e39b64a01e99c63f861f94b61863d9d95e25403bf6",
+      "library_bytes": 626127
+    },
+    "round-5-repeat": {
+      "last_patch": "wolfssl-palm-m68k-init.patch",
+      "library_sha256": "3cf9bf431f182f46b15d783bbdf88f55456c558afaba48f7994947bebfbb88a7",
+      "library_bytes": 625887
+    }
+  }
+}

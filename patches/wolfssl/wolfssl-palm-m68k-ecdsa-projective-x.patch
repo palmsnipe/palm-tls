@@ -1,0 +1,95 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -9202,11 +9202,38 @@
+     return err;
+ }
+ 
++/* X/Z^2 agrees with r modulo n iff X equals r*Z^2 or (r+n)*Z^2 in
++ * the field. P-256 has n < p < 2n, so there are at most two candidates.
++ * Z^2 is in Montgomery form, as is the product by an ordinary scalar. */
++static int PalmPublicCheckX(ecc_point* point, mp_int* r, mp_int* order,
++    mp_int* modulus, mp_digit mp, int* verified)
++{
++    int err;
++    if (PalmPublicIsInfinity(point) || mp_iszero(point->z))
++        return MP_OKAY;
++    err = PalmPublicSquare(point->z, point->z, modulus, mp);
++    if (err == MP_OKAY)
++        err = mp_mulmod(r, point->z, modulus, point->y);
++    if (err != MP_OKAY)
++        return err;
++    if (mp_cmp(point->x, point->y) == MP_EQ) {
++        *verified = 1;
++        return MP_OKAY;
++    }
++    err = mp_add(r, order, point->y);
++    if (err != MP_OKAY || mp_cmp(point->y, modulus) != MP_LT)
++        return err;
++    err = mp_mulmod(point->y, point->z, modulus, point->y);
++    if (err == MP_OKAY && mp_cmp(point->x, point->y) == MP_EQ)
++        *verified = 1;
++    return err;
++}
++
+ /* Only ECDSA verification calls this path. All scalars and points are public.
+  * Convert both input points before writing result: it may alias either input. */
+-static int __attribute__((noinline)) PalmP256PublicMul2Add(ecc_point* base, mp_int* u1,
++static int __attribute__((noinline)) PalmP256PublicVerify(ecc_point* base, mp_int* u1,
+     ecc_point* peer, mp_int* u2, ecc_point* result, mp_int* a,
+-    mp_int* modulus, void* heap)
++    mp_int* modulus, mp_int* order, mp_int* r, int* verified, void* heap)
+ {
+     signed char left[PALM_P256_SCALAR_BITS + 1], right[PALM_P256_SCALAR_BITS + 1];
+     ecc_point* table[2 * PALM_P256_ODD_POINTS] = {NULL};
+@@ -9244,7 +9271,7 @@
+             err = PalmPublicAddDigit(result, peerTable, right[i], a, modulus, mp, &one);
+     }
+     if (err == MP_OKAY)
+-        err = ecc_map(result, modulus, mp);
++        err = PalmPublicCheckX(result, r, order, modulus, mp, verified);
+     for (i = 0; i < 2 * PALM_P256_ODD_POINTS; ++i)
+         wc_ecc_del_point_ex(table[i], heap);
+     return err;
+@@ -9998,6 +10025,8 @@
+    mp_int*    u2 = NULL;     /* Will be w. */
+ #ifdef PALM_WOLFSSL_ARMLET_ORDER
+    int palmOrderReady = 0;
++#endif
++#if defined(PALM_WOLFSSL_ARMLET_ORDER) || defined(PALM_ECC_PUBLIC_68K)
+    int palmVerifyDone = 0;
+ #endif
+ 
+@@ -10327,9 +10356,11 @@
+     /* use Shamir's trick to compute u1*mG + u2*mQ using half the doubles */
+     if (err == MP_OKAY) {
+ #ifdef PALM_ECC_PUBLIC_68K
+-        if (key->dp->id == ECC_SECP256R1)
+-            err = PalmP256PublicMul2Add(mG, u1, mQ, u2, mG, curve->Af,
+-                curve->prime, key->heap);
++        if (key->dp->id == ECC_SECP256R1) {
++            err = PalmP256PublicVerify(mG, u1, mQ, u2, mG, curve->Af,
++                curve->prime, curve->order, r, res, key->heap);
++            palmVerifyDone = 1;
++        }
+         else
+ #endif
+         {
+@@ -10348,7 +10379,7 @@
+ #endif
+    /* v = X_x1 mod n */
+    if (err == MP_OKAY
+-#ifdef PALM_WOLFSSL_ARMLET_ORDER
++#if defined(PALM_WOLFSSL_ARMLET_ORDER) || defined(PALM_ECC_PUBLIC_68K)
+        && !palmVerifyDone
+ #endif
+    ) {
+@@ -10361,7 +10392,7 @@
+ 
+    /* does v == r */
+    if (err == MP_OKAY
+-#ifdef PALM_WOLFSSL_ARMLET_ORDER
++#if defined(PALM_WOLFSSL_ARMLET_ORDER) || defined(PALM_ECC_PUBLIC_68K)
+        && !palmVerifyDone
+ #endif
+    ) {

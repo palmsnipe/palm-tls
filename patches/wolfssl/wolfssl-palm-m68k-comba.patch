@@ -1,0 +1,39 @@
+diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
+--- a/wolfcrypt/src/tfm.c
++++ b/wolfcrypt/src/tfm.c
+@@ -646,17 +646,22 @@
+ 
+     if (count <= 0)
+         return;
+-    --count;
+     ++right;
+     #define PALM_COMBA_ADD \
+         "add.l %[product],%[lo]\n\t" \
+         "addx.w %[zero],%[hi]\n\t"
++    #define PALM_COMBA_STEP(accumulate) \
++        "move.w (%[left])+,%[product]\n\t" \
++        "mulu.w -(%[right]),%[product]\n\t" \
++        accumulate
+     #define PALM_COMBA_COLUMN(accumulate) \
+         __asm__ ( \
+-            "1: move.w (%[left])+,%[product]\n\t" \
+-            "mulu.w -(%[right]),%[product]\n\t" \
+-            accumulate \
+-            "dbra %[count],1b" \
++            "lsr.w #1,%[count]\n\t" \
++            "bcc.s 2f\n\t" \
++            PALM_COMBA_STEP(accumulate) \
++            "bra.s 2f\n" \
++            "1: " PALM_COMBA_STEP(accumulate) PALM_COMBA_STEP(accumulate) \
++            "2: dbra %[count],1b" \
+             : [left] "+&a"(left), [right] "+&a"(right), [count] "+&d"(count), \
+               [lo] "+&d"(*lo), [hi] "+&d"(*hi), [product] "=&d"(product) \
+             : [zero] "d"((fp_digit)0) : "cc", "memory")
+@@ -667,6 +672,7 @@
+         PALM_COMBA_COLUMN(PALM_COMBA_ADD);
+     }
+     #undef PALM_COMBA_COLUMN
++    #undef PALM_COMBA_STEP
+     #undef PALM_COMBA_ADD
+ }
+ #endif

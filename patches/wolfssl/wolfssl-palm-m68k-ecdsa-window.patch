@@ -1,0 +1,132 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -9029,6 +9029,109 @@
+     return err;
+ }
+ 
++#if defined(__m68k__) && defined(WC_16BIT_CPU) && defined(USE_FAST_MATH) && \
++    defined(WOLFSSL_PALM_STATELESS_INIT) && !defined(PALM_WOLFSSL_ARMLET_MATH) && \
++    !defined(ALT_ECC_SIZE) && !defined(FP_ECC) && \
++    !defined(WOLFSSL_CHECK_VER_FAULTS) && !defined(WOLFSSL_NO_MALLOC)
++#define PALM_ECC_PUBLIC_68K
++#define PALM_P256_SCALAR_BITS 256
++#define PALM_P256_WINDOW 4
++#define PALM_P256_ODD_POINTS (1 << (PALM_P256_WINDOW - 2))
++
++/* Recode a public scalar into signed odd digits. A nonzero digit consumes
++ * the whole window, and its sign supplies the carry into the next window. */
++static void PalmPublicWindow(mp_int* k, signed char* digits)
++{
++    int bit = 0;
++    int carry = 0;
++    XMEMSET(digits, 0, PALM_P256_SCALAR_BITS + 1);
++    while (bit <= PALM_P256_SCALAR_BITS) {
++        if (mp_is_bit_set(k, (mp_digit)bit) == carry) {
++            ++bit;
++        }
++        else {
++            int i;
++            int word = carry;
++            for (i = 0; i < PALM_P256_WINDOW; ++i) {
++                word += mp_is_bit_set(k, (mp_digit)(bit + i)) << i;
++            }
++            carry = word >= (1 << (PALM_P256_WINDOW - 1));
++            digits[bit] = (signed char)(word - (carry << PALM_P256_WINDOW));
++            bit += PALM_P256_WINDOW;
++        }
++    }
++}
++
++static int PalmPublicBuildOddPoints(ecc_point** table, ecc_point* twice,
++    mp_int* a, mp_int* modulus, mp_digit mp)
++{
++    int i;
++    int err = ecc_projective_dbl_point_safe(table[0], twice, a, modulus, mp);
++    for (i = 1; i < PALM_P256_ODD_POINTS && err == MP_OKAY; ++i) {
++        err = ecc_projective_add_point_safe(table[i - 1], twice, table[i],
++            a, modulus, mp, NULL);
++    }
++    return err;
++}
++
++static int PalmPublicAddDigit(ecc_point* result, ecc_point** table, int digit,
++    mp_int* a, mp_int* modulus, mp_digit mp)
++{
++    ecc_point* point = table[(digit < 0 ? -digit : digit) / 2];
++    int err = MP_OKAY;
++    if (digit < 0)
++        err = mp_sub(modulus, point->y, point->y);
++    if (err == MP_OKAY)
++        err = ecc_projective_add_point_safe(result, point, result,
++            a, modulus, mp, NULL);
++    if (err == MP_OKAY && digit < 0)
++        err = mp_sub(modulus, point->y, point->y);
++    return err;
++}
++
++/* Only ECDSA verification calls this path. All scalars and points are public.
++ * Convert both input points before writing result: it may alias either input. */
++static int __attribute__((noinline)) PalmP256PublicMul2Add(ecc_point* base, mp_int* u1,
++    ecc_point* peer, mp_int* u2, ecc_point* result, mp_int* a,
++    mp_int* modulus, void* heap)
++{
++    signed char left[PALM_P256_SCALAR_BITS + 1], right[PALM_P256_SCALAR_BITS + 1];
++    ecc_point* table[2 * PALM_P256_ODD_POINTS] = {NULL};
++    ecc_point** peerTable = table + PALM_P256_ODD_POINTS;
++    mp_digit mp = 0;
++    int err = MP_OKAY;
++    int i;
++
++    PalmPublicWindow(u1, left);
++    PalmPublicWindow(u2, right);
++    for (i = 0; i < 2 * PALM_P256_ODD_POINTS && err == MP_OKAY; ++i)
++        err = wc_ecc_new_point_ex(&table[i], heap);
++    if (err == MP_OKAY)
++        err = mp_montgomery_setup(modulus, &mp);
++    if (err == MP_OKAY)
++        err = ecc_mont_norm_points(base, table[0], peer, peerTable[0], modulus, heap);
++    if (err == MP_OKAY)
++        err = PalmPublicBuildOddPoints(table, result, a, modulus, mp);
++    if (err == MP_OKAY)
++        err = PalmPublicBuildOddPoints(peerTable, result, a, modulus, mp);
++    if (err == MP_OKAY)
++        err = ecc_set_point_infinity(result);
++
++    for (i = PALM_P256_SCALAR_BITS; i >= 0 && err == MP_OKAY; --i) {
++        err = ecc_projective_dbl_point_safe(result, result, a, modulus, mp);
++        if (err == MP_OKAY && left[i] != 0)
++            err = PalmPublicAddDigit(result, table, left[i], a, modulus, mp);
++        if (err == MP_OKAY && right[i] != 0)
++            err = PalmPublicAddDigit(result, peerTable, right[i], a, modulus, mp);
++    }
++    if (err == MP_OKAY)
++        err = ecc_map(result, modulus, mp);
++    for (i = 0; i < 2 * PALM_P256_ODD_POINTS; ++i)
++        wc_ecc_del_point_ex(table[i], heap);
++    return err;
++}
++#endif
++
+ /** Computes kA*A + kB*B = C using Shamir's Trick
+   A        First point to multiply
+   kA       What to multiple A by
+@@ -10104,8 +10207,16 @@
+ #else
+     /* use Shamir's trick to compute u1*mG + u2*mQ using half the doubles */
+     if (err == MP_OKAY) {
+-        err = ecc_mul2add(mG, u1, mQ, u2, mG, curve->Af, curve->prime,
+-                                                                     key->heap);
++#ifdef PALM_ECC_PUBLIC_68K
++        if (key->dp->id == ECC_SECP256R1)
++            err = PalmP256PublicMul2Add(mG, u1, mQ, u2, mG, curve->Af,
++                curve->prime, key->heap);
++        else
++#endif
++        {
++            err = ecc_mul2add(mG, u1, mQ, u2, mG, curve->Af, curve->prime,
++                key->heap);
++        }
+     }
+ #endif /* ECC_SHAMIR */
+ #endif /* FREESCALE_LTC_ECC */

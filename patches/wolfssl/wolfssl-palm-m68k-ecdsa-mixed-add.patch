@@ -1,0 +1,179 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -9031,7 +9031,7 @@
+ 
+ #if defined(__m68k__) && defined(WC_16BIT_CPU) && defined(USE_FAST_MATH) && \
+     defined(WOLFSSL_PALM_STATELESS_INIT) && !defined(PALM_WOLFSSL_ARMLET_MATH) && \
+-    !defined(ALT_ECC_SIZE) && !defined(FP_ECC) && \
++    !defined(ALT_ECC_SIZE) && !defined(HAVE_WOLF_BIGINT) && !defined(FP_ECC) && \
+     !defined(WOLFSSL_CHECK_VER_FAULTS) && !defined(WOLFSSL_NO_MALLOC)
+ #define PALM_ECC_PUBLIC_68K
+ #define PALM_P256_SCALAR_BITS 256
+@@ -9069,12 +9069,20 @@
+ 
+ /* Public-only addition. The raw formula supports result == left and
+  * represents a missed double by (0,0,0) and opposite points by Z == 0. */
++static int PalmPublicCopy(ecc_point* point, ecc_point* result, mp_int* one)
++{
++    int err = wc_ecc_copy_point(point, result);
++    if (err == MP_OKAY && one != NULL && mp_iszero(result->z))
++        err = mp_copy(one, result->z);
++    return err;
++}
++
+ static int PalmPublicAdd(ecc_point* left, ecc_point* right, ecc_point* result,
+-    mp_int* a, mp_int* modulus, mp_digit mp)
++    mp_int* a, mp_int* modulus, mp_digit mp, mp_int* one)
+ {
+     int err;
+     if (PalmPublicIsInfinity(left))
+-        return wc_ecc_copy_point(right, result);
++        return PalmPublicCopy(right, result, one);
+     if (PalmPublicIsInfinity(right))
+         return wc_ecc_copy_point(left, result);
+     /* The raw formula doubles equal X/Z and opposite Y. */
+@@ -9085,8 +9093,12 @@
+ 
+     err = _ecc_projective_add_point(left, right, result, a, modulus, mp);
+     if (err == MP_OKAY && mp_iszero(result->z)) {
+-        if (PalmPublicIsInfinity(result))
+-            return ecc_projective_dbl_point_safe(right, result, a, modulus, mp);
++        if (PalmPublicIsInfinity(result)) {
++            err = PalmPublicCopy(right, result, one);
++            if (err == MP_OKAY)
++                err = ecc_projective_dbl_point_safe(result, result, a, modulus, mp);
++            return err;
++        }
+         return ecc_set_point_infinity(result);
+     }
+     return err;
+@@ -9098,13 +9110,13 @@
+     int i;
+     int err = ecc_projective_dbl_point_safe(table[0], twice, a, modulus, mp);
+     for (i = 1; i < PALM_P256_ODD_POINTS && err == MP_OKAY; ++i) {
+-        err = PalmPublicAdd(table[i - 1], twice, table[i], a, modulus, mp);
++        err = PalmPublicAdd(table[i - 1], twice, table[i], a, modulus, mp, NULL);
+     }
+     return err;
+ }
+ 
+ static int PalmPublicAddDigit(ecc_point* result, ecc_point** table, int digit,
+-    mp_int* a, mp_int* modulus, mp_digit mp)
++    mp_int* a, mp_int* modulus, mp_digit mp, mp_int* one)
+ {
+     ecc_point* point = table[(digit < 0 ? -digit : digit) / 2];
+     int negate = digit < 0 && !mp_iszero(point->y);
+@@ -9112,9 +9124,81 @@
+     if (negate)
+         err = mp_sub(modulus, point->y, point->y);
+     if (err == MP_OKAY)
+-        err = PalmPublicAdd(result, point, result, a, modulus, mp);
++        err = PalmPublicAdd(result, point, result, a, modulus, mp, one);
+     if (err == MP_OKAY && negate)
+         err = mp_sub(modulus, point->y, point->y);
++    return err;
++}
++
++/* Montgomery products used for public point preparation and verification. */
++static int PalmPublicProduct(mp_int* x, mp_int* y, mp_int* out,
++    mp_int* modulus, mp_digit mp)
++{
++    int err = mp_mul(x, y, out);
++    if (err == MP_OKAY)
++        err = mp_montgomery_reduce(out, modulus, mp);
++    return err;
++}
++
++static int PalmPublicSquare(mp_int* x, mp_int* out, mp_int* modulus, mp_digit mp)
++{
++    int err = mp_sqr(x, out);
++    if (err == MP_OKAY)
++        err = mp_montgomery_reduce(out, modulus, mp);
++    return err;
++}
++
++/* Batch-invert the Z coordinates, then use the mixed-add sentinel Z == 0.
++ * The accumulator uses an explicit Montgomery Z, including after a copy. */
++static int PalmPublicNormalize(ecc_point** table, ecc_point* scratch,
++    mp_int* one, mp_int* modulus, mp_digit mp, void* heap)
++{
++    int count = 2 * PALM_P256_ODD_POINTS;
++    mp_int* prefix = (mp_int*)XMALLOC(count * sizeof(mp_int), heap,
++        DYNAMIC_TYPE_ECC);
++    mp_int* inverse = scratch->x;
++    mp_int* inverseZ = scratch->y;
++    mp_int* power = scratch->z;
++    int err;
++    int i;
++    (void)heap;
++
++    if (prefix == NULL)
++        return MP_MEM;
++    XMEMSET(prefix, 0, count * sizeof(mp_int));
++    err = mp_montgomery_calc_normalization(one, modulus);
++    if (err == MP_OKAY)
++        err = mp_copy(one, inverse);
++    for (i = 0; i < count && err == MP_OKAY; ++i) {
++        err = mp_copy(inverse, &prefix[i]);
++        if (err == MP_OKAY && !PalmPublicIsInfinity(table[i]))
++            err = PalmPublicProduct(inverse, table[i]->z, inverse, modulus, mp);
++    }
++    if (err == MP_OKAY)
++        err = mp_montgomery_reduce(inverse, modulus, mp);
++    if (err == MP_OKAY)
++        err = mp_invmod(inverse, modulus, inverse);
++    if (err == MP_OKAY)
++        err = mp_mulmod(inverse, one, modulus, inverse);
++    for (i = count - 1; i >= 0 && err == MP_OKAY; --i) {
++        ecc_point* point = table[i];
++        if (PalmPublicIsInfinity(point))
++            continue;
++        err = PalmPublicProduct(inverse, &prefix[i], inverseZ, modulus, mp);
++        if (err == MP_OKAY)
++            err = PalmPublicProduct(inverse, point->z, inverse, modulus, mp);
++        if (err == MP_OKAY)
++            err = PalmPublicSquare(inverseZ, power, modulus, mp);
++        if (err == MP_OKAY)
++            err = PalmPublicProduct(point->x, power, point->x, modulus, mp);
++        if (err == MP_OKAY)
++            err = PalmPublicProduct(power, inverseZ, power, modulus, mp);
++        if (err == MP_OKAY)
++            err = PalmPublicProduct(point->y, power, point->y, modulus, mp);
++        if (err == MP_OKAY)
++            mp_zero(point->z);
++    }
++    XFREE(prefix, heap, DYNAMIC_TYPE_ECC);
+     return err;
+ }
+ 
+@@ -9127,6 +9211,7 @@
+     signed char left[PALM_P256_SCALAR_BITS + 1], right[PALM_P256_SCALAR_BITS + 1];
+     ecc_point* table[2 * PALM_P256_ODD_POINTS] = {NULL};
+     ecc_point** peerTable = table + PALM_P256_ODD_POINTS;
++    mp_int one;
+     mp_digit mp = 0;
+     int err = MP_OKAY;
+     int i;
+@@ -9144,15 +9229,19 @@
+     if (err == MP_OKAY)
+         err = PalmPublicBuildOddPoints(peerTable, result, a, modulus, mp);
+     if (err == MP_OKAY)
++        err = mp_init(&one);
++    if (err == MP_OKAY)
++        err = PalmPublicNormalize(table, result, &one, modulus, mp, heap);
++    if (err == MP_OKAY)
+         err = ecc_set_point_infinity(result);
+ 
+     for (i = PALM_P256_SCALAR_BITS; i >= 0 && err == MP_OKAY; --i) {
+         if (!PalmPublicIsInfinity(result))
+             err = ecc_projective_dbl_point_safe(result, result, a, modulus, mp);
+         if (err == MP_OKAY && left[i] != 0)
+-            err = PalmPublicAddDigit(result, table, left[i], a, modulus, mp);
++            err = PalmPublicAddDigit(result, table, left[i], a, modulus, mp, &one);
+         if (err == MP_OKAY && right[i] != 0)
+-            err = PalmPublicAddDigit(result, peerTable, right[i], a, modulus, mp);
++            err = PalmPublicAddDigit(result, peerTable, right[i], a, modulus, mp, &one);
+     }
+     if (err == MP_OKAY)
+         err = ecc_map(result, modulus, mp);

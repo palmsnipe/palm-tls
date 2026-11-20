@@ -23,6 +23,8 @@ def main():
     p.add_argument('--reuse-fixture',type=Path,help='copy an existing fixture unchanged; requires the same port')
     p.add_argument('--anchors',type=int,default=8)
     p.add_argument('--mips',type=int,default=100)
+    p.add_argument('--dragonball-overclock',type=int,choices=range(1,129),metavar='1-128',
+                   help='run the full-handshake workload on the DragonBall CLI with the 68K library')
     p.add_argument('--runs',type=int,default=2)
     args=p.parse_args()
     if not (0<args.port<65533 and 0<args.anchors<33 and 0<args.runs<6 and args.mips>0):
@@ -50,19 +52,23 @@ def main():
             time.sleep(0.1)
         metadata=json.loads((fixture/'server.json').read_text())
         assert hashlib.sha256((fixture/'trust.pem').read_bytes()).hexdigest()==metadata['trust_sha256']
-        subprocess.run(['make','-C',str(root/'library'),'benchmark-palm','test'],check=True,
+        targets=['test-prc'] if args.dragonball_overclock else ['benchmark-palm','test']
+        subprocess.run(['make','-C',str(root/'library'),*targets],check=True,
                        stdout=(output/'build.log').open('w'),stderr=subprocess.STDOUT)
         shutil.copyfile(fixture/'handshake_vectors.inc',root/'library/build/bench/handshake_vectors.inc')
         subprocess.run(['make','-C',str(root/'library/bench'),'handshake'],check=True,
                        stdout=(output/'app-build.log').open('w'),stderr=subprocess.STDOUT)
         runner=runpy.run_path(str(root/'library/bench/run-emulator.py'))['run']
+        library='PalmTLS68K.prc' if args.dragonball_overclock else 'PalmTLSArm.prc'
+        result_flags=['--dragonball'] if args.dragonball_overclock else []
         for index in range(args.runs):
             run=output/('run' if index==0 else f'repeat{index}')
             runner(SimpleNamespace(output=run,session=args.session,emulator=args.emulator,
-                library=root/'library/build/palm/PalmTLSArm.prc',prc=root/'library/build/bench/PalmTLSHandshakeBench.prc',
-                mips=args.mips,device='auto',timeout=1200,network=True,handshake=True,handshake_fixture=fixture))
+                library=root/'library/build/palm'/library,prc=root/'library/build/bench/PalmTLSHandshakeBench.prc',
+                mips=args.mips,device='auto',timeout=1200,network=True,handshake=True,
+                handshake_fixture=fixture,dragonball_overclock=args.dragonball_overclock))
             summary=subprocess.check_output([sys.executable,str(root/'library/bench/handshake_results.py'),
-                str(run/'results.csv'),'--server-log',str(run/'server-connections.jsonl')],text=True)
+                str(run/'results.csv'),'--server-log',str(run/'server-connections.jsonl'),*result_flags],text=True)
             (run/'summary.csv').write_text(summary)
             print(summary,flush=True)
     finally:

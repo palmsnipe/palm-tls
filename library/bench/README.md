@@ -1,4 +1,4 @@
-# ARM performance benchmarks
+# PalmTLS performance benchmarks
 
 Run from the repository root. The host and Palm runners use the same workload
 and byte-level ARMlet ABI. The primitive suite below requires no network.
@@ -27,6 +27,34 @@ and executes it with real `PceNativeCall` transitions. Its creator is `Tbch`,
 separate from TLS Tester and PalmTLS. It overwrites only its own
 `PalmTLS Bench Results` database on each launch. Large scratch buffers are
 allocated on the heap.
+
+## DragonBall TLS 1.3 handshakes
+
+Build the wolfSSL dependencies with `make bootstrap`, then run the handshake
+driver with the native DragonBall CLI and a supplied Palm OS 4+ session:
+
+```sh
+python3 library/bench/run-handshake.py \
+  --emulator ../cloudpilot-emu/src/cloudpilot/cloudpilot-emu \
+  --session ../cloudpilot-emu/web/embedded/public/m515.img \
+  --port 23443 --runs 2 --dragonball-overclock 16 \
+  --output library/build/bench/dragonball
+```
+
+Use a Python with TLS 1.3 support for the fixture server. If needed, set
+`--server-python` to the path of an OpenSSL-backed Python. Give each build a
+new output directory and pass `--reuse-fixture <baseline-output>/fixture`
+with the same port and overclock to compare code changes.
+
+The driver installs `PalmTLS68K.prc` and measures five cold and five warm full
+handshakes against the same local P-256 server. Cold samples purge the engine
+and context first. Warm samples reuse the context and perform fresh key
+agreement and signature verification. The app also checks hostname and CA
+rejection and a successful TLS 1.2 handshake. The server independently checks
+protocol and cipher negotiation. The measurements use the emulator's Palm
+clock at 10 ms resolution and exclude socket setup. See the
+[initial five rounds](baselines/2026-11-20-dragonball) and the
+[five-round ECDSA follow-up](baselines/2026-11-20-dragonball-ecdsa).
 
 ## Full and resumed TLS 1.3 handshakes
 

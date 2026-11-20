@@ -1,15 +1,18 @@
 """Check the handshake reader rejects false reuse and incomplete profiles."""
 import unittest
-from handshake_results import CASES, PHASES, REGRESSIONS, ECDHE_PHASES, LOAD_PHASES, TRUST_PHASES, load
+from handshake_results import (
+    CASES, CASES_68K, ECDHE_PHASES, LOAD_PHASES, PHASES, REGRESSIONS,
+    REGRESSIONS_68K, TRUST_PHASES, load,
+)
 
 
-def fixture():
+def fixture(dragonball=False):
     text='case,sample,load_ticks,handshake_ticks,post_ticks,context_reused,session_reused,ticket_ready,frequency\n'
-    for case in sorted(CASES):
+    for case in sorted(CASES_68K if dragonball else CASES):
         cached=case.startswith('cache_') and not case.endswith('full_cold')
         resumed=case.endswith('_resumed')
         for sample in range(5):
-            text+=f'{case},{sample},0,10,1,{int(cached)},{int(resumed)},1,100\n'
+            text+=f'{case},{sample},0,10,1,{int(cached)},{int(resumed)},{int(not dragonball)},100\n'
             for period in range(2):
                 for phase in PHASES:
                     ticks=(1 if period else 10) if phase=='other' else 0
@@ -18,7 +21,8 @@ def fixture():
                     if not cached and phase=='trust': calls=1
                     if not resumed and phase in ('signature','certificate'): calls=1
                     text+=f'# phase,{case},{sample},{period},{phase},{ticks},{calls}\n'
-    for name in sorted(REGRESSIONS): text+=f'# regression,{name},passed\n'
+    for name in sorted(REGRESSIONS_68K if dragonball else REGRESSIONS):
+        text+=f'# regression,{name},passed\n'
     return text+'# complete handshake-v1\n'
 
 
@@ -27,6 +31,17 @@ class HandshakeResultsTests(unittest.TestCase):
         rows,phases=load(fixture())
         self.assertEqual(len(rows),30)
         self.assertEqual(len(phases),780)
+
+    def test_dragonball_requires_full_handshakes_without_tickets(self):
+        text=fixture(dragonball=True)
+        rows,phases=load(text,dragonball=True)
+        self.assertEqual(len(rows),10)
+        self.assertEqual(len(phases),260)
+        with self.assertRaises(ValueError):
+            load(text)
+        with self.assertRaisesRegex(ValueError,'unexpected TLS 1.3 ticket'):
+            load(text.replace('cache_full_warm,0,0,10,1,1,0,0,100',
+                              'cache_full_warm,0,0,10,1,1,0,1,100'),dragonball=True)
 
     def test_detailed_ecdhe(self):
         text=fixture()

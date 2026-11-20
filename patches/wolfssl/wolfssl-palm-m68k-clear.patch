@@ -1,0 +1,80 @@
+diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
+--- a/wolfcrypt/src/tfm.c
++++ b/wolfcrypt/src/tfm.c
+@@ -671,6 +671,25 @@
+ }
+ #endif
+ 
++#ifdef PALM_TFM_68K
++/* The compiler ABI aligns digits for both word and long accesses. */
++static void PalmClearDigits(fp_digit* digits, unsigned int count)
++{
++    unsigned int blocks = count / 16;
++    if (blocks != 0) {
++        --blocks;
++        __asm__ volatile(
++            "1: .rept 8\n\t"
++            "move.l %[zero],(%[digits])+\n\t"
++            ".endr\n\t"
++            "dbra %[blocks],1b"
++            : [digits] "+&a"(digits), [blocks] "+&d"(blocks)
++            : [zero] "d"((fp_word)0) : "cc", "memory");
++    }
++    XMEMSET(digits, 0, (count % 16) * sizeof(fp_digit));
++}
++#endif
++
+ #if defined(PALM_TFM_68K) && defined(WC_DECLARE_VAR_IS_HEAP_ALLOC) && \
+     !defined(ALT_ECC_SIZE) && !defined(HAVE_WOLF_BIGINT)
+ #define PALM_SMALL_COMBA
+@@ -680,25 +699,10 @@
+ static void PalmStoreComba(fp_int* result, const fp_digit* words, int used,
+     int sign)
+ {
+-    fp_digit* tail = result->dp + used;
+-    unsigned int remaining = FP_SIZE - used;
+-    unsigned int blocks = remaining / 16;
+-
+     result->used = used;
+     result->sign = sign;
+     XMEMCPY(result->dp, words, used * sizeof(fp_digit));
+-    /* Preserve zero extension while clearing 16 words per loop. */
+-    if (blocks != 0) {
+-        --blocks;
+-        __asm__ volatile(
+-            "1: .rept 8\n\t"
+-            "move.l %[zero],(%[tail])+\n\t"
+-            ".endr\n\t"
+-            "dbra %[blocks],1b"
+-            : [tail] "+&a"(tail), [blocks] "+&d"(blocks)
+-            : [zero] "d"((fp_word)0) : "cc", "memory");
+-    }
+-    XMEMSET(tail, 0, (remaining % 16) * sizeof(fp_digit));
++    PalmClearDigits(result->dp + used, FP_SIZE - used);
+     fp_clamp(result);
+ }
+ #endif
+@@ -4778,7 +4782,11 @@
+ #else
+     size = FP_SIZE;
+ #endif
++#ifdef PALM_TFM_68K
++    PalmClearDigits(a->dp, size);
++#else
+     XMEMSET(a->dp, 0, size * sizeof(fp_digit));
++#endif
+ }
+ 
+ void fp_clear(fp_int *a)
+@@ -4794,7 +4802,11 @@
+ #else
+     size = FP_SIZE;
+ #endif
++#ifdef PALM_TFM_68K
++    PalmClearDigits(a->dp, size);
++#else
+     XMEMSET(a->dp, 0, size * sizeof(fp_digit));
++#endif
+     fp_free(a);
+ #endif
+ }

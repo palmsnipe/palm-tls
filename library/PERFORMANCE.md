@@ -1,4 +1,23 @@
-# ARM performance review — November 1, 2026
+# PalmTLS performance review
+
+## DragonBall P-256 signature verification
+
+Starting with the optimized 68K build below, five further rounds reduce
+the median warm full TLS 1.3 handshake from 2,130 to 1,910 ms on the same
+Palm m515 emulator at 16× CPU overclock. The signature phase falls from
+830 to 610–620 ms. Key generation and key agreement each take about
+630 ms. See the [five-round ECDSA measurements](bench/baselines/2026-11-20-dragonball-ecdsa).
+
+## DragonBall arithmetic and initialization
+
+Five cumulative changes reduce the median full TLS 1.3 handshake from
+2,210 to 2,140 ms with a cold context and from 2,200 to 2,130 ms with a warm
+context on the same emulated Palm m515 at 16× CPU overclock. Both results
+repeated in fresh sessions. The full 68K PRC grew by 100 bytes.
+The [measurement archive](bench/baselines/2026-11-20-dragonball) contains
+timings for each round, raw phase profiles, and server confirmations.
+
+## ARM performance experiments
 
 The November 17 snapshots below describe their individual experiment commits.
 The release implementation uses the original byte AES S-box, word arithmetic

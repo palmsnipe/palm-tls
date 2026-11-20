@@ -50,6 +50,16 @@ patches=(
   wolfssl-palm-m68k-tfm-carries.patch
   wolfssl-palm-m68k-tfm-workspace.patch
   wolfssl-palm-wide-cert-armlet.patch
+  wolfssl-palm-m68k-clear.patch
+  wolfssl-palm-m68k-comba.patch
+  wolfssl-palm-m68k-field.patch
+  wolfssl-palm-m68k-select.patch
+  wolfssl-palm-m68k-init.patch
+  wolfssl-palm-m68k-ecdsa-window.patch
+  wolfssl-palm-m68k-ecdsa-public-add.patch
+  wolfssl-palm-m68k-ecdsa-mixed-add.patch
+  wolfssl-palm-m68k-ecdsa-projective-x.patch
+  wolfssl-palm-m68k-ecdsa-public-double.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \

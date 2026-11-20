@@ -1,0 +1,32 @@
+diff --git a/wolfcrypt/src/wolfmath.c b/wolfcrypt/src/wolfmath.c
+--- a/wolfcrypt/src/wolfmath.c
++++ b/wolfcrypt/src/wolfmath.c
+@@ -141,12 +141,28 @@
+         /* Conditionally copy all digits and then number of used digits.
+          * mp_get_digit() returns 0 when index greater than available digit.
+          */
++#if defined(__m68k__) && defined(WC_16BIT_CPU) && defined(USE_FAST_MATH) && \
++    defined(WOLFSSL_PALM_STATELESS_INIT) && !defined(PALM_WOLFSSL_ARMLET_MATH)
++        /* The loop lengths already depend on used. Split their common prefix
++         * from the zero-extended tails; the copy flag only affects the mask. */
++        int common = a->used < b->used ? a->used : b->used;
++        for (i = 0; i < common; i++) {
++            b->dp[i] ^= (a->dp[i] ^ b->dp[i]) & mask;
++        }
++        for (; i < a->used; i++) {
++            b->dp[i] ^= a->dp[i] & mask;
++        }
++        for (; i < b->used; i++) {
++            b->dp[i] &= (mp_digit)~mask;
++        }
++#else
+         for (i = 0; i < a->used; i++) {
+             b->dp[i] ^= (mp_get_digit(a, (int)i) ^ mp_get_digit(b, (int)i)) & mask;
+         }
+         for (; i < b->used; i++) {
+             b->dp[i] ^= (mp_get_digit(a, (int)i) ^ mp_get_digit(b, (int)i)) & mask;
+         }
++#endif
+         b->used ^= (a->used ^ b->used) & (wc_mp_size_t)mask;
+ #if (!defined(WOLFSSL_SP_MATH) && !defined(WOLFSSL_SP_MATH_ALL)) || \
+     defined(WOLFSSL_SP_INT_NEGATIVE)

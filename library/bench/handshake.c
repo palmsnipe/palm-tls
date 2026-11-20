@@ -419,6 +419,45 @@ static Boolean Run(DmOpenRef db, UInt16 tls, UInt16 net)
     return true;
 }
 
+static Boolean Run68K(DmOpenRef db, UInt16 tls, UInt16 net)
+{
+    static const char names[][16] = {"cache_full_cold", "cache_full_warm"};
+    UInt16 sample, kind;
+    for (sample = 0; sample < 5; sample++) {
+        if (PalmTlsLibPurgeCache(tls) != errNone) return false;
+        for (kind = 0; kind < 2; kind++) {
+            Connection c;
+            Show(names[kind]);
+            EvtResetAutoOffTimer();
+            if (!Connect(tls, net, &c, 0, palmTlsVerifyCaStore, "localhost",
+                kHandshakeTrust, sizeof(kHandshakeTrust))) {
+                char row[100];
+                StrPrintF(row, "# connect_failed,%s,%u,%u,%d,%u,%u\n",
+                    names[kind], sample, c.open.status, c.open.tlsError,
+                    c.open.netError, c.open.platformError);
+                Emit(db, row);
+                DropSocket(net, &c);
+                return false;
+            }
+            if (!Finish(tls, net, &c) ||
+                c.profile.session.base.contextReused != kind ||
+                c.profile.session.base.sessionReused ||
+                c.profile.session.base.ticketReady ||
+                !EmitProfile(db, names[kind], sample, &c.profile, &c.open))
+                return false;
+        }
+    }
+    if (!Reject(tls, net, palmTlsVerifyCaStore, "wrong.localhost",
+        kHandshakeTrust, sizeof(kHandshakeTrust)) ||
+        !Reject(tls, net, palmTlsVerifyCaStore, "localhost",
+        kHandshakeWrongTrust, sizeof(kHandshakeWrongTrust))) return false;
+    return Emit(db, "# regression,hostname_and_bad_ca,passed\n") &&
+        CheckedConnect(tls, net, &(Connection){0}, BENCH_TLS12,
+            palmTlsVerifyCaStore, "localhost", kHandshakeTrust,
+            sizeof(kHandshakeTrust), false, false) &&
+        Emit(db, "# regression,tls12_full,passed\n");
+}
+
 UInt32 PilotMain(UInt16 command, void *parameters, UInt16 flags)
 {
     DmOpenRef db;
@@ -427,10 +466,12 @@ UInt32 PilotMain(UInt16 command, void *parameters, UInt16 flags)
     Boolean success = false, tlsOpen = false, netOpen = false;
     Err error;
     UInt32 processor = 0;
+    Boolean nativeArm;
     (void)parameters; (void)flags;
     if (command != sysAppLaunchCmdNormalLaunch) return errNone;
-    if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) != errNone ||
-        !PalmTlsArmletSupportsProcessor(processor)) return errNone;
+    if (FtrGet(sysFtrCreator, sysFtrNumProcessorID, &processor) != errNone)
+        return errNone;
+    nativeArm = PalmTlsArmletSupportsProcessor(processor);
     FormType *form = FrmInitForm(1000);
     if (!form) return errNone;
     FrmSetActiveForm(form);
@@ -450,8 +491,8 @@ UInt32 PilotMain(UInt16 command, void *parameters, UInt16 flags)
     if (error && error != netErrAlreadyOpen) goto cleanup;
     netOpen = true;
     if (!Emit(db, "case,sample,load_ticks,handshake_ticks,post_ticks,context_reused,session_reused,ticket_ready,frequency\n")) goto cleanup;
-    success = Run(db, tls, net);
-    if (success) success = Regressions(db,tls,net);
+    success = nativeArm ? Run(db, tls, net) && Regressions(db, tls, net) :
+        Run68K(db, tls, net);
 cleanup:
     if (tlsOpen) PalmTlsLibClose(tls);
     if (netOpen) NetLibClose(net, false);

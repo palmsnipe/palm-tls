@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the benchmark on a private copy of a supplied cp-uarm session."""
+"""Run the benchmark on a private copy of a supplied Cloudpilot session."""
 import argparse
 import hashlib
 import json
@@ -32,7 +32,10 @@ def native_image(path):
 
 def run(args):
     release = getattr(args, "release", False)
+    overclock = getattr(args, "dragonball_overclock", None)
     if release: args.handshake = True
+    if overclock is not None and (release or not args.handshake or not args.library):
+        raise ValueError('DragonBall mode requires the handshake app and 68K library')
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     session = output / 'session.img'
@@ -41,7 +44,7 @@ def run(args):
     # between hashing it and installing it into the emulator.
     prc = output / ('PalmTLSHandshakeBench.prc' if args.handshake else 'PalmTLSBench.prc')
     shutil.copyfile(args.prc, prc)
-    library = output / 'PalmTLSArm.prc' if args.library else None
+    library = output / ('PalmTLS68K.prc' if overclock else 'PalmTLSArm.prc') if args.library else None
     if library:
         shutil.copyfile(args.library, library)
     fixture = None
@@ -52,21 +55,32 @@ def run(args):
             raise ValueError('benchmark trust bundle does not match the live TLS fixture')
         shutil.copyfile(fixture / 'server.json', output / 'server.json')
         server_log_start = (fixture / 'connections.jsonl').stat().st_size if (fixture / 'connections.jsonl').exists() else 0
-    native = native_image(prc)
-    if library and native_image(library) != native:
-        raise ValueError('benchmark and library must contain the same native ARM image')
-    command = [str(args.emulator.resolve()), '--mips', str(args.mips), '--no-sound',
-               '--device', args.device, str(session)]
+    if overclock:
+        try:
+            native_image(library)
+        except ValueError:
+            pass
+        else:
+            raise ValueError('DragonBall mode requires a library without an ARM image')
+        native = b''
+        command = [str(args.emulator.resolve()), '--overclock', str(overclock), str(session)]
+    else:
+        native = native_image(prc)
+        if library and native_image(library) != native:
+            raise ValueError('benchmark and library must contain the same native ARM image')
+        command = [str(args.emulator.resolve()), '--mips', str(args.mips), '--no-sound',
+                   '--device', args.device, str(session)]
     if args.network: command.insert(1, '--net-native')
     repo = Path(__file__).resolve().parents[2]
     metadata = {'benchmark_version': 1,
                 'benchmark_type': 'tls_release' if release else 'tls13_handshake' if args.handshake else 'native',
-                'mips': args.mips, 'device': args.device,
+                'mips': args.mips if not overclock else None, 'device': args.device,
+                'dragonball_overclock': overclock,
                 'session_sha256': sha256(args.session),
                 'emulator_sha256': sha256(args.emulator),
                 'prc_sha256': sha256(prc),
                 'library_sha256': sha256(library) if library else None,
-                'arm_image_sha256': hashlib.sha256(native).hexdigest(),
+                'arm_image_sha256': hashlib.sha256(native).hexdigest() if native else None,
                 'arm_image_bytes': len(native),
                 'git_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip(),
                 'git_dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=repo, text=True)),
@@ -147,7 +161,8 @@ def run(args):
         install(prc)
         while True:
             try:
-                send('launch "' + ('PalmTLS HS Bench' if args.handshake else 'PalmTLS Bench') + '"', 'launch successful')
+                send('launch "' + ('PalmTLS HS Bench' if args.handshake else 'PalmTLS Bench') + '"',
+                     'app launched successfully' if overclock else 'launch successful')
                 break
             except RuntimeError as error:
                 if 'unable to prepare syscall' not in str(error) or time.monotonic() >= deadline:
@@ -164,7 +179,12 @@ def run(args):
             if state is None:
                 continue
             archive = output / 'databases.zip'
-            send(f'db-export "{archive}"', 'export written to', timeout=args.timeout)
+            export = f'save-backup "{archive}"' if overclock else f'db-export "{archive}"'
+            send(export, 'saving backup to' if overclock else 'export written to', timeout=args.timeout)
+            if overclock:
+                # The CLI announces the path before writing it. The next
+                # command cannot be processed until the backup has closed.
+                send('automation-status', 'automation ready')
             if args.handshake:
                 from handshake_results import extract as hs_extract, load as hs_load
                 if release:
@@ -175,7 +195,8 @@ def run(args):
             if state is False:
                 (output / 'results.csv').write_text(text)
                 raise RuntimeError('benchmark failed; see progress.png and results.csv')
-            if args.handshake: hs_load(text)
+            if overclock: hs_load(text, dragonball=True)
+            elif args.handshake: hs_load(text)
             else: load(text)
             (output / 'results.csv').write_text(text)
             if fixture:
@@ -215,6 +236,8 @@ def main():
     parser.add_argument('--handshake-fixture', type=Path, help='live local TLS fixture directory; verify its trust bundle')
     parser.add_argument('--network', action='store_true', help='enable native NetLib redirection')
     parser.add_argument('--mips', type=int, default=100)
+    parser.add_argument('--dragonball-overclock', type=int, choices=range(1, 129),
+                        metavar='1-128', help='use the DragonBall CLI and measure at this CPU overclock')
     parser.add_argument('--device', choices=['auto', 'e2', 'zire72', 'tx'], default='auto')
     parser.add_argument('--timeout', type=int, default=600)
     args = parser.parse_args()

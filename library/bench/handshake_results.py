@@ -16,6 +16,8 @@ CASES={f'{cache}_{kind}' for cache in ('nocache','cache')
        for kind in ('full_cold','full_warm','resumed')}
 REGRESSIONS={'owned_exact_trust','hostname_mode_and_bad_ca','purge',
              'cancel_opening','cooperative_slot_isolation','tls12_full_and_resumed'}
+CASES_68K={'cache_full_cold','cache_full_warm'}
+REGRESSIONS_68K={'hostname_and_bad_ca','tls12_full'}
 FIELDS={'sample','load_ticks','handshake_ticks','post_ticks','context_reused',
         'session_reused','ticket_ready','frequency'}
 
@@ -39,13 +41,15 @@ def extract(archive, allow_failed=False):
     return text
 
 
-def load(text):
+def load(text, dragonball=False):
+    cases = CASES_68K if dragonball else CASES
+    expected_regressions = REGRESSIONS_68K if dragonball else REGRESSIONS
     grouped={}
     profiles={}
     for row in csv.DictReader(line for line in text.splitlines() if not line.startswith('#')):
         name=row.pop('case');values={k:int(v) for k,v in row.items()}
         if set(values)!=FIELDS: raise ValueError('unexpected handshake schema')
-        if name not in CASES or any(v<0 for v in values.values()) or not values['frequency']:
+        if name not in cases or any(v<0 for v in values.values()) or not values['frequency']:
             raise ValueError('invalid handshake row')
         key=(name,values['sample'])
         if key in grouped: raise ValueError('duplicate handshake row')
@@ -54,16 +58,17 @@ def load(text):
         if bool(values['context_reused'])!=cached or bool(values['session_reused'])!=resumed:
             raise ValueError('unexpected context/session reuse')
         if resumed and not values['ticket_ready']: raise ValueError('resumed connection has no ticket')
+        if dragonball and values['ticket_ready']: raise ValueError('unexpected TLS 1.3 ticket')
         if any(values[key] not in (0,1) for key in ('context_reused','session_reused','ticket_ready')):
             raise ValueError('invalid handshake flags')
         grouped[key]=values
-    if set(grouped)!={(name,sample) for name in CASES for sample in range(5)}:
+    if set(grouped)!={(name,sample) for name in cases for sample in range(5)}:
         raise ValueError('missing handshake samples')
     regressions=set()
     for line in text.splitlines():
         if line.startswith('# regression,'):
             _,name,result=line.split(',')
-            if name in regressions or name not in REGRESSIONS or result!='passed':
+            if name in regressions or name not in expected_regressions or result!='passed':
                 raise ValueError('invalid regression result')
             regressions.add(name)
         if line.startswith('# phase,'):
@@ -73,7 +78,7 @@ def load(text):
                 raise ValueError('invalid/duplicate handshake phase')
             if min(int(ticks),int(calls))<0: raise ValueError('negative phase')
             profiles[key]=(int(ticks),int(calls))
-    if regressions!=REGRESSIONS: raise ValueError('missing handshake regression checks')
+    if regressions!=expected_regressions: raise ValueError('missing handshake regression checks')
     if len(profiles)!=len(grouped)*2*len(PHASES): raise ValueError('unexpected phase rows')
     if len({r['frequency'] for r in grouped.values()})!=1:
         raise ValueError('inconsistent handshake clocks')
@@ -142,9 +147,18 @@ def load_startup(text, rows, profiles):
     return result
 
 
-def validate_server(path):
+def validate_server(path, dragonball=False):
     server=[json.loads(line) for line in path.read_text().splitlines()]
     successful=[r for r in server if r.get('request')=='probe\n']
+    if dragonball:
+        if len(successful) != 10 or any(r.get('version') != 'TLSv1.3' or
+            r.get('resumed') or r.get('cipher') != 'TLS_AES_128_GCM_SHA256'
+            for r in successful):
+            raise ValueError('server did not confirm ten full TLS 1.3 AES-GCM connections')
+        legacy = [r for r in server if r.get('request') == 'check\n']
+        if len(legacy) != 1 or legacy[0].get('version') != 'TLSv1.2' or legacy[0].get('resumed'):
+            raise ValueError('server did not confirm the full TLS 1.2 regression')
+        return successful[0]['cipher']
     if len(successful)!=30 or sum(r['resumed'] for r in successful)!=10:
         raise ValueError('server did not confirm 20 full and 10 resumed TLS 1.3 connections')
     if any(r.get('version')!='TLSv1.3' or r.get('cipher') not in
@@ -162,16 +176,20 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('input',type=Path)
     p.add_argument('--server-log',type=Path)
+    p.add_argument('--dragonball',action='store_true')
     args=p.parse_args()
-    rows,profiles=load(args.input.read_text())
+    rows,profiles=load(args.input.read_text(),args.dragonball)
     print('case,median_handshake_ms,min_ms,max_ms,median_load_ms')
-    for case in sorted(CASES):
+    for case in sorted(CASES_68K if args.dragonball else CASES):
         samples=[r for (name,_),r in rows.items() if name==case]
         ms=[r['handshake_ticks']*1000/r['frequency'] for r in samples]
         loads=[r['load_ticks']*1000/r['frequency'] for r in samples]
         print(f'{case},{statistics.median(ms):.1f},{min(ms):.1f},{max(ms):.1f},{statistics.median(loads):.1f}')
     if args.server_log:
-        validate_server(args.server_log)
-        print('# server independently confirmed 20 full and 10 resumed TLS 1.3 connections')
+        validate_server(args.server_log,args.dragonball)
+        if args.dragonball:
+            print('# server independently confirmed ten full TLS 1.3 and one full TLS 1.2 connection')
+        else:
+            print('# server independently confirmed 20 full and 10 resumed TLS 1.3 connections')
 
 if __name__=='__main__': main()

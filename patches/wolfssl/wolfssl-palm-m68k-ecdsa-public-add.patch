@@ -1,0 +1,77 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -9062,14 +9062,43 @@
+     }
+ }
+ 
++static int PalmPublicIsInfinity(const ecc_point* point)
++{
++    return mp_iszero(point->x) && mp_iszero(point->y);
++}
++
++/* Public-only addition. The raw formula supports result == left and
++ * represents a missed double by (0,0,0) and opposite points by Z == 0. */
++static int PalmPublicAdd(ecc_point* left, ecc_point* right, ecc_point* result,
++    mp_int* a, mp_int* modulus, mp_digit mp)
++{
++    int err;
++    if (PalmPublicIsInfinity(left))
++        return wc_ecc_copy_point(right, result);
++    if (PalmPublicIsInfinity(right))
++        return wc_ecc_copy_point(left, result);
++    /* The raw formula doubles equal X/Z and opposite Y. */
++    if (mp_cmp(left->x, right->x) == MP_EQ &&
++        mp_cmp(left->z, right->z) == MP_EQ &&
++        mp_cmp(left->y, right->y) != MP_EQ)
++        return ecc_set_point_infinity(result);
++
++    err = _ecc_projective_add_point(left, right, result, a, modulus, mp);
++    if (err == MP_OKAY && mp_iszero(result->z)) {
++        if (PalmPublicIsInfinity(result))
++            return ecc_projective_dbl_point_safe(right, result, a, modulus, mp);
++        return ecc_set_point_infinity(result);
++    }
++    return err;
++}
++
+ static int PalmPublicBuildOddPoints(ecc_point** table, ecc_point* twice,
+     mp_int* a, mp_int* modulus, mp_digit mp)
+ {
+     int i;
+     int err = ecc_projective_dbl_point_safe(table[0], twice, a, modulus, mp);
+     for (i = 1; i < PALM_P256_ODD_POINTS && err == MP_OKAY; ++i) {
+-        err = ecc_projective_add_point_safe(table[i - 1], twice, table[i],
+-            a, modulus, mp, NULL);
++        err = PalmPublicAdd(table[i - 1], twice, table[i], a, modulus, mp);
+     }
+     return err;
+ }
+@@ -9078,13 +9107,13 @@
+     mp_int* a, mp_int* modulus, mp_digit mp)
+ {
+     ecc_point* point = table[(digit < 0 ? -digit : digit) / 2];
++    int negate = digit < 0 && !mp_iszero(point->y);
+     int err = MP_OKAY;
+-    if (digit < 0)
++    if (negate)
+         err = mp_sub(modulus, point->y, point->y);
+     if (err == MP_OKAY)
+-        err = ecc_projective_add_point_safe(result, point, result,
+-            a, modulus, mp, NULL);
+-    if (err == MP_OKAY && digit < 0)
++        err = PalmPublicAdd(result, point, result, a, modulus, mp);
++    if (err == MP_OKAY && negate)
+         err = mp_sub(modulus, point->y, point->y);
+     return err;
+ }
+@@ -9118,7 +9147,8 @@
+         err = ecc_set_point_infinity(result);
+ 
+     for (i = PALM_P256_SCALAR_BITS; i >= 0 && err == MP_OKAY; --i) {
+-        err = ecc_projective_dbl_point_safe(result, result, a, modulus, mp);
++        if (!PalmPublicIsInfinity(result))
++            err = ecc_projective_dbl_point_safe(result, result, a, modulus, mp);
+         if (err == MP_OKAY && left[i] != 0)
+             err = PalmPublicAddDigit(result, table, left[i], a, modulus, mp);
+         if (err == MP_OKAY && right[i] != 0)

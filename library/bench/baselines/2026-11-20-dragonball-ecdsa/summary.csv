@@ -1,0 +1,17 @@
+stage,case,samples,handshake_median_ms,handshake_min_ms,handshake_max_ms,load_median_ms,load_plus_handshake_median_ms,signature_median_ms,keyshare_median_ms,key_agreement_median_ms
+baseline,cache_full_cold,5,2150.0,2140.0,2160.0,20.0,2170.0,830.0,630.0,630.0
+baseline,cache_full_warm,5,2130.0,2120.0,2140.0,0.0,2130.0,830.0,630.0,630.0
+round-6,cache_full_cold,5,2080.0,2070.0,2090.0,20.0,2100.0,760.0,630.0,630.0
+round-6,cache_full_warm,5,2060.0,2050.0,2070.0,0.0,2060.0,770.0,630.0,630.0
+round-7,cache_full_cold,5,2050.0,2040.0,2050.0,20.0,2070.0,730.0,630.0,630.0
+round-7,cache_full_warm,5,2030.0,2030.0,2040.0,0.0,2030.0,730.0,630.0,630.0
+round-8,cache_full_cold,5,1980.0,1980.0,2000.0,20.0,2000.0,660.0,630.0,630.0
+round-8,cache_full_warm,5,1970.0,1970.0,1980.0,0.0,1970.0,670.0,630.0,630.0
+round-9,cache_full_cold,5,1980.0,1970.0,1980.0,20.0,2000.0,660.0,630.0,630.0
+round-9,cache_full_warm,5,1960.0,1960.0,1970.0,0.0,1960.0,660.0,630.0,630.0
+round-10,cache_full_cold,5,1930.0,1910.0,1940.0,20.0,1950.0,610.0,630.0,630.0
+round-10,cache_full_warm,5,1910.0,1900.0,1920.0,0.0,1910.0,610.0,630.0,630.0
+baseline-repeat,cache_full_cold,5,2140.0,2140.0,2150.0,20.0,2160.0,820.0,630.0,630.0
+baseline-repeat,cache_full_warm,5,2130.0,2120.0,2140.0,0.0,2130.0,830.0,630.0,630.0
+round-10-repeat,cache_full_cold,5,1930.0,1920.0,1940.0,20.0,1950.0,620.0,630.0,630.0
+round-10-repeat,cache_full_warm,5,1910.0,1900.0,1920.0,0.0,1910.0,620.0,630.0,630.0

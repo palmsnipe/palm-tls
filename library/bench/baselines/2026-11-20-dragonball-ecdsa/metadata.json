@@ -1,0 +1,76 @@
+{
+  "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+  "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+  "prc_sha256": "57ff124cd021b203e880e189820bbea7891b7c7ff276fd8f54deecec41d64b36",
+  "git_revision": "43c43560ea0069c2e29000ada6cd4c1d305f104a",
+  "dragonball_overclock": 16,
+  "baseline": "../2026-11-20-dragonball/metadata.json (round-5)",
+  "session": "m515.img, PalmM515, Palm OS 4.1",
+  "toolchain": "m68k-none-elf-gcc 16.1.0, -m68000 -mshort -Os for wolfSSL",
+  "wolfssl": "5.9.4 (3c5eead44904df64e6a5a1f4ebdce377d35a849a)",
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "956bd2d265a0c780fbe255835dbf6c437b6bed2e6aeb5c6dee799c58fa0673aa",
+    "leaf_sha256": "aea233816457e554350bbd55c4e553891e0a0a553b3fd52ac8458c40b4fe8d8b",
+    "port": 23443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026"
+  },
+  "fixture_protocol": "TLS 1.3 / TLS_AES_128_GCM_SHA256 / P-256",
+  "patches": {
+    "6": {
+      "path": "patches/wolfssl/wolfssl-palm-m68k-ecdsa-window.patch",
+      "sha256": "9f7cee57ecd56f6a345bcfca473fd3642c14c7779a0a2f0068cce7a78e4e73fa"
+    },
+    "7": {
+      "path": "patches/wolfssl/wolfssl-palm-m68k-ecdsa-public-add.patch",
+      "sha256": "dc85a70470faa05575314518ee903f26ada863fe65259332f665fa4b813accfe"
+    },
+    "8": {
+      "path": "patches/wolfssl/wolfssl-palm-m68k-ecdsa-mixed-add.patch",
+      "sha256": "ec6c3701a0ea07448d9614741cf60ee1c90cb5b49570b0ec55ea1799e30d70b6"
+    },
+    "9": {
+      "path": "patches/wolfssl/wolfssl-palm-m68k-ecdsa-projective-x.patch",
+      "sha256": "30a4fd6119e5fbaa15e40594d495b705682fee43b6b1c7f5ed8a09e0b6a07126"
+    },
+    "10": {
+      "path": "patches/wolfssl/wolfssl-palm-m68k-ecdsa-public-double.patch",
+      "sha256": "7ddebda147fa20828bd32d8cd71c6e569a0890a24e0a7ea205ceb33ac91a4aec"
+    }
+  },
+  "runs": {
+    "baseline": {
+      "library_sha256": "3cf9bf431f182f46b15d783bbdf88f55456c558afaba48f7994947bebfbb88a7",
+      "library_bytes": 625887
+    },
+    "round-6": {
+      "library_sha256": "8a177fc64fc96f55e5144322f80f10913ab162abb0e4b36176f346cdb39f8897",
+      "library_bytes": 628079
+    },
+    "round-7": {
+      "library_sha256": "6854ec4ba59735ceae85353f8470eba1d02df198d8ab8798b38e0df0dff8b37f",
+      "library_bytes": 628999
+    },
+    "round-8": {
+      "library_sha256": "994e9a6c101bebbfb96b8023cc6298202b1b44a06b588bd5fd2d083f79f6f77e",
+      "library_bytes": 630931
+    },
+    "round-9": {
+      "library_sha256": "d97b267027c0f8a25287bf3341e4cc26e22e997eba4f9d9434b6bc952094d157",
+      "library_bytes": 631563
+    },
+    "round-10": {
+      "library_sha256": "495abdec4f1a323579dd690f5c6442763fcad46bfb3712b763e0e35a7880a71a",
+      "library_bytes": 633323
+    },
+    "baseline-repeat": {
+      "library_sha256": "3cf9bf431f182f46b15d783bbdf88f55456c558afaba48f7994947bebfbb88a7",
+      "library_bytes": 625887
+    },
+    "round-10-repeat": {
+      "library_sha256": "495abdec4f1a323579dd690f5c6442763fcad46bfb3712b763e0e35a7880a71a",
+      "library_bytes": 633323
+    }
+  }
+}

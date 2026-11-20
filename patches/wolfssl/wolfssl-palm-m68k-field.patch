@@ -1,0 +1,112 @@
+diff --git a/wolfcrypt/src/tfm.c b/wolfcrypt/src/tfm.c
+--- a/wolfcrypt/src/tfm.c
++++ b/wolfcrypt/src/tfm.c
+@@ -1734,16 +1734,18 @@
+ static void PalmSubMod16(const fp_digit* a, const fp_digit* b,
+     const fp_digit* modulus, fp_digit* result)
+ {
+-    fp_digit term, borrow, value, count = 15;
++    fp_digit term, borrow, value, count = 3;
+     fp_digit* dst = result;
+ 
+     __asm__ volatile(
+         "moveq #0,%[borrow]\n\t"
+         "add.w %[borrow],%[borrow]\n"
+-        "1: move.w (%[a])+,%[term]\n\t"
++        "1: .rept 4\n\t"
++        "move.w (%[a])+,%[term]\n\t"
+         "move.w (%[b])+,%[borrow]\n\t"
+         "subx.w %[borrow],%[term]\n\t"
+         "move.w %[term],(%[dst])+\n\t"
++        ".endr\n\t"
+         "dbra %[count],1b\n\t"
+         "move.w (%[a]),%[term]\n\t"
+         "move.w (%[b]),%[borrow]\n\t"
+@@ -1753,15 +1755,17 @@
+           [count] "+&d"(count), [term] "=&d"(term), [borrow] "=&d"(borrow)
+         : : "cc", "memory");
+ 
+-    count = 15;
++    count = 3;
+     __asm__ volatile(
+         "moveq #0,%[term]\n\t"
+         "add.w %[term],%[term]\n"
+-        "1: move.w (%[modulus])+,%[term]\n\t"
++        "1: .rept 4\n\t"
++        "move.w (%[modulus])+,%[term]\n\t"
+         "and.w %[borrow],%[term]\n\t"
+         "move.w (%[dst]),%[value]\n\t"
+         "addx.w %[term],%[value]\n\t"
+         "move.w %[value],(%[dst])+\n\t"
++        ".endr\n\t"
+         "dbra %[count],1b"
+         : [modulus] "+&a"(modulus), [dst] "+&a"(result),
+           [count] "+&d"(count), [term] "=&d"(term), [value] "=&d"(value)
+@@ -1829,17 +1833,19 @@
+     const fp_digit* modulus, fp_digit* result)
+ {
+     fp_digit reduced[16];
+-    fp_digit word, other, count = 15, carry = 0, borrow, mask;
++    fp_digit word, other, count = 3, carry = 0, borrow, mask;
+     fp_digit* dst = result;
+-    int i;
++    fp_word wideMask, sumWord, reducedWord;
+ 
+     /* Sum the words into result, retaining the carry out. */
+     __asm__ volatile(
+         "add.w %[carry],%[carry]\n"
+-        "1: move.w (%[a])+,%[word]\n\t"
++        "1: .rept 4\n\t"
++        "move.w (%[a])+,%[word]\n\t"
+         "move.w (%[b])+,%[other]\n\t"
+         "addx.w %[other],%[word]\n\t"
+         "move.w %[word],(%[dst])+\n\t"
++        ".endr\n\t"
+         "dbra %[count],1b\n\t"
+         "addx.w %[carry],%[carry]"
+         : [a] "+&a"(a), [b] "+&a"(b), [dst] "+&a"(dst),
+@@ -1848,16 +1854,18 @@
+         : : "cc", "memory");
+ 
+     /* Compute the candidate reduction and a mask from its borrow out. */
+-    count = 15;
++    count = 3;
+     dst = reduced;
+     const fp_digit* sum = result;
+     __asm__ volatile(
+         "moveq #0,%[borrow]\n\t"
+         "sub.w %[borrow],%[borrow]\n"
+-        "1: move.w (%[sum])+,%[word]\n\t"
++        "1: .rept 4\n\t"
++        "move.w (%[sum])+,%[word]\n\t"
+         "move.w (%[modulus])+,%[borrow]\n\t"
+         "subx.w %[borrow],%[word]\n\t"
+         "move.w %[word],(%[dst])+\n\t"
++        ".endr\n\t"
+         "dbra %[count],1b\n\t"
+         "subx.w %[borrow],%[borrow]"
+         : [sum] "+&a"(sum), [modulus] "+&a"(modulus), [dst] "+&a"(dst),
+@@ -1865,8 +1873,21 @@
+         : : "cc", "memory");
+ 
+     mask = (fp_digit)(0 - carry) | (fp_digit)~borrow;
+-    for (i = 0; i < 16; i++)
+-        result[i] ^= (result[i] ^ reduced[i]) & mask;
++    wideMask = ((fp_word)mask << 16) | mask;
++    dst = reduced;
++    count = 7;
++    __asm__ volatile(
++        "1: move.l (%[result]),%[sumWord]\n\t"
++        "move.l (%[reduced])+,%[reducedWord]\n\t"
++        "eor.l %[sumWord],%[reducedWord]\n\t"
++        "and.l %[mask],%[reducedWord]\n\t"
++        "eor.l %[reducedWord],%[sumWord]\n\t"
++        "move.l %[sumWord],(%[result])+\n\t"
++        "dbra %[count],1b"
++        : [result] "+&a"(result), [reduced] "+&a"(dst),
++          [count] "+&d"(count), [sumWord] "=&d"(sumWord),
++          [reducedWord] "=&d"(reducedWord)
++        : [mask] "d"(wideMask) : "cc", "memory");
+ }
+ #endif
+ 
