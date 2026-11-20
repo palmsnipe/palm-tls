@@ -1,0 +1,54 @@
+diff --git a/src/internal.c b/src/internal.c
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -11862,6 +11862,12 @@
+ int HashRaw(WOLFSSL* ssl, const byte* data, int sz)
+ {
+     int ret = 0;
++#if defined(PALM_WOLFSSL_ARMLET_MATH) && defined(WOLFSSL_NO_TLS12) && \
++    defined(WOLFSSL_SHA384) && !defined(WOLFSSL_DEBUG_TLS)
++    /* Both digests are needed until the final ServerHello selects the
++     * cipher, including across HelloRetryRequest and PSK binder processing. */
++    int selectedHash = ssl->options.serverState >= SERVER_HELLO_COMPLETE;
++#endif
+ #ifdef WOLFSSL_DEBUG_TLS
+     byte digest[WC_MAX_DIGEST_SIZE];
+ 
+@@ -11895,9 +11901,15 @@
+ 
+     if (IsAtLeastTLSv1_2(ssl)) {
+     #ifndef NO_SHA256
+-        ret = wc_Sha256Update(&ssl->hsHashes->hashSha256, data, (word32)sz);
+-        if (ret != 0)
+-            return ret;
++    #if defined(PALM_WOLFSSL_ARMLET_MATH) && defined(WOLFSSL_NO_TLS12) && \
++        defined(WOLFSSL_SHA384) && !defined(WOLFSSL_DEBUG_TLS)
++        if (!selectedHash || ssl->specs.mac_algorithm == sha256_mac)
++    #endif
++        {
++            ret = wc_Sha256Update(&ssl->hsHashes->hashSha256, data, (word32)sz);
++            if (ret != 0)
++                return ret;
++        }
+     #ifdef WOLFSSL_DEBUG_TLS
+         WOLFSSL_MSG("Sha256");
+         wc_Sha256GetHash(&ssl->hsHashes->hashSha256, digest);
+@@ -11905,9 +11917,15 @@
+     #endif
+     #endif
+     #ifdef WOLFSSL_SHA384
+-        ret = wc_Sha384Update(&ssl->hsHashes->hashSha384, data, (word32)sz);
+-        if (ret != 0)
+-            return ret;
++    #if defined(PALM_WOLFSSL_ARMLET_MATH) && defined(WOLFSSL_NO_TLS12) && \
++        defined(WOLFSSL_SHA384) && !defined(WOLFSSL_DEBUG_TLS)
++        if (!selectedHash || ssl->specs.mac_algorithm == sha384_mac)
++    #endif
++        {
++            ret = wc_Sha384Update(&ssl->hsHashes->hashSha384, data, (word32)sz);
++            if (ret != 0)
++                return ret;
++        }
+     #ifdef WOLFSSL_DEBUG_TLS
+         WOLFSSL_MSG("Sha384");
+         wc_Sha384GetHash(&ssl->hsHashes->hashSha384, digest);

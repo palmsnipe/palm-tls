@@ -28,6 +28,11 @@ separate from TLS Tester and PalmTLS. It overwrites only its own
 `PalmTLS Bench Results` database on each launch. Large scratch buffers are
 allocated on the heap.
 
+## ARM TLS 1.3 handshake optimization
+
+The five-round comparison covers cold, warm and resumed connections on
+cp-uarm at 100 MIPS. [ARM results](baselines/2026-11-20-arm-handshake-rounds)
+
 ## DragonBall TLS 1.3 handshakes
 
 Build the wolfSSL dependencies with `make bootstrap`, then run the handshake

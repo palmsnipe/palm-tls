@@ -2,6 +2,7 @@
 """Check host C or the extracted ARM image against independent crypto oracles."""
 import argparse
 import ctypes
+import hashlib
 import json
 import random
 import subprocess
@@ -114,6 +115,41 @@ def request(command):
     data = bytearray(REQUEST_SIZE)
     data[0], data[3] = 1, command
     return data
+
+
+def sha512_family(backend, rng):
+    variants = (
+        (hashlib.sha512, '6a09e667f3bcc908 bb67ae8584caa73b 3c6ef372fe94f82b a54ff53a5f1d36f1 '
+         '510e527fade682d1 9b05688c2b3e6c1f 1f83d9abfb41bd6b 5be0cd19137e2179'),
+        (hashlib.sha384, 'cbbb9d5dc1059ed8 629a292a367cd507 9159015a3070dd17 152fecd8f70e5939 '
+         '67332667ffc00b31 8eb44a8768581511 db0c2e0d64f98fa7 47b5481dbefa4fa4'),
+    )
+    count = 0
+    for digest, initial in variants:
+        for size in (0, 1, 3, 111, 112, 127, 128, 129, 511, 512, 513, 1025):
+            message = bytes(rng.getrandbits(8) for _ in range(size))
+            padded = (message + b'\x80' + bytes((111 - size) % 128) +
+                      (size * 8).to_bytes(16, 'big'))
+            for blocks in (1, 4):
+                state = bytes.fromhex(initial)
+                for start in range(0, len(padded), blocks * 128):
+                    chunk = padded[start:start + blocks * 128]
+                    data = request(14)
+                    data[2] = len(chunk) // 128
+                    data[LEFT:LEFT + 64] = state
+                    data[RIGHT:RIGHT + len(chunk)] = chunk
+                    assert backend.invoke(data, count % 4) == SUCCESS
+                    state = data[OUTPUT:OUTPUT + 64]
+                expected = digest(message).digest()
+                assert state[:len(expected)] == expected, (digest.__name__, size, blocks)
+                count += 1
+    for blocks in (0, 5):
+        data = request(14)
+        data[2] = blocks
+        data[OUTPUT:OUTPUT + 64] = b'\xa5' * 64
+        assert backend.invoke(data) == ERROR
+        assert data[OUTPUT:OUTPUT + 64] == b'\xa5' * 64
+    return count
 
 
 def aes(backend, rng):
@@ -691,6 +727,7 @@ def main():
     fields = field_arithmetic(backend)
     ed_fields = ed25519_field(backend, rng)
     public_cases = public_arithmetic(backend, random.Random(4096))
+    sha_cases = sha512_family(backend, random.Random(384))
     inverses, multiplies, verifies = p256(backend, rng)
     validations = p256_validation(backend, rng)
     orders = order_scalars(backend, rng)
@@ -701,7 +738,7 @@ def main():
           f'{multiplies} scalar products, {verifies} double-scalar cases, '
           f'{orders} order preparations, {validations} point validations, '
           f'{signatures} ECDSA valid/tampered cases, {ed_fields} Ed25519 field cases, '
-          f'{public_cases} public-key arithmetic cases; '
+          f'{public_cases} public-key arithmetic cases, {sha_cases} SHA-384/512 vectors; '
           'alignment offsets 0..3')
 
 

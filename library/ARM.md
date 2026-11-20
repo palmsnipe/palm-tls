@@ -4,7 +4,7 @@
 library dispatch remain 68K code, preserving the `PTLS` API used by Palm OS 4+
 consumers. Hot multiprecision multiplication/squaring, P-256 scalar
 multiplication, public-key validation, projective mapping and ECDSA order
-arithmetic, SHA-256 compression, and AES-128-GCM/ChaCha20-Poly1305 record
+arithmetic, SHA-2 compression, and AES-GCM/ChaCha20-Poly1305 record
 protection execute in a native ARMlet through the SDK's `PceNativeCall` trap.
 
 ## Runtime path
@@ -116,9 +116,9 @@ digit capacity.
 
 The ARM variant moves each complete P-256 operation across the architecture
 boundary as one call. General points use a constant-time 4-bit window. Standard
-generator multiplication uses a generated six-way comb table with 43 point
-doublings. Table selection scans all 63 entries in order and masks the
-matching coordinates into the result. ECDHE key generation and shared-secret
+generator multiplication uses three interleaved five-tooth comb tables with
+18 point doublings. Each lookup scans all 31 entries of its table and masks
+the matching coordinates into the result. ECDHE key generation and shared-secret
 calculation therefore use native ARM P-256 math. Field squaring uses a
 shared integrated Montgomery multiplier with equal operands, preserving
 in-place aliases. ECDSA verification dispatches its complete
@@ -156,6 +156,17 @@ infinity retain the existing affine verification path. Builds enabling
 execution errors propagate rather than falling back with partially written
 aliased outputs. DER parsing, signature range checks and final comparison
 remain in wolfSSL.
+
+The ARM TLS 1.3 engine updates only the cipher suite's transcript hash after
+the final ServerHello. It keeps both hashes through negotiation, including
+HelloRetryRequest and ticket binders. The SHA-384 and SHA-512 compression
+path batches up to four 128-byte blocks per native call and falls back to
+wolfSSL's software implementation if the native self-test or request fails.
+
+On a reused trust context, a bounded cache can reuse a successful issuer
+signature check for the same ECDSA/SHA-256 certificate and issuer key.
+Certificate path, dates, hostname, and live CertificateVerify are checked
+on each full handshake.
 
 SHA-256 compression also runs natively, batching as many as eight consecutive
 64-byte blocks into one ARM call. Its 64 rounds are fully unrolled so the

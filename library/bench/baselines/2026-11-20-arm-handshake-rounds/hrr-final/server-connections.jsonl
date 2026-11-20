@@ -1,0 +1,3 @@
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p384", "client_hellos": 2, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p384", "client_hellos": 2, "request": "release-probe\n"}
+{"error": "[SSL: BAD_KEY_SHARE] bad key share (_ssl.c:1011)"}

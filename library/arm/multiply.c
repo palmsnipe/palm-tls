@@ -1,4 +1,4 @@
-/* Palm OS 5 ARMlet for 16-bit bignum multiplication, SHA-256 compression,
+/* Palm OS 5 ARMlet for 16-bit bignum multiplication, SHA-2 compression,
  * AES-GCM, ChaCha20-Poly1305, and complete P-256 scalar multiplication.
  * Palm memory is big-endian while native ARM is little-endian, so request
  * fields are always accessed byte-by-byte. */
@@ -347,6 +347,109 @@ static void ClearSecret(volatile void *pointerP, u32 length)
         length--;
     }
 }
+
+static __inline__ __attribute__((always_inline))
+u64 RotateRight64(u64 value, u32 count)
+{
+    return (value >> count) | (value << (64U - count));
+}
+
+static u64 ReadBigEndian64(const volatile u8 *bytesP)
+{
+    return ((u64)ReadBigEndian32(bytesP) << 32) | ReadBigEndian32(bytesP + 4U);
+}
+
+static u32 Sha512Transform(const volatile u8 *stateP, const volatile u8 *blockP,
+                           volatile u8 *outputP, u32 blockCount)
+{
+    static const u64 constants[80] = {
+        0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL,
+        0xb5c0fbcfec4d3b2fULL, 0xe9b5dba58189dbbcULL,
+        0x3956c25bf348b538ULL, 0x59f111f1b605d019ULL,
+        0x923f82a4af194f9bULL, 0xab1c5ed5da6d8118ULL,
+        0xd807aa98a3030242ULL, 0x12835b0145706fbeULL,
+        0x243185be4ee4b28cULL, 0x550c7dc3d5ffb4e2ULL,
+        0x72be5d74f27b896fULL, 0x80deb1fe3b1696b1ULL,
+        0x9bdc06a725c71235ULL, 0xc19bf174cf692694ULL,
+        0xe49b69c19ef14ad2ULL, 0xefbe4786384f25e3ULL,
+        0x0fc19dc68b8cd5b5ULL, 0x240ca1cc77ac9c65ULL,
+        0x2de92c6f592b0275ULL, 0x4a7484aa6ea6e483ULL,
+        0x5cb0a9dcbd41fbd4ULL, 0x76f988da831153b5ULL,
+        0x983e5152ee66dfabULL, 0xa831c66d2db43210ULL,
+        0xb00327c898fb213fULL, 0xbf597fc7beef0ee4ULL,
+        0xc6e00bf33da88fc2ULL, 0xd5a79147930aa725ULL,
+        0x06ca6351e003826fULL, 0x142929670a0e6e70ULL,
+        0x27b70a8546d22ffcULL, 0x2e1b21385c26c926ULL,
+        0x4d2c6dfc5ac42aedULL, 0x53380d139d95b3dfULL,
+        0x650a73548baf63deULL, 0x766a0abb3c77b2a8ULL,
+        0x81c2c92e47edaee6ULL, 0x92722c851482353bULL,
+        0xa2bfe8a14cf10364ULL, 0xa81a664bbc423001ULL,
+        0xc24b8b70d0f89791ULL, 0xc76c51a30654be30ULL,
+        0xd192e819d6ef5218ULL, 0xd69906245565a910ULL,
+        0xf40e35855771202aULL, 0x106aa07032bbd1b8ULL,
+        0x19a4c116b8d2d0c8ULL, 0x1e376c085141ab53ULL,
+        0x2748774cdf8eeb99ULL, 0x34b0bcb5e19b48a8ULL,
+        0x391c0cb3c5c95a63ULL, 0x4ed8aa4ae3418acbULL,
+        0x5b9cca4f7763e373ULL, 0x682e6ff3d6b2b8a3ULL,
+        0x748f82ee5defb2fcULL, 0x78a5636f43172f60ULL,
+        0x84c87814a1f0ab72ULL, 0x8cc702081a6439ecULL,
+        0x90befffa23631e28ULL, 0xa4506cebde82bde9ULL,
+        0xbef9a3f7b2c67915ULL, 0xc67178f2e372532bULL,
+        0xca273eceea26619cULL, 0xd186b8c721c0c207ULL,
+        0xeada7dd6cde0eb1eULL, 0xf57d4f7fee6ed178ULL,
+        0x06f067aa72176fbaULL, 0x0a637dc5a2c898a6ULL,
+        0x113f9804bef90daeULL, 0x1b710b35131c471bULL,
+        0x28db77f523047d84ULL, 0x32caab7b40c72493ULL,
+        0x3c9ebe0a15c9bebcULL, 0x431d67c49c100d4cULL,
+        0x4cc5d4becb3e42b6ULL, 0x597f299cfc657e2aULL,
+        0x5fcb6fab3ad6faecULL, 0x6c44198c4a475817ULL
+    };
+    u64 state[8], words[16], v[8];
+    u32 round, block;
+    if (blockCount == 0U || blockCount > PALM_TLS_ARMLET_SHA512_MAX_BLOCKS)
+        return PALM_TLS_ARMLET_ERROR;
+    for (round = 0; round < 8U; round++)
+        state[round] = ReadBigEndian64(stateP + round * 8U);
+    for (block = 0; block < blockCount; block++) {
+        for (round = 0; round < 16U; round++)
+            words[round] = ReadBigEndian64(blockP + block * 128U + round * 8U);
+        for (round = 0; round < 8U; round++)
+            v[round] = state[round];
+        for (round = 0; round < 80U; round++) {
+            u32 column = round & 15U;
+            u64 word = words[column];
+            if (round >= 16U) {
+                u64 x = words[(round - 15U) & 15U];
+                u64 y = words[(round - 2U) & 15U];
+                u64 small0 = RotateRight64(x, 1U) ^ RotateRight64(x, 8U) ^ (x >> 7U);
+                u64 small1 = RotateRight64(y, 19U) ^ RotateRight64(y, 61U) ^ (y >> 6U);
+                word += small0 + words[(round - 7U) & 15U] + small1;
+                words[column] = word;
+            }
+            u64 choice = v[6] ^ (v[4] & (v[5] ^ v[6]));
+            u64 majority = (v[0] & v[1]) | (v[2] & (v[0] | v[1]));
+            u64 sum1 = RotateRight64(v[4], 14U) ^ RotateRight64(v[4], 18U) ^
+                       RotateRight64(v[4], 41U);
+            u64 sum0 = RotateRight64(v[0], 28U) ^ RotateRight64(v[0], 34U) ^
+                       RotateRight64(v[0], 39U);
+            u64 t1 = v[7] + sum1 + choice + constants[round] + word;
+            u64 t2 = sum0 + majority;
+            v[7] = v[6]; v[6] = v[5]; v[5] = v[4]; v[4] = v[3] + t1;
+            v[3] = v[2]; v[2] = v[1]; v[1] = v[0]; v[0] = t1 + t2;
+        }
+        for (round = 0; round < 8U; round++)
+            state[round] += v[round];
+    }
+    for (round = 0; round < 8U; round++) {
+        WriteBigEndian32(outputP + round * 8U, (u32)(state[round] >> 32U));
+        WriteBigEndian32(outputP + round * 8U + 4U, (u32)state[round]);
+    }
+    ClearSecret(state, sizeof(state));
+    ClearSecret(words, sizeof(words));
+    ClearSecret(v, sizeof(v));
+    return PALM_TLS_ARMLET_SUCCESS;
+}
+
 
 static void AesExpand(const volatile u8 *keyP, volatile u8 *roundKeyP,
                       u32 keyLength, u32 rounds)
@@ -2017,9 +2120,10 @@ static void NormalizeWindowCoordinates(Point256 *tableP)
 /* Every table row is read in order. Mask and OR the unique matching
  * coordinate into the accumulator. Volatile loads make non-matching rows
  * observable too. The coordinate selector is public. */
-static void SelectGeneratorCoordinate(Fe256 *resultP, u32 digit, u32 y)
+static void SelectGeneratorCoordinate(Fe256 *resultP,
+                                      const volatile Affine256 *tableP,
+                                      u32 digit, u32 y)
 {
-    const volatile Affine256 *tableP = kGeneratorComb;
     Fe256 selected = {{0}};
     for (u32 index = 1; index <= P256_COMB_DIGITS; index++) {
         u32 mask = 0U - EqualSmall(index, digit);
@@ -2034,12 +2138,12 @@ static void SelectGeneratorCoordinate(Fe256 *resultP, u32 digit, u32 y)
     FeCopy(resultP, &selected);
 }
 
-static void SelectGeneratorComb(Affine256 *resultP, u32 digit)
+static void SelectGeneratorComb(Affine256 *resultP, u32 table, u32 digit)
 {
     /* For digit zero use G as a dummy operand and discard the addition. */
     digit |= EqualSmall(digit, 0);
-    SelectGeneratorCoordinate(&resultP->x, digit, 0U);
-    SelectGeneratorCoordinate(&resultP->y, digit, 1U);
+    SelectGeneratorCoordinate(&resultP->x, kGeneratorComb[table], digit, 0U);
+    SelectGeneratorCoordinate(&resultP->y, kGeneratorComb[table], digit, 1U);
 }
 
 /* Scan the same rows regardless of the secret digit. Keep one coordinate
@@ -2142,21 +2246,29 @@ static u32 P256Multiply(const volatile u8 *scalarP,
 #ifdef PALM_ARMLET_HOST_TEST
     PalmTlsArmletFixedBaseCalls++;
 #endif
+    Order256 scalar;
+    ReduceP256Scalar(&scalar, scalarP);
     PointSetInfinity(&result);
+    /* The tables assign each scalar bit to a disjoint tooth. On the
+     * reduced scalar a nonzero accumulator and addition term encode
+     * distinct positive coefficients below n. */
     for (window = P256_COMB_WINDOWS - 1; window >= 0; window--) {
-        Affine256 selected;
-        u32 digit = 0;
         PointDouble(&result, &result);
-        for (index = 0; index < P256_COMB_WIDTH; index++) {
-            u32 bit = (u32)window + index * P256_COMB_WINDOWS;
-            if (bit < 256U)
-                digit |= ((scalarP[31U - (bit >> 3)] >> (bit & 7U)) & 1U)
-                    << index;
+        for (u32 table = 0; table < P256_COMB_TABLES; table++) {
+            Affine256 selected;
+            u32 digit = 0;
+            for (index = 0; index < P256_COMB_WIDTH; index++) {
+                u32 tooth = index * P256_COMB_TABLES + table;
+                u32 bit = (u32)window + tooth * P256_COMB_WINDOWS;
+                if (bit < 256U)
+                    digit |= ((scalar.v[bit >> 5] >> (bit & 31U)) & 1U) << index;
+            }
+            SelectGeneratorComb(&selected, table, digit);
+            PointAddMixed(&result, &result, &selected.x, &selected.y,
+                          EqualSmall(digit, 0) ^ 1U);
         }
-        SelectGeneratorComb(&selected, digit);
-        PointAddMixed(&result, &result, &selected.x, &selected.y,
-                      EqualSmall(digit, 0) ^ 1U);
     }
+    ClearSecret(&scalar, sizeof(scalar));
     return P256WritePoint(&result, outputP, map);
 }
 
@@ -2842,6 +2954,8 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
     outputP = requestP + PALM_TLS_ARMLET_OUTPUT_OFFSET;
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_SHA256_TRANSFORM)
         return Sha256Transform(leftP, rightP, outputP, requestP[2]);
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_SHA512_TRANSFORM)
+        return Sha512Transform(leftP, rightP, outputP, requestP[2]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_AES_GCM)
         return AesGcm(leftP, rightP, outputP, requestP[1]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_CHACHA_POLY)

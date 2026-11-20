@@ -60,6 +60,7 @@ SECTIONS
          * routines and table out of the always-writable data segment. */
         *libwolfssl*.a:src_libwolfssl_la-ge_operations.o(.text .text.* .rodata .rodata.*)
         *tls_x25519_68k.o(.text .text.* .rodata .rodata.*)
+        *libwolfssl-tls13-armlet.a:src_libwolfssl_la-sha512.o(.text .text.* .rodata .rodata.*)
         *libwolfssl-browser-armlet.a:src_libwolfssl_la-sha512.o(.text .text.* .rodata .rodata.*)
         *libwolfssl-browser-armlet.a:src_libwolfssl_la-tfm.o(.text.fp_montgomery_reduce_ex)
         *libwolfssl-browser-armlet.a:src_libwolfssl_la-ecc.o(.text.ecc_mul2add*)
@@ -97,6 +98,7 @@ SECTIONS
     } > tls3
 
     .tls5 : {
+        *tls_armlet_browser.o(.sha512_armlet)
         *libwolfssl*.a:*(.text .text.* .rodata .rodata.*)
         *libgcc.a:*(.text .text.* .rodata .rodata.*)
         *libc.a:*(.text .text.* .rodata .rodata.*)

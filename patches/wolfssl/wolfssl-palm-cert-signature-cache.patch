@@ -1,0 +1,42 @@
+diff --git a/wolfssl/internal.h b/wolfssl/internal.h
+--- a/wolfssl/internal.h
++++ b/wolfssl/internal.h
+@@ -2784,7 +2784,7 @@
+     #define TP_TABLE_SIZE 11
+ #endif
+ 
+-#ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
++#ifdef PALM_WOLFSSL_CERT_SIGNATURE_CACHE
+     #if !defined(SINGLE_THREADED) || defined(HAVE_PK_CALLBACKS) || \
+         defined(WOLFSSL_ASYNC_CRYPT) || defined(WOLF_CRYPTO_CB) || \
+         defined(WOLFCRYPT_ONLY) || defined(NO_ASN_CRYPT) || \
+@@ -2796,7 +2796,7 @@
+ 
+ /* wolfSSL Certificate Manager */
+ struct WOLFSSL_CERT_MANAGER {
+-#ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
++#ifdef PALM_WOLFSSL_CERT_SIGNATURE_CACHE
+     byte            palmCertSignatures[PALM_CERT_SIGNATURE_CACHE_SIZE]
+                                       [WC_SHA256_DIGEST_SIZE];
+     byte            palmCertSignatureCount;
+diff --git a/wolfcrypt/src/asn.c b/wolfcrypt/src/asn.c
+--- a/wolfcrypt/src/asn.c
++++ b/wolfcrypt/src/asn.c
+@@ -18832,7 +18832,7 @@
+     return result;
+ }
+ 
+-#ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
++#ifdef PALM_WOLFSSL_CERT_SIGNATURE_CACHE
+ static int PalmCertSignatureKey(byte* digest, const byte* buf, word32 bufSz,
+     const byte* key, word32 keySz, const byte* sig, word32 sigSz)
+ {
+@@ -24790,7 +24790,7 @@
+             /* The small-stack path selects an issuer before checking the
+              * signature. The caller still runs the full parse and policy checks
+              * after this function returns. */
+-        #ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
++        #ifdef PALM_WOLFSSL_CERT_SIGNATURE_CACHE
+             if (!req && ca != NULL) {
+                 ret = ConfirmSignatureWithCache(sigCtx, tbs, tbsSz,
+                     pubKey, pubKeySz, (word32)pubKeyOID, sig, sigSz, sigOID,

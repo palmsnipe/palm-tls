@@ -10,7 +10,7 @@ vendor = Path(__file__).resolve().parents[2] / '.palm-tls/src/wolfssl'
 source = (vendor / 'wolfcrypt/src/asn.c').read_text()
 start = source.index('static int PalmCertSignatureKey(')
 end = source.index('\n\n\n#ifndef IGNORE_NAME_CONSTRAINTS', start)
-cache = '#ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE\n' + source[start:end]
+cache = '#ifdef PALM_WOLFSSL_CERT_SIGNATURE_CACHE\n' + source[start:end]
 header = (vendor / 'wolfssl/internal.h').read_text()
 size = header.index('#define PALM_CERT_SIGNATURE_CACHE_SIZE ')
 fields = header.index('    byte            palmCertSignatures[')
@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as directory:
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
-#define PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
+#define PALM_WOLFSSL_CERT_SIGNATURE_CACHE
 #define WC_SHA256_DIGEST_SIZE 32
 #define XMEMCMP memcmp
 #define XMEMCPY memcpy

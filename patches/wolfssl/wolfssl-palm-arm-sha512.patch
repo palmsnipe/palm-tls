@@ -1,0 +1,45 @@
+diff --git a/wolfcrypt/src/sha512.c b/wolfcrypt/src/sha512.c
+--- a/wolfcrypt/src/sha512.c
++++ b/wolfcrypt/src/sha512.c
+@@ -2001,8 +2001,22 @@
+     d(i) += h(i); \
+     h(i) += S0(a(i)) + Maj(a(i),b(i),c(i))
+ 
++#if defined(PALM_WOLFSSL_WIDE_CERTS) && defined(PALM_WOLFSSL_ARMLET_MATH) && \
++    defined(BIG_ENDIAN_ORDER)
++extern int PalmTlsArmletSha512Transform(word64* digest, const byte* blocks,
++                                       word32 count);
++#define PALM_SHA512_ARMLET
++#endif
++
+ static int _Transform_Sha512(wc_Sha512* sha512)
+ {
++#ifdef PALM_SHA512_ARMLET
++    /* The software path's buffer already holds big-endian 64-bit words
++     * on the Palm 68K side, including the padded final block. */
++    if (PalmTlsArmletSha512Transform(sha512->digest,
++            (const byte*)sha512->buffer, 1) == 0)
++        return 0;
++#endif
+     const word64* K = K512;
+     word32 j;
+     word64 T[8];
+@@ -2191,6 +2205,18 @@
+         defined(HAVE_INTEL_AVX2)))
+     {
+         while (len >= WC_SHA512_BLOCK_SIZE) {
++        #ifdef PALM_SHA512_ARMLET
++            word32 blocks = len / WC_SHA512_BLOCK_SIZE;
++            if (blocks > 4)
++                blocks = 4;
++            if (blocks > 1 &&
++                    PalmTlsArmletSha512Transform(sha512->digest, data, blocks) == 0) {
++                word32 bytes = blocks * WC_SHA512_BLOCK_SIZE;
++                data += bytes;
++                len -= bytes;
++                continue;
++            }
++        #endif
+             XMEMCPY(local, data, WC_SHA512_BLOCK_SIZE);
+ 
+             data += WC_SHA512_BLOCK_SIZE;

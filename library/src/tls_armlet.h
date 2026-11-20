@@ -30,6 +30,10 @@ int PalmTlsArmletP256Multiply2Add(const ecc_point *leftPointP,
 #endif
 int PalmTlsArmletSha256Transform(word32 *digestP, const byte *blockP,
                                 word32 blockCount);
+#ifdef PALM_WOLFSSL_WIDE_CERTS
+int PalmTlsArmletSha512Transform(word64 *digestP, const byte *blockP,
+                                word32 blockCount);
+#endif
 int PalmTlsArmletEd25519Field(void *outputP, const void *leftP,
                             const void *rightP, word32 operation);
 void PalmTlsArmletAesGcmSetKey(Aes *aesP, const byte *keyP, word32 length);

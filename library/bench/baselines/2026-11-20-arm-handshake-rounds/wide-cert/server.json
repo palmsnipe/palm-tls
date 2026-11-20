@@ -1,0 +1,9 @@
+{
+  "trust_anchor_count": 8,
+  "trust_bytes": 5216,
+  "trust_sha256": "67d1260705f338b68bfa801c87352d922260e18a3a32e41bd2ed33e30fd234b5",
+  "leaf_sha256": "391d86371c0c091c300e8738a6efd8716099d8a77c5a26d51b5dc3f23849625f",
+  "port": 20443,
+  "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+  "tls13_group": "p256"
+}

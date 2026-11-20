@@ -1,0 +1,92 @@
+{
+  "platform": "CloudpilotEmu cp-uarm, Palm OS 5 session, 100 MIPS",
+  "release_baseline": "v0.1.11 (1cff15b509e9b5b641fd6c186367289d7f9007b1)",
+  "clock_hz": 100,
+  "samples_per_case": 10,
+  "stages": {
+    "baseline-release": {
+      "library_sha256": "6968f546dd5aa0afa2bd99722141ddf4d82c52b857534cbc851e54927cc82732",
+      "arm_image_sha256": "f8d6667100c36d65863fa459980f080977229a29f9d800b2cab9cdc2d84163ad",
+      "arm_image_bytes": 51504,
+      "prc_sha256": "9bd616baeefa830c0a0af6ad07fd97a3afdf643f51bdbb1d886e73c62f93aa24",
+      "prc_bytes": 732547
+    },
+    "round1-transcript": {
+      "library_sha256": "869a4a8797ed0b2ef88af479dc60e646901d4fcf281f867c96284608ca32d21b",
+      "arm_image_sha256": "cdf13c2687988ab619ef1e244d4778fa17e37b368285b023b0d14284b56e0428",
+      "arm_image_bytes": 51068,
+      "prc_sha256": "2d3c6c35adaf687bb44bcb71c2fe33f509d0b05dc44536254cd6ec97c4631cce",
+      "prc_bytes": 732183
+    },
+    "round2-issuer-cache": {
+      "library_sha256": "6ae0d3b1874c7c155a03f5ba8ef7dc219858d9ef708dfaa945a5c90bfa4f74a6",
+      "arm_image_sha256": "cdf13c2687988ab619ef1e244d4778fa17e37b368285b023b0d14284b56e0428",
+      "arm_image_bytes": 51068,
+      "prc_sha256": "2d3c6c35adaf687bb44bcb71c2fe33f509d0b05dc44536254cd6ec97c4631cce",
+      "prc_bytes": 732803
+    },
+    "round3-arm-o2": {
+      "library_sha256": "0c678603fb07f6900da2fe7b44adde0eec85e6a6bd399752062260394e2bb105",
+      "arm_image_sha256": "5bfb4d2fef4eb46138725ea0baf6b0758ea975ab1181707f1c26205f100245a6",
+      "arm_image_bytes": 64560,
+      "prc_sha256": "e5b49b180702c8ac9bd1e98821de3f5683e954537f982490873ff65445556e7f",
+      "prc_bytes": 746295
+    },
+    "round4-interleaved-comb": {
+      "library_sha256": "24fc3e57dccce111d7bc2a25c12b02824080aeff20b57dec92820f651b775cc8",
+      "arm_image_sha256": "68c123d4ec96395361800be444f68401835c3f55ad3f3fa2729d3c268c08e0bd",
+      "arm_image_bytes": 53112,
+      "prc_sha256": "47957124aae4fe7db27a6b6e9aecbebdcdcd88b0701b1dd514f3dc7c6f82155b",
+      "prc_bytes": 734847
+    },
+    "round5-native-sha512": {
+      "library_sha256": "e686a6dd0fade06361808f4c43cb74bfb77159622a44a9f575e504a952bcbdd2",
+      "arm_image_sha256": "c7f2dde8fda9555ecac946a00a3a4b1a40a31ab82758046e9e76381322f8ed74",
+      "arm_image_bytes": 55340,
+      "prc_sha256": "5f88ba3eb4862569e0908e84dbdf67b8b1f37b63dbf9735e8f1e01e7031916ec",
+      "prc_bytes": 737755
+    },
+    "round4-aes256": {
+      "library_sha256": "24fc3e57dccce111d7bc2a25c12b02824080aeff20b57dec92820f651b775cc8",
+      "arm_image_sha256": "68c123d4ec96395361800be444f68401835c3f55ad3f3fa2729d3c268c08e0bd",
+      "arm_image_bytes": 53112,
+      "prc_sha256": "47957124aae4fe7db27a6b6e9aecbebdcdcd88b0701b1dd514f3dc7c6f82155b",
+      "prc_bytes": 734847
+    },
+    "round5-aes256": {
+      "library_sha256": "e686a6dd0fade06361808f4c43cb74bfb77159622a44a9f575e504a952bcbdd2",
+      "arm_image_sha256": "c7f2dde8fda9555ecac946a00a3a4b1a40a31ab82758046e9e76381322f8ed74",
+      "arm_image_bytes": 55340,
+      "prc_sha256": "5f88ba3eb4862569e0908e84dbdf67b8b1f37b63dbf9735e8f1e01e7031916ec",
+      "prc_bytes": 737755
+    }
+  },
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+  "device": "auto",
+  "mips": 100,
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "8cbf846c6f56a1c84bfe1bdfa6ed449e1102a608a4722a5ea7bfd2005ce8381a",
+    "leaf_sha256": "89938ee3285702303239ea68297a822f3798a0fc1346bc9aabc6718adfc0a7b4",
+    "port": 19443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "tls13_group": "p256"
+  },
+  "source_sha256": {
+    "library/arm/multiply.c": "9b0e5d2f730dcc398f340cb139c51a736953afa466c0ffc066f1a48150f432e3",
+    "library/arm/armlet_abi.h": "4470b761e28e968cf07de6feba268c0dc607c8edcc5d1a711f76613aa10dc67f",
+    "library/src/tls_armlet.c": "01263cc618c4b85f191f138171dc6f169b03852305a028e7452346335f0f32d9",
+    "library/tools/generate-p256-comb.mjs": "5c40dd4d83ab0eff9f7cf10e84b9f583c346befb33b32c9a56c8bab54dfb147a",
+    "patches/wolfssl/wolfssl-palm-arm-tls13-transcript.patch": "223eb17491c04da03f93cd854fa40bcbef374cf71023e1c63791e5eb2717a489",
+    "patches/wolfssl/wolfssl-palm-arm-sha512.patch": "8792a5168cf482325093f22d15b4b0c6bfca9ab4fb6e52c75e1b58c576cefad0",
+    "patches/wolfssl/wolfssl-palm-cert-signature-cache.patch": "ed1b7e3cad30739cbb0e42fab137d769268d06a69df669aeb3fa5c92a476cc83",
+    "scripts/bootstrap.sh": "bb0f5d080dbbc3fcec27269d86cef4eed4c481b715a441d404a0134758e6779f",
+    "library/toolchain/linker.lkr": "5d3f4d1c35bad41e851d17827dc5b1b6369aaf0dd1daef2337ed46e8f8a8ae3a"
+  },
+  "final_rebuild": {
+    "prc_sha256": "ca8faf491ffb846ecce9936cc3303d85c4e63acc9eea680102fb545ea617641f",
+    "resource_payloads_match_measured_prc": true
+  }
+}

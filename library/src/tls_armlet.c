@@ -32,6 +32,9 @@ static PalmTlsArmletMultiplyRequest *gRequestP;
 static ecc_point *gRawP256PointP;
 static Boolean gArmletChecked;
 static Boolean gArmletEnabled;
+#ifdef PALM_WOLFSSL_WIDE_CERTS
+static Boolean gSha512Enabled;
+#endif
 /* ChaCha20-Poly1305 is only offered when its own known answer passes. */
 static Boolean gChaChaPolyEnabled;
 static Boolean gEd25519FieldEnabled;
@@ -174,6 +177,50 @@ static Boolean RunSha256KnownAnswer(void)
         if (requestP->output[index] != expected[index]) return false;
     return true;
 }
+
+#ifdef PALM_WOLFSSL_WIDE_CERTS
+#ifdef PALM_WOLFSSL_BROWSER
+#define PALM_TLS_SHA512_BRIDGE __attribute__((section(".sha512_armlet"), noinline))
+#else
+#define PALM_TLS_SHA512_BRIDGE
+#endif
+
+PALM_TLS_SHA512_BRIDGE
+static Boolean RunSha384KnownAnswer(void)
+{
+    static const UInt8 initial[64] = {
+        0xcb,0xbb,0x9d,0x5d,0xc1,0x05,0x9e,0xd8,
+        0x62,0x9a,0x29,0x2a,0x36,0x7c,0xd5,0x07,
+        0x91,0x59,0x01,0x5a,0x30,0x70,0xdd,0x17,
+        0x15,0x2f,0xec,0xd8,0xf7,0x0e,0x59,0x39,
+        0x67,0x33,0x26,0x67,0xff,0xc0,0x0b,0x31,
+        0x8e,0xb4,0x4a,0x87,0x68,0x58,0x15,0x11,
+        0xdb,0x0c,0x2e,0x0d,0x64,0xf9,0x8f,0xa7,
+        0x47,0xb5,0x48,0x1d,0xbe,0xfa,0x4f,0xa4
+    };
+    static const UInt8 expected[48] = {
+        0xcb,0x00,0x75,0x3f,0x45,0xa3,0x5e,0x8b,
+        0xb5,0xa0,0x3d,0x69,0x9a,0xc6,0x50,0x07,
+        0x27,0x2c,0x32,0xab,0x0e,0xde,0xd1,0x63,
+        0x1a,0x8b,0x60,0x5a,0x43,0xff,0x5b,0xed,
+        0x80,0x86,0x07,0x2b,0xa1,0xe7,0xcc,0x23,
+        0x58,0xba,0xec,0xa1,0x34,0xc8,0x25,0xa7
+    };
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    MemSet(requestP, sizeof(*requestP), 0);
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_SHA512_TRANSFORM;
+    requestP->rightUsed = 1;
+    MemMove(requestP->left, initial, sizeof(initial));
+    requestP->right[0] = 'a';
+    requestP->right[1] = 'b';
+    requestP->right[2] = 'c';
+    requestP->right[3] = 0x80;
+    requestP->right[127] = 24;
+    return PceNativeCall(gArmletEntryP, requestP) == PALM_TLS_ARMLET_SUCCESS &&
+        MemCmp(requestP->output, expected, sizeof(expected)) == 0;
+}
+#endif
 
 static Boolean RunAesGcmKnownAnswer(Boolean wide)
 {
@@ -355,6 +402,9 @@ void PalmTlsArmletInitialize(void)
     if (gArmletChecked) return;
     gArmletChecked = true;
     gArmletEnabled = false;
+#ifdef PALM_WOLFSSL_WIDE_CERTS
+    gSha512Enabled = false;
+#endif
     gChaChaPolyEnabled = false;
     gEd25519FieldEnabled = false;
     gRawP256PointP = 0;
@@ -378,6 +428,9 @@ void PalmTlsArmletInitialize(void)
                 RunP256KnownAnswer() && RunSha256KnownAnswer() &&
                 RunAesGcmKnownAnswer(false) && RunAesGcmKnownAnswer(true) &&
                 RunOrderKnownAnswer();
+#ifdef PALM_WOLFSSL_WIDE_CERTS
+            gSha512Enabled = gArmletEnabled && RunSha384KnownAnswer();
+#endif
             gChaChaPolyEnabled = gArmletEnabled && RunChaChaPolyKnownAnswer();
             gEd25519FieldEnabled = gArmletEnabled;
             gEd25519FieldEnabled = gEd25519FieldEnabled && RunEd25519FieldKnownAnswer();
@@ -408,6 +461,9 @@ void PalmTlsArmletShutdown(void)
     gArmletDatabaseP = 0;
     gArmletChecked = false;
     gArmletEnabled = false;
+#ifdef PALM_WOLFSSL_WIDE_CERTS
+    gSha512Enabled = false;
+#endif
     gChaChaPolyEnabled = false;
     gEd25519FieldEnabled = false;
     gRawP256PointP = 0;
@@ -437,6 +493,31 @@ int PalmTlsArmletSha256Transform(word32 *digestP, const byte *blockP,
     MemMove(digestP, requestP->output, 32);
     return 0;
 }
+
+#ifdef PALM_WOLFSSL_WIDE_CERTS
+PALM_TLS_SHA512_BRIDGE
+int PalmTlsArmletSha512Transform(word64 *digestP, const byte *blockP,
+                                word32 blockCount)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    if (!gSha512Enabled || !requestP || !digestP || !blockP ||
+        blockCount == 0 || blockCount > PALM_TLS_ARMLET_SHA512_MAX_BLOCKS)
+        return -1;
+    UInt32 length = blockCount * 128UL;
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_SHA512_TRANSFORM;
+    requestP->rightUsed = (UInt8)blockCount;
+    MemMove(requestP->left, digestP, 64);
+    MemMove(requestP->right, blockP, length);
+    UInt32 status = PceNativeCall(gArmletEntryP, requestP);
+    if (status == PALM_TLS_ARMLET_SUCCESS)
+        MemMove(digestP, requestP->output, 64);
+    MemSet(requestP->left, 64, 0);
+    MemSet(requestP->right, length, 0);
+    MemSet(requestP->output, 64, 0);
+    return status == PALM_TLS_ARMLET_SUCCESS ? 0 : -1;
+}
+#endif
 
 /* A failed native call leaves the operands intact for wolfSSL's fallback,
  * including when the destination aliases either operand. */
@@ -603,6 +684,9 @@ void PalmTlsArmletDisable(void)
     if (gArmletStatus != palmTlsArmUnavailable)
         gArmletStatus = palmTlsArmSelfTestFailed;
     gArmletEnabled = false;
+#ifdef PALM_WOLFSSL_WIDE_CERTS
+    gSha512Enabled = false;
+#endif
     gChaChaPolyEnabled = false;
     gEd25519FieldEnabled = false;
     gRawP256PointP = 0;

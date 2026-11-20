@@ -66,6 +66,9 @@ patches=(
   wolfssl-palm-m68k-p256-verify.patch
   wolfssl-palm-m68k-x25519.patch
   wolfssl-palm-68k-cert-signature-cache.patch
+  wolfssl-palm-cert-signature-cache.patch
+  wolfssl-palm-arm-tls13-transcript.patch
+  wolfssl-palm-arm-sha512.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
@@ -152,10 +155,10 @@ build_variant wolfssl-palm-armlet \
   '-DWOLFSSL_USER_SETTINGS -DPALM_WOLFSSL_TLS12_ONLY -DPALM_WOLFSSL_ENABLE_ARMLET_MATH' \
   --disable-oldtls libwolfssl-armlet.a copy
 build_variant wolfssl-palm-tls13-68k \
-  '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_IGNORE_TLS13_TICKETS -DPALM_WOLFSSL_68K_FIXED_BASE -DPALM_WOLFSSL_68K_X25519 -DPALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE' \
+  '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_IGNORE_TLS13_TICKETS -DPALM_WOLFSSL_68K_FIXED_BASE -DPALM_WOLFSSL_68K_X25519 -DPALM_WOLFSSL_CERT_SIGNATURE_CACHE' \
   --disable-oldtls libwolfssl-tls13.a copy
 build_variant wolfssl-palm-tls13-armlet \
-  '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_ENABLE_ARMLET_MATH -DPALM_WOLFSSL_PARSED_CA_CACHE -DPALM_WOLFSSL_WIDE_CERTS' \
+  '-DWOLFSSL_USER_SETTINGS -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_ENABLE_ARMLET_MATH -DPALM_WOLFSSL_PARSED_CA_CACHE -DPALM_WOLFSSL_WIDE_CERTS -DPALM_WOLFSSL_CERT_SIGNATURE_CACHE' \
   --disable-oldtls libwolfssl-tls13-armlet.a copy
 build_variant wolfssl-palm-tls11-68k \
   '-DWOLFSSL_USER_SETTINGS -DPALM_WOLFSSL_TLS11_ONLY' \

@@ -38,6 +38,10 @@
 /* Verify public P-256 scalars. Left = u1 || u2 || r, right = two affine
  * points, as for MUL2ADD. On success output[0] is the signature match bit. */
 #define PALM_TLS_ARMLET_COMMAND_P256_VERIFY 13
+/* SHA-512 family compression. Left holds the eight big-endian state words.
+ * Right holds request[2] consecutive 128-byte blocks. */
+#define PALM_TLS_ARMLET_COMMAND_SHA512_TRANSFORM 14
+#define PALM_TLS_ARMLET_SHA512_MAX_BLOCKS 4
 /* Public RSA-4096 arithmetic. The left operand stores big-endian 32-bit
  * addresses of the two inputs and output, followed by counts of 16-bit
  * digits. Read all input digits before changing the destination. */

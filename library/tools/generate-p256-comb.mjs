@@ -56,23 +56,27 @@ function limbs(value) {
     }).join(",");
 }
 
-const width = 6;
-const windows = Math.ceil(256 / width);
+const width = format === "arm" ? 5 : 6;
+const tables = format === "arm" ? 3 : 1;
+const windows = Math.ceil(256 / (width * tables));
 const digits = (1 << width) - 1;
-const basis = [generator];
-for (let index = 1; index < width; index++) {
-    let point = basis[index - 1];
-    for (let doubling = 0; doubling < windows; doubling++)
-        point = add(point, point);
-    basis.push(point);
-}
 
-const table = [];
-for (let digit = 1; digit <= digits; digit++) {
-    let point = null;
-    for (let bit = 0; bit < width; bit++)
-        if ((digit & (1 << bit)) !== 0) point = add(point, basis[bit]);
-    table.push(` {{{${limbs(mod(point.x * montgomeryR))}}},{{${limbs(mod(point.y * montgomeryR))}}}}`);
+function combTable(tableIndex) {
+    let tooth = generator;
+    for (let bit = 0; bit < tableIndex * windows; bit++) tooth = add(tooth, tooth);
+    const basis = [tooth];
+    for (let index = 1; index < width; index++) {
+        for (let bit = 0; bit < tables * windows; bit++) tooth = add(tooth, tooth);
+        basis.push(tooth);
+    }
+    const rows = [];
+    for (let digit = 1; digit <= digits; digit++) {
+        let point = null;
+        for (let bit = 0; bit < width; bit++)
+            if ((digit & (1 << bit)) !== 0) point = add(point, basis[bit]);
+        rows.push(` {{{${limbs(mod(point.x * montgomeryR))}}},{{${limbs(mod(point.y * montgomeryR))}}}}`);
+    }
+    return rows.join(",\n");
 }
 
 // Public width-7 wNAF digits select G, 3G, ... 63G. Unlike the private-scalar
@@ -106,8 +110,14 @@ const source = [
     ] : [
         `static const Fe256 kMontgomerySquare = {{${limbs(mod(montgomeryR ** 2n))}}};`,
     ]),
-    "static const Affine256 kGeneratorComb[P256_COMB_DIGITS] = {",
-    table.join(",\n"),
+    ...(format === "arm" ? [
+        `#define P256_COMB_TABLES ${tables}U`,
+        "static const Affine256 kGeneratorComb[P256_COMB_TABLES][P256_COMB_DIGITS] = {",
+        Array.from({length: tables}, (_, index) => `{\n${combTable(index)}\n}`).join(",\n"),
+    ] : [
+        "static const Affine256 kGeneratorComb[P256_COMB_DIGITS] = {",
+        combTable(0),
+    ]),
     "};",
     "/* Public double-scalar width-7 wNAF table in Montgomery form. */",
     "static const Affine256 kGeneratorOdd[32] = {",

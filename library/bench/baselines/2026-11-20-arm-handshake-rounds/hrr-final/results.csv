@@ -1,0 +1,5 @@
+case,sample,frequency,open_ticks,load_ticks,reported_handshake_ticks,session_reused
+cold_full,0,100,4962,6,4956,0
+warm_full,0,100,4945,0,4945,0
+# failure,resumed,0,0,7,0
+# FAILED
