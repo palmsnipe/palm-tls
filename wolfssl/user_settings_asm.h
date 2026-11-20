@@ -55,6 +55,9 @@
 #if !defined(PALM_WOLFSSL_TLS12_ONLY) &&      !defined(PALM_WOLFSSL_TLS11_ONLY)
 #define WOLFSSL_TLS13
 #endif
+#ifdef PALM_WOLFSSL_68K_X25519
+#define HAVE_CURVE25519
+#endif
 #define HAVE_HKDF
 #define WC_RSA_PSS
 #define HAVE_TLS_EXTENSIONS

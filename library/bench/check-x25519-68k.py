@@ -102,15 +102,15 @@ def check(library):
 
 
 def main():
-    source = Path(__file__).resolve().parent
+    library_root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory() as directory:
         build = Path(directory)
-        subprocess.run(['node', str(source / 'generate-x25519-comb.mjs'),
+        subprocess.run(['node', str(library_root / 'tools/generate-x25519-comb.mjs'),
                         str(build / 'x25519_comb.inc')], check=True)
         library = build / 'x25519-68k.so'
         cc = shlex.split(os.environ.get('HOST_CC', 'cc'))
         subprocess.run([*cc, '-std=c99', '-O2', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC',
-                        '-I', str(build), str(source / 'x25519-68k.c'),
+                        '-I', str(build), str(library_root / 'src/tls_x25519_68k.c'),
                         '-o', str(library)], check=True)
         check(library)
 

@@ -73,6 +73,32 @@ authorityKeyIdentifier=keyid,issuer
             'leaf_sha256':hashlib.sha256((directory/'server.der').read_bytes()).hexdigest()}
 
 
+GROUPS = {'p256': ('prime256v1', 23), 'x25519': ('X25519', 29)}
+
+
+def trace_handshake(connection, direction, _version, content_type, message_type, data):
+    if int(content_type) != 22:
+        return
+    if direction == 'read' and int(message_type) == 1:
+        connection.bench_client_hellos = getattr(connection, 'bench_client_hellos', 0) + 1
+    if direction != 'write' or not data or data[0] != 2 or len(data) < 39:
+        return
+    # ServerHello header, legacy version, random, session ID, cipher and compression.
+    offset = 42 + data[38]
+    end = offset + 2 + int.from_bytes(data[offset:offset + 2], 'big')
+    offset += 2
+    while offset + 4 <= min(end, len(data)):
+        kind = int.from_bytes(data[offset:offset + 2], 'big')
+        size = int.from_bytes(data[offset + 2:offset + 4], 'big')
+        offset += 4
+        if kind == 51 and size >= 4 and offset + size <= len(data):
+            group = int.from_bytes(data[offset:offset + 2], 'big')
+            connection.bench_group = next((name for name, (_, number) in GROUPS.items()
+                                           if number == group), group)
+            return
+        offset += size
+
+
 def serve(args):
     directory=args.directory.resolve()
     if args.reuse_fixtures:
@@ -84,7 +110,9 @@ def serve(args):
     def make_context(version):
         context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version=context.maximum_version=version
-        context.set_ecdh_curve('prime256v1')
+        group = args.group if version == ssl.TLSVersion.TLSv1_3 else 'p256'
+        context.set_ecdh_curve(GROUPS[group][0])
+        context._msg_callback = trace_handshake
         context.set_ciphers('ECDHE-ECDSA-AES128-GCM-SHA256')
         context.num_tickets=2
         context.load_cert_chain(directory/'server.pem',directory/'server.key')
@@ -104,7 +132,9 @@ def serve(args):
                     time.sleep(0.15)
                 with self.server.context.wrap_socket(self.request,server_side=True) as connection:
                     row.update(version=connection.version(),resumed=connection.session_reused,
-                               cipher=connection.cipher()[0])
+                               cipher=connection.cipher()[0],
+                               group=getattr(connection, 'bench_group', None),
+                               client_hellos=getattr(connection, 'bench_client_hellos', 0))
                     request=connection.recv(256)
                     row['request']=request.decode('ascii',errors='replace')
                     if request: connection.sendall(b'OK\n')
@@ -125,7 +155,8 @@ def serve(args):
         legacy.context=legacy_context
         threading.Thread(target=slow.serve_forever,daemon=True).start()
         threading.Thread(target=legacy.serve_forever,daemon=True).start()
-        metadata.update(port=server.server_address[1],openssl=ssl.OPENSSL_VERSION)
+        metadata.update(port=server.server_address[1],openssl=ssl.OPENSSL_VERSION,
+                        tls13_group=args.group)
         (directory/'server.json').write_text(json.dumps(metadata,indent=2)+'\n')
         (directory/'ready').write_text('ready\n')
         print(json.dumps(metadata),flush=True)
@@ -136,6 +167,7 @@ if __name__=='__main__':
     p.add_argument('--directory',type=Path,required=True)
     p.add_argument('--port',type=int,default=18443)
     p.add_argument('--anchors',type=int,default=8)
+    p.add_argument('--group',choices=GROUPS,default='p256')
     p.add_argument('--reuse-fixtures',action='store_true')
     if not ssl.HAS_TLSv1_3:
         p.error('requires a Python build with TLS 1.3 support (OpenSSL 1.1.1+)')

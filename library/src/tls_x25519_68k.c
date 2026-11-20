@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-#include "x25519-68k.h"
+#include "tls_x25519_68k.h"
 #include <string.h>
+
+#ifdef PALM_WOLFSSL_68K_X25519
+#include <wolfssl/wolfcrypt/error-crypt.h>
+#include <wolfssl/wolfcrypt/random.h>
+#include "tls_handshake_profile.h"
+#endif
 
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -437,6 +443,9 @@ bool PalmTlsX25519Agree(uint8_t output[32], const uint8_t scalar[32],
     DecodeField(&work.peer, peer);
     work.peer.limb[LIMBS - 1] &= 0x7fff;
 
+#ifdef PALM_WOLFSSL_68K_X25519
+    PalmTlsEcdheProfileEnter(palmTlsEcdheMultiply);
+#endif
     /* Scaled infinity (1:0) and scaled peer (u:1). */
     memset(&work.left.z, 0, sizeof(work.left.z));
     DecodeField(&work.right.z, projectiveScale);
@@ -449,12 +458,52 @@ bool PalmTlsX25519Agree(uint8_t output[32], const uint8_t scalar[32],
         SwapPoints(&work.left, &work.right, ScalarBit(swapMask, bit - 1));
     }
     SwapPoints(&work.left, &work.right, ScalarBit(work.scalar, 0));
+#ifdef PALM_WOLFSSL_68K_X25519
+    PalmTlsEcdheProfileLeave();
+    PalmTlsEcdheProfileEnter(palmTlsEcdheMap);
+#endif
     FieldInvert(&work.left.z, &work.left.z);
     FieldMultiply(&work.left.x, &work.left.x, &work.left.z);
     EncodeField(output, &work.left.x);
+#ifdef PALM_WOLFSSL_68K_X25519
+    PalmTlsEcdheProfileLeave();
+#endif
     ClearWork(&work, sizeof(work));
 
     uint8_t nonzero = 0;
     for (unsigned i = 0; i < 32; i++) nonzero |= output[i];
     return nonzero != 0;
 }
+
+#ifdef PALM_WOLFSSL_68K_X25519
+/* Reserve 253 random bits for the scale. Setting bit 253 and clearing
+ * the two higher bits guarantees a nonzero field element below p. */
+static int RandomBlinding(WC_RNG *rng, uint8_t *bytes, unsigned size)
+{
+    int ret = wc_RNG_GenerateBlock(rng, bytes, size);
+    if (ret == 0)
+        bytes[31] = (bytes[31] & 0x1f) | 0x20;
+    return ret;
+}
+
+int PalmTlsX25519MakePublic(uint8_t *publicKey, const uint8_t *scalar, WC_RNG *rng)
+{
+    uint8_t scale[32];
+    int ret = RandomBlinding(rng, scale, sizeof(scale));
+    if (ret == 0)
+        PalmTlsX25519FixedBase(publicKey, scalar, scale);
+    ClearWork(scale, sizeof(scale));
+    return ret;
+}
+
+int PalmTlsX25519SharedSecret(uint8_t *out, const uint8_t *scalar, const uint8_t *peer,
+    WC_RNG *rng)
+{
+    uint8_t blinding[64];
+    int ret = RandomBlinding(rng, blinding, sizeof(blinding));
+    if (ret == 0 && !PalmTlsX25519Agree(out, scalar, peer, blinding, blinding + 32))
+        ret = ECC_OUT_OF_RANGE_E;
+    ClearWork(blinding, sizeof(blinding));
+    return ret;
+}
+#endif

@@ -3,7 +3,7 @@
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/fe_operations.h>
 #include "../src/tls_handshake_profile.h"
-#include "x25519-68k.h"
+#include "../src/tls_x25519_68k.h"
 
 #define RESULT_NAME "PalmTLS KX Results"
 #define BENCH_CREATOR 'Tkxb'

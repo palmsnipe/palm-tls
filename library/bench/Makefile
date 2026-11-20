@@ -117,12 +117,12 @@ $(P256_68K): FORCE
 	$(MAKE) -C $(ROOT) $@
 $(BUILD)/key_exchange_vectors.inc: generate-key-exchange-vectors.mjs | $(BUILD)
 	node $< $@
-$(BUILD)/key-exchange.o: key-exchange.c $(BUILD)/key_exchange_vectors.inc x25519-68k.h \
+$(BUILD)/key-exchange.o: key-exchange.c $(BUILD)/key_exchange_vectors.inc $(ROOT)/src/tls_x25519_68k.h \
         $(ROOT)/src/tls_handshake_profile.h $(REPO)/wolfssl/user_settings.h Makefile
 	$(CC) $(KX_FLAGS) -c $< -o $@
-$(BUILD)/x25519_comb.inc: generate-x25519-comb.mjs | $(BUILD)
+$(BUILD)/x25519_comb.inc: $(ROOT)/tools/generate-x25519-comb.mjs | $(BUILD)
 	node $< $@
-$(BUILD)/x25519-68k.o: x25519-68k.c x25519-68k.h $(BUILD)/x25519_comb.inc Makefile
+$(BUILD)/x25519-68k.o: $(ROOT)/src/tls_x25519_68k.c $(ROOT)/src/tls_x25519_68k.h $(BUILD)/x25519_comb.inc Makefile
 	$(CC) $(filter-out -mpcrel -fpic,$(CFLAGS)) -c $< -o $@
 $(BUILD)/x25519-portable.o: $(WOLFSSL_SRC)/wolfcrypt/src/fe_operations.c \
         $(REPO)/wolfssl/user_settings.h $(KX_ARCHIVE) Makefile | $(BUILD)

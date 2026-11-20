@@ -973,7 +973,11 @@ static void OpenSession(const PalmTlsEngineParams *paramsP,
 #if PALM_TLS_ENGINE_PROTOCOL == 13
     if (paramsP->protocol != palmTlsProtocolTls12) {
         PalmTlsHandshakeProfileEnter(palmTlsHsKeyShare);
+#if defined(PALM_WOLFSSL_68K_X25519) && !defined(PALM_TLS_BENCH_P256_KEYSHARE)
+        operationResult = wolfSSL_UseKeyShare(sessionP, WOLFSSL_ECC_X25519);
+#else
         operationResult = wolfSSL_UseKeyShare(sessionP, WOLFSSL_ECC_SECP256R1);
+#endif
         PalmTlsHandshakeProfileLeave();
         if (operationResult != WOLFSSL_SUCCESS) {
             resultP->status = secureRandom && (operationResult == RNG_FAILURE_E ||

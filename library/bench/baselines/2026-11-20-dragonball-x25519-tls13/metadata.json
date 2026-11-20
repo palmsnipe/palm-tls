@@ -1,0 +1,45 @@
+{
+  "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+  "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+  "prc_sha256": "43f19fc5b38c1140d28080d2f9064edbc84672115dc91d09368c39ff94b1b006",
+  "git_revision": "2cc0024866e8ea763b1a4121ab2cdb2e7d0a332d",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "62f83bec1764a1f6cce45da6819221e817ed896dc73725e6b5441db37c6a878a"
+  },
+  "platform": "Palm m515, Palm OS 4.1, CloudpilotEmu DragonBall CLI",
+  "toolchain": "m68k-none-elf-gcc 16.1.0, -m68000 -mshort -Os",
+  "palm_ticks_per_second": 100,
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "956bd2d265a0c780fbe255835dbf6c437b6bed2e6aeb5c6dee799c58fa0673aa",
+    "leaf_sha256": "aea233816457e554350bbd55c4e553891e0a0a553b3fd52ac8458c40b4fe8d8b",
+    "port": 23443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026"
+  },
+  "fixture_cipher": "TLS_AES_128_GCM_SHA256",
+  "library_sha256": {
+    "p256": "a82077ba6a05d5e3bbec2909da4fcdf2bb91a595e2771a51a86fb1eb68cbca95",
+    "x25519": "a5d2c8c1dd317a0a72002129e485ada41e8ed59e9bcd56554112ecce5ebd2b77"
+  },
+  "differing_resource": {
+    "type": "TlsC",
+    "id": 13,
+    "offset": 28759,
+    "p256": 23,
+    "x25519": 29
+  },
+  "source_sha256": {
+    "library/Makefile": "772fd06e0d5c4c8082971d1a81576abf5af754dec3a4b5fa88a3b05080ca9ffb",
+    "library/src/tls_engine.c": "e7d3781314b2aa1f608b6a5a85fd556dcc16667f336b0add62bbd7e312a87d63",
+    "library/src/tls_x25519_68k.c": "f975962697f7167ad194b582bf06184d299e86bba0bfe9f5a9f42c3b0700b678",
+    "library/src/tls_x25519_68k.h": "4a0cef2994e70d2ad437c83d74b0000eca6195ab40b3111a85f4beb768e6a297",
+    "library/tools/generate-x25519-comb.mjs": "2e9cd47eb85a7b5fb48280a37a80b67c0ea44aabeb60387c1f30a014fd0c8bc1",
+    "library/toolchain/linker.lkr": "7e6dfd108e289a22d6f76344d04cadb1526c947503e6789e5f6b1c4e4b2946a3",
+    "patches/wolfssl/wolfssl-palm-m68k-x25519.patch": "598fdd34d8c4872f524b8e04c82294d4f865145c64140f3f3267888b4fbacb4d",
+    "scripts/bootstrap.sh": "706f8ec353bfedd068772db23e7f199c469526dd8ad35741d187c64febda767e"
+  }
+}

@@ -25,10 +25,16 @@ def main():
     p.add_argument('--mips',type=int,default=100)
     p.add_argument('--dragonball-overclock',type=int,choices=range(1,129),metavar='1-128',
                    help='run the full-handshake workload on the DragonBall CLI with the 68K library')
+    p.add_argument('--group',choices=('p256','x25519'),help='initial TLS 1.3 key share to benchmark')
+    p.add_argument('--server-group',choices=('p256','x25519'),help='override the server group to test retry')
     p.add_argument('--runs',type=int,default=2)
     args=p.parse_args()
     if not (0<args.port<65533 and 0<args.anchors<33 and 0<args.runs<6 and args.mips>0):
         p.error('invalid port, anchors, runs or MIPS')
+    group=args.group or ('x25519' if args.dragonball_overclock else 'p256')
+    server_group=args.server_group or group
+    if not args.dragonball_overclock and (group!='p256' or server_group!='p256'):
+        p.error('X25519 is available on the 68K TLS 1.3 engine')
     output=args.output.resolve();output.mkdir(parents=True,exist_ok=False)
     fixture=output/'fixture'
     server_options=[]
@@ -43,7 +49,8 @@ def main():
         server_options=['--reuse-fixtures']
     log=(output/'server.log').open('w')
     process=subprocess.Popen([args.server_python,str(root/'library/bench/handshake-server.py'),
-        '--directory',str(fixture),'--port',str(args.port),'--anchors',str(args.anchors)]+server_options,stdout=log,stderr=log)
+        '--directory',str(fixture),'--port',str(args.port),'--anchors',str(args.anchors),
+        '--group',server_group]+server_options,stdout=log,stderr=log)
     try:
         deadline=time.monotonic()+60
         while not (fixture/'ready').exists():
@@ -53,18 +60,29 @@ def main():
         metadata=json.loads((fixture/'server.json').read_text())
         assert hashlib.sha256((fixture/'trust.pem').read_bytes()).hexdigest()==metadata['trust_sha256']
         targets=['test-prc'] if args.dragonball_overclock else ['benchmark-palm','test']
+        library_build=root/'library/build'
+        if args.dragonball_overclock and group=='p256':
+            targets.append('PALM_TLS_BENCH_P256_KEYSHARE=1')
+            library_build=library_build/'p256-keyshare'
         subprocess.run(['make','-C',str(root/'library'),*targets],check=True,
                        stdout=(output/'build.log').open('w'),stderr=subprocess.STDOUT)
-        shutil.copyfile(fixture/'handshake_vectors.inc',root/'library/build/bench/handshake_vectors.inc')
+        vectors=root/'library/build/bench/handshake_vectors.inc'
+        source=fixture/'handshake_vectors.inc'
+        vectors.parent.mkdir(parents=True,exist_ok=True)
+        if not vectors.exists() or vectors.read_bytes()!=source.read_bytes():
+            shutil.copyfile(source,vectors)
         subprocess.run(['make','-C',str(root/'library/bench'),'handshake'],check=True,
                        stdout=(output/'app-build.log').open('w'),stderr=subprocess.STDOUT)
         runner=runpy.run_path(str(root/'library/bench/run-emulator.py'))['run']
         library='PalmTLS68K.prc' if args.dragonball_overclock else 'PalmTLSArm.prc'
-        result_flags=['--dragonball'] if args.dragonball_overclock else []
+        result_flags=[]
+        if args.dragonball_overclock:
+            result_flags=['--dragonball','--group',server_group,
+                          '--client-hellos',str(1 if group==server_group else 2)]
         for index in range(args.runs):
             run=output/('run' if index==0 else f'repeat{index}')
             runner(SimpleNamespace(output=run,session=args.session,emulator=args.emulator,
-                library=root/'library/build/palm'/library,prc=root/'library/build/bench/PalmTLSHandshakeBench.prc',
+                library=library_build/'palm'/library,prc=root/'library/build/bench/PalmTLSHandshakeBench.prc',
                 mips=args.mips,device='auto',timeout=1200,network=True,handshake=True,
                 handshake_fixture=fixture,dragonball_overclock=args.dragonball_overclock))
             summary=subprocess.check_output([sys.executable,str(root/'library/bench/handshake_results.py'),

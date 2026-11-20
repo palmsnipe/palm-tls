@@ -47,17 +47,27 @@ new output directory and pass `--reuse-fixture <baseline-output>/fixture`
 with the same port and overclock to compare code changes.
 
 The driver installs `PalmTLS68K.prc` and measures five cold and five warm full
-handshakes against the same local P-256 server. Cold samples purge the engine
+handshakes against the local fixture. Cold samples purge the engine
 and context first. Warm samples reuse the context and perform fresh key
 agreement and signature verification. The app also checks hostname and CA
-rejection and a successful TLS 1.2 handshake. The server independently checks
-protocol and cipher negotiation. The measurements use the emulator's Palm
-clock at 10 ms resolution and exclude socket setup. See the
+rejection and a successful TLS 1.2 handshake. The server checks the
+protocol, cipher, negotiated group, and ClientHello count. The measurements
+use the emulator's Palm clock at 10 ms resolution and exclude socket setup.
+See the
 [initial five rounds](baselines/2026-11-20-dragonball),
 [five-round ECDSA follow-up](baselines/2026-11-20-dragonball-ecdsa),
 [fixed-base key generation comparison](baselines/2026-11-20-dragonball-fixed-base),
 [variable-base key agreement comparison](baselines/2026-11-20-dragonball-variable-base),
 and [fixed-width verification comparison](baselines/2026-11-20-dragonball-field-ecdsa).
+
+The 68K comparison defaults to the production X25519 initial share.
+Pass `--group p256` to build the P-256 initial-share control with the same
+TLS engine and archive. Use both groups at `--dragonball-overclock 1` and
+`--dragonball-overclock 16` with `--runs 1` and the same `--reuse-fixture`
+directory and port. The fixture serves the same P-256 ECDSA certificate in
+both cases. Pass `--group x25519 --server-group p256` to verify that the
+production client retries with P-256. Keep the retry run separate from
+the direct comparison. [Full TLS 1.3 comparison](baselines/2026-11-20-dragonball-x25519-tls13)
 
 ## DragonBall X25519 and P-256 key exchange
 

@@ -31,6 +31,10 @@ TEST_RANDOM_FLAGS := -DPALM_TLS_INSECURE_TEST_RANDOM
 else ifneq ($(PALM_TLS_TEST_RANDOM),0)
 $(error PALM_TLS_TEST_RANDOM must be 0, 1, or seedless)
 endif
+ifeq ($(PALM_TLS_BENCH_P256_KEYSHARE),1)
+BUILD := $(BUILD)/p256-keyshare
+P256_KEYSHARE_FLAG := -DPALM_TLS_BENCH_P256_KEYSHARE
+endif
 GENERATED := $(BUILD)/generated
 PALM_BUILD := $(BUILD)/palm
 PALM_68K_BUILD := $(PALM_BUILD)/68k
@@ -52,6 +56,8 @@ P256_COMB := $(GENERATED)/p256_comb.inc
 P256_COMB_68K := $(GENERATED)/p256_comb_68k.inc
 P256_INVERSE := src/p256_inverse.inc
 P256_FIXED_68K := $(PALM_BUILD)/tls_p256_68k.o
+X25519_COMB_68K := $(GENERATED)/x25519_comb.inc
+X25519_68K := $(PALM_BUILD)/tls_x25519_68k.o
 ARMLET_HOST_TEST := $(BUILD)/host/armlet_math_test
 ARMLET_ORACLE := $(BUILD)/host/armlet_oracle.so
 COMMON_OBJECTS := $(PALM_BUILD)/palm_library.o $(PALM_BUILD)/tls_loader.o \
@@ -61,7 +67,8 @@ COMMON_OBJECTS_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet.o
 LEGACY_RANDOM := $(PALM_BUILD)/tls_palm.o
 PINNED_RANDOM := $(PALM_BUILD)/tls_palm_13.o $(PALM_BUILD)/tls_drbg.o
 OBJECTS_12_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o $(P256_FIXED_68K)
-OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o $(P256_FIXED_68K)
+OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o \
+	$(P256_FIXED_68K) $(X25519_68K)
 OBJECTS_11_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
 OBJECTS_12_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o
 OBJECTS_13_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_wide.o $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13_arm.o
@@ -149,6 +156,7 @@ $(PALM_BUILD)/tls_loader.o: src/tls_loader.c include/palm_tls.h src/tls_segments
 $(PALM_BUILD)/tls_engine_12.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=12 \
 		-DPALM_WOLFSSL_TLS12_ONLY -c $< -o $@
+$(PALM_BUILD)/tls_engine_13.o: TLS13_ENGINE_FLAGS := -DPALM_WOLFSSL_68K_X25519 $(P256_KEYSHARE_FLAG)
 $(PALM_BUILD)/tls_engine_13_arm.o: TLS13_ENGINE_FLAGS := -DPALM_WOLFSSL_PARSED_CA_CACHE -DPALM_WOLFSSL_WIDE_CERTS
 $(PALM_BUILD)/tls_engine_13.o $(PALM_BUILD)/tls_engine_13_arm.o: src/tls_engine.c include/palm_tls.h src/tls_palm.h src/tls_internal.h src/tls_drbg.h src/tls_handshake_profile.h src/tls_verify_profile.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_TLS_ENGINE_PROTOCOL=13 \
@@ -185,6 +193,11 @@ $(PALM_BUILD)/tls_armlet_68k.o: src/tls_armlet_68k.c include/palm_tls.h | $(PALM
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(P256_FIXED_68K): src/tls_p256_68k.c src/tls_handshake_profile.h include/palm_tls.h $(P256_INVERSE) $(P256_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -I$(GENERATED) -c $< -o $@
+$(X25519_COMB_68K): tools/generate-x25519-comb.mjs | $(GENERATED)
+	node $< $@
+$(X25519_68K): src/tls_x25519_68k.c src/tls_x25519_68k.h src/tls_handshake_profile.h $(X25519_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DWOLFSSL_NO_TLS12 \
+		-DPALM_WOLFSSL_68K_X25519 -I$(GENERATED) -c $< -o $@
 $(PALM_BUILD)/dispatch.o: $(DISPATCH) | $(PALM_BUILD)
 	$(CC) $(ABI_FLAGS) -c $< -o $@
 

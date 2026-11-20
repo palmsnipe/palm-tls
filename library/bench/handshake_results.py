@@ -147,9 +147,12 @@ def load_startup(text, rows, profiles):
     return result
 
 
-def validate_server(path, dragonball=False):
+def validate_server(path, dragonball=False, group=None, client_hellos=1):
     server=[json.loads(line) for line in path.read_text().splitlines()]
     successful=[r for r in server if r.get('request')=='probe\n']
+    if group and any(r.get('group') != group or r.get('client_hellos') != client_hellos
+                     for r in successful):
+        raise ValueError('server reported an unexpected TLS 1.3 group or ClientHello count')
     if dragonball:
         if len(successful) != 10 or any(r.get('version') != 'TLSv1.3' or
             r.get('resumed') or r.get('cipher') != 'TLS_AES_128_GCM_SHA256'
@@ -177,6 +180,8 @@ def main():
     p.add_argument('input',type=Path)
     p.add_argument('--server-log',type=Path)
     p.add_argument('--dragonball',action='store_true')
+    p.add_argument('--group',choices=('p256','x25519'))
+    p.add_argument('--client-hellos',type=int,choices=(1,2),default=1)
     args=p.parse_args()
     rows,profiles=load(args.input.read_text(),args.dragonball)
     print('case,median_handshake_ms,min_ms,max_ms,median_load_ms')
@@ -186,7 +191,7 @@ def main():
         loads=[r['load_ticks']*1000/r['frequency'] for r in samples]
         print(f'{case},{statistics.median(ms):.1f},{min(ms):.1f},{max(ms):.1f},{statistics.median(loads):.1f}')
     if args.server_log:
-        validate_server(args.server_log,args.dragonball)
+        validate_server(args.server_log,args.dragonball,args.group,args.client_hellos)
         if args.dragonball:
             print('# server independently confirmed ten full TLS 1.3 and one full TLS 1.2 connection')
         else:

@@ -1,0 +1,11 @@
+cpu_multiplier,variant,case,median_ms,min_ms,max_ms,median_load_ms,median_key_share_ms,median_key_agreement_ms,median_signature_ms
+1,p256,cache_full_cold,18740,18720,18810,340,2680,7350,7800
+1,p256,cache_full_warm,18520,18480,18560,0,2670,7350,7820
+1,x25519,cache_full_cold,15240,15170,15260,340,1810,4690,7830
+1,x25519,cache_full_warm,14990,14960,15010,0,1810,4680,7830
+16,p256,cache_full_cold,1160,1160,1170,20,170,460,480
+16,p256,cache_full_warm,1150,1150,1160,0,170,460,480
+16,x25519,cache_full_cold,950,940,950,20,110,290,490
+16,x25519,cache_full_warm,930,930,940,0,110,290,490
+16,x25519-retry,cache_full_cold,1280,1280,1290,20,110,460,500
+16,x25519-retry,cache_full_warm,1260,1260,1270,0,110,460,480

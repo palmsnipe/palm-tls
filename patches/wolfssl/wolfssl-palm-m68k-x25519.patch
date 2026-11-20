@@ -1,0 +1,84 @@
+diff --git a/wolfcrypt/src/curve25519.c b/wolfcrypt/src/curve25519.c
+--- a/wolfcrypt/src/curve25519.c
++++ b/wolfcrypt/src/curve25519.c
+@@ -284,9 +284,19 @@
+     #define WOLFSSL_CURVE25519_BLINDING_RAND_CNT    10
+ #endif
+ #ifndef WOLF_CRYPTO_CB_ONLY_CURVE25519
++#ifdef PALM_WOLFSSL_68K_X25519
++extern int PalmTlsX25519MakePublic(byte* publicKey, const byte* scalar,
++    WC_RNG* rng);
++extern int PalmTlsX25519SharedSecret(byte* output, const byte* scalar,
++    const byte* peer, WC_RNG* rng);
++#endif
++
+ static int curve25519_smul_blind(byte* rp, const byte* n, const byte* p,
+     WC_RNG* rng)
+ {
++#ifdef PALM_WOLFSSL_68K_X25519
++    return PalmTlsX25519SharedSecret(rp, n, p, rng);
++#else
+     int ret;
+     byte a[CURVE25519_KEYSIZE];
+     byte n_a[CURVE25519_KEYSIZE];
+@@ -357,6 +367,7 @@
+     RESTORE_VECTOR_REGISTERS();
+ 
+     return ret;
++#endif
+ }
+ 
+ /* Software half of curve25519_make_pub_blind_ex, so a caller that has already
+@@ -366,10 +377,13 @@
+ {
+     int ret;
+ 
++#ifdef PALM_WOLFSSL_68K_X25519
++    ret = PalmTlsX25519MakePublic(pub, priv, rng);
++#else
+     fe_init();
+-
+     ret = curve25519_smul_blind(pub, priv, (const byte*)kCurve25519BasePoint,
+                                 rng);
++#endif
+     if (ret == 0) {
+         ret = wc_curve25519_check_public(pub, (word32)public_size,
+                                     EC25519_LITTLE_ENDIAN);
+diff --git a/src/tls.c b/src/tls.c
+--- a/src/tls.c
++++ b/src/tls.c
+@@ -9834,19 +9834,34 @@
+         peerPub = MaskCurve25519PeerKey(peerPub, peerPubLen, maskedPub);
+     #endif
+ 
++    #ifdef PALM_WOLFSSL_68K_X25519
++        /* The native ladder accepts the RFC 7748 coordinate encodings
++         * and rejects low-order inputs via the all-zero secret check. */
++        PalmTlsEcdheProfileEnter(palmTlsEcdheValidate);
++        if (peerPub == NULL || peerPubLen != CURVE25519_KEYSIZE)
++            ret = ECC_PEERKEY_ERROR;
++        PalmTlsEcdheProfileLeave();
++    #else
+         if (wc_curve25519_check_public(peerPub, peerPubLen,
+                                                   EC25519_LITTLE_ENDIAN) != 0) {
+             ret = ECC_PEERKEY_ERROR;
+             WOLFSSL_ERROR_VERBOSE(ret);
+         }
++    #endif
+ 
+         if (ret == 0) {
++    #ifdef PALM_WOLFSSL_68K_X25519
++            PalmTlsEcdheProfileEnter(palmTlsEcdheImport);
++    #endif
+             if (wc_curve25519_import_public_ex(peerPub, peerPubLen,
+                                         ssl->peerX25519Key,
+                                         EC25519_LITTLE_ENDIAN) != 0) {
+                 ret = ECC_PEERKEY_ERROR;
+                 WOLFSSL_ERROR_VERBOSE(ret);
+             }
++    #ifdef PALM_WOLFSSL_68K_X25519
++            PalmTlsEcdheProfileLeave();
++    #endif
+         }
+ 
+         if (ret == 0) {

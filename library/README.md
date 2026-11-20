@@ -31,9 +31,11 @@ explicitly unverified diagnostic mode. It intentionally does not implement
 DNS, TCP connection setup, HTTP parsing, or a built-in root store.
 
 The modern profile offers ECDHE/ECDSA and ECDHE/RSA TLS 1.2 suites with
-P-256 and AES-128-GCM/SHA-256. TLS 1.3 uses a P-256 key share and
-AES-128-GCM/SHA-256. On ARM, TLS 1.3 also offers ChaCha20-Poly1305 first
-and verifies certificate chains that use RSA-4096 or P-384/SHA-384.
+P-256 and AES-128-GCM/SHA-256. The 68K TLS 1.3 client sends an X25519
+initial key share and supports P-256 when the server requests it.
+TLS 1.3 offers AES-128-GCM/SHA-256. On ARM, TLS 1.3 sends a P-256 key share,
+offers ChaCha20-Poly1305 first, and verifies certificate chains that use
+RSA-4096 or P-384/SHA-384.
 See [ARM.md](ARM.md).
 The isolated TLS 1.1 engine instead enables static RSA key exchange,
 AES-CBC, SHA-1, and the legacy MD5/SHA-1 PRF. TLS 1.1 is obsolete and should
@@ -106,9 +108,9 @@ The full PRC contains three compact protocol-specific engines behind the same
 API and loads only the selected engine. Compact profiles omit unused engines
 entirely. Each engine has three code-only segments that execute from a
 temporary resource database and one code/data segment in dynamic RAM.
-TLS 1.3 uses an extra read-only segment for Ed25519. This keeps every resource below
-Palm's 65 KB safety limit while leaving enough dynamic heap for a TLS 1.3
-handshake. The relocated resources remain resident until the library closes,
+TLS 1.3 uses an extra read-only segment for Ed25519 and 68K X25519. This keeps
+every resource below Palm's 65 KB safety limit while leaving enough dynamic
+heap for a TLS 1.3 handshake. The relocated resources remain resident until the library closes,
 the protocol changes, or the caller purges the cache.
 
 For cooperative operation, open with
