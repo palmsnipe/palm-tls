@@ -34,6 +34,11 @@ int PalmTlsArmletSha256Transform(word32 *digestP, const byte *blockP,
 int PalmTlsArmletSha512Transform(word64 *digestP, const byte *blockP,
                                 word32 blockCount);
 #endif
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && !defined(PALM_WOLFSSL_BROWSER)
+int PalmTlsArmletHkdfSha256(const byte *keyP, word32 keyLength,
+    const byte *messageP, word32 length, byte *outputP, word32 outputLength,
+    int expand);
+#endif
 int PalmTlsArmletEd25519Field(void *outputP, const void *leftP,
                             const void *rightP, word32 operation);
 void PalmTlsArmletAesGcmSetKey(Aes *aesP, const byte *keyP, word32 length);

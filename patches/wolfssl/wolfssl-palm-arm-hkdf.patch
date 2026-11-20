@@ -1,0 +1,48 @@
+diff --git a/wolfcrypt/src/hmac.c b/wolfcrypt/src/hmac.c
+--- a/wolfcrypt/src/hmac.c
++++ b/wolfcrypt/src/hmac.c
+@@ -1802,6 +1802,14 @@
+      * out      The pseudorandom key with the length that of the hash.
+      * returns 0 on success, otherwise failure.
+      */
++#if defined(PALM_WOLFSSL_ARMLET_MATH) && defined(PALM_WOLFSSL_WIDE_CERTS) && \
++    defined(WOLFSSL_NO_TLS12) && !defined(WOLF_CRYPTO_CB) && \
++    !defined(WOLFSSL_ASYNC_CRYPT) && !defined(HAVE_FIPS)
++    #define PALM_HKDF_ARMLET
++    extern int PalmTlsArmletHkdfSha256(const byte*, word32, const byte*,
++                                     word32, byte*, word32, int);
++#endif
++
+     int wc_HKDF_Extract_ex(int type, const byte* salt, word32 saltSz,
+         const byte* inKey, word32 inKeySz, byte* out, void* heap, int devId)
+     {
+@@ -1825,6 +1833,13 @@
+             if (ret != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE))
+                 return ret;
+         }
++#endif
++
++#ifdef PALM_HKDF_ARMLET
++        if (type == WC_SHA256 && devId == INVALID_DEVID &&
++            PalmTlsArmletHkdfSha256(salt, salt ? saltSz : 0,
++                inKey, inKeySz, out, WC_SHA256_DIGEST_SIZE, 0) == 0)
++            return 0;
+ #endif
+ 
+         ret = wc_HmacSizeByType(type);
+@@ -1924,6 +1939,15 @@
+         }
+ #endif
+ 
++#ifdef PALM_HKDF_ARMLET
++        /* RFC 5869 T(1) is HMAC(PRK, info || 0x01). Longer output uses
++         * the original HKDF implementation and its chaining rules. */
++        if (type == WC_SHA256 && devId == INVALID_DEVID &&
++            PalmTlsArmletHkdfSha256(inKey, inKeySz, info, infoSz,
++                                  out, outSz, 1) == 0)
++            return 0;
++#endif
++
+         WC_ALLOC_VAR_EX(myHmac, Hmac, 1, NULL, DYNAMIC_TYPE_HMAC,
+             return MEMORY_E);
+ 

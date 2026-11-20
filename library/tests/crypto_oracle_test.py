@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 import hashlib
+import hmac
 import json
 import random
 import subprocess
@@ -149,6 +150,28 @@ def sha512_family(backend, rng):
         data[OUTPUT:OUTPUT + 64] = b'\xa5' * 64
         assert backend.invoke(data) == ERROR
         assert data[OUTPUT:OUTPUT + 64] == b'\xa5' * 64
+    return count
+
+
+def hmac_sha256(backend, rng):
+    count = 0
+    for key_size in (0, 1, 20, 32, 63, 64):
+        key = bytes(rng.getrandbits(8) for _ in range(key_size))
+        for size in (0, 1, 8, 32, 55, 56, 63, 64, 118, 119):
+            message = bytes(rng.getrandbits(8) for _ in range(size))
+            data = request(15)
+            data[1], data[2] = key_size, size
+            data[LEFT:LEFT + key_size] = key
+            data[RIGHT:RIGHT + size] = message
+            assert backend.invoke(data, count % 4) == SUCCESS
+            assert data[OUTPUT:OUTPUT + 32] == hmac.digest(key, message, 'sha256')
+            count += 1
+    for key_size, size in ((65, 0), (1, 120)):
+        data = request(15)
+        data[1], data[2] = key_size, size
+        data[OUTPUT:OUTPUT + 32] = b'\xa5' * 32
+        assert backend.invoke(data) == ERROR
+        assert data[OUTPUT:OUTPUT + 32] == b'\xa5' * 32
     return count
 
 
@@ -728,6 +751,7 @@ def main():
     ed_fields = ed25519_field(backend, rng)
     public_cases = public_arithmetic(backend, random.Random(4096))
     sha_cases = sha512_family(backend, random.Random(384))
+    hmac_cases = hmac_sha256(backend, random.Random(5869))
     inverses, multiplies, verifies = p256(backend, rng)
     validations = p256_validation(backend, rng)
     orders = order_scalars(backend, rng)
@@ -738,7 +762,8 @@ def main():
           f'{multiplies} scalar products, {verifies} double-scalar cases, '
           f'{orders} order preparations, {validations} point validations, '
           f'{signatures} ECDSA valid/tampered cases, {ed_fields} Ed25519 field cases, '
-          f'{public_cases} public-key arithmetic cases, {sha_cases} SHA-384/512 vectors; '
+          f'{public_cases} public-key arithmetic cases, {sha_cases} SHA-384/512 vectors, '
+          f'{hmac_cases} HMAC-SHA256 vectors; '
           'alignment offsets 0..3')
 
 

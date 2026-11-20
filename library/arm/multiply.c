@@ -235,9 +235,10 @@ static __inline__ u32 RotateRight(u32 value, u32 count)
     return (value >> count) | (value << (32U - count));
 }
 
-static u32 Sha256Transform(const volatile u8 *stateP,
-                           const volatile u8 *blockP,
-                           volatile u8 *outputP, u32 blockCount)
+static void ClearSecret(volatile void *pointerP, u32 length);
+
+static __attribute__((noinline))
+void Sha256Blocks(u32 state[8], const volatile u8 *blockP, u32 blockCount)
 {
     static const u32 constants[64] = {
         0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U,
@@ -258,20 +259,14 @@ static u32 Sha256Transform(const volatile u8 *stateP,
         0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U
     };
     u32 words[16];
-    u32 initial[8];
     u32 block;
     u32 round;
-    if (blockCount == 0U ||
-        blockCount > PALM_TLS_ARMLET_SHA256_MAX_BLOCKS)
-        return PALM_TLS_ARMLET_ERROR;
-    for (round = 0; round < 8; round++)
-        initial[round] = ReadBigEndian32(stateP + round * 4U);
     for (block = 0; block < blockCount; block++) {
         u32 a, b, c, d, e, f, g, h;
         for (round = 0; round < 16; round++)
             words[round] = ReadBigEndian32(blockP + block * 64U + round * 4U);
-        a = initial[0]; b = initial[1]; c = initial[2]; d = initial[3];
-        e = initial[4]; f = initial[5]; g = initial[6]; h = initial[7];
+        a = state[0]; b = state[1]; c = state[2]; d = state[3];
+        e = state[4]; f = state[5]; g = state[6]; h = state[7];
         /* Unroll all 64 rounds. Constant round indices remove the message
          * schedule's circular-buffer masks and the round-16 branch. */
 #if defined(__clang__)
@@ -303,11 +298,72 @@ static u32 Sha256Transform(const volatile u8 *stateP,
             h = g; g = f; f = e; e = d + t1;
             d = c; c = b; b = a; a = t1 + t2;
         }
-        initial[0] += a; initial[1] += b; initial[2] += c; initial[3] += d;
-        initial[4] += e; initial[5] += f; initial[6] += g; initial[7] += h;
+        state[0] += a; state[1] += b; state[2] += c; state[3] += d;
+        state[4] += e; state[5] += f; state[6] += g; state[7] += h;
     }
-    for (round = 0; round < 8; round++)
-        WriteBigEndian32(outputP + round * 4U, initial[round]);
+    ClearSecret(words, sizeof(words));
+}
+
+static u32 Sha256Transform(const volatile u8 *stateP, const volatile u8 *blockP,
+                           volatile u8 *outputP, u32 blockCount)
+{
+    u32 state[8];
+    if (blockCount == 0U || blockCount > PALM_TLS_ARMLET_SHA256_MAX_BLOCKS)
+        return PALM_TLS_ARMLET_ERROR;
+    for (u32 i = 0; i < 8U; i++)
+        state[i] = ReadBigEndian32(stateP + i * 4U);
+    Sha256Blocks(state, blockP, blockCount);
+    for (u32 i = 0; i < 8U; i++)
+        WriteBigEndian32(outputP + i * 4U, state[i]);
+    ClearSecret(state, sizeof(state));
+    return PALM_TLS_ARMLET_SUCCESS;
+}
+
+static u32 HmacSha256(const volatile u8 *keyP, u32 keyLength,
+                      const volatile u8 *messageP, u32 length,
+                      volatile u8 *outputP)
+{
+    static const u32 iv[8] = {
+        0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
+        0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U
+    };
+    u32 state[8];
+    u8 blocks[192];
+    if (keyLength > PALM_TLS_ARMLET_HMAC_KEY_MAX ||
+        length > PALM_TLS_ARMLET_HMAC_MESSAGE_MAX)
+        return PALM_TLS_ARMLET_ERROR;
+
+    /* The inner hash starts with a full key-pad block. The message
+     * length chooses whether its padding needs a third block. */
+    u32 innerSize = length <= 55U ? 128U : 192U;
+    for (u32 i = 0; i < 64U; i++)
+        blocks[i] = (i < keyLength ? keyP[i] : 0) ^ 0x36U;
+    for (u32 i = 0; i < length; i++)
+        blocks[64U + i] = messageP[i];
+    blocks[64U + length] = 0x80U;
+    for (u32 i = 65U + length; i < innerSize - 4U; i++)
+        blocks[i] = 0;
+    WriteBigEndian32(blocks + innerSize - 4U, (64U + length) * 8U);
+    for (u32 i = 0; i < 8U; i++)
+        state[i] = iv[i];
+    Sha256Blocks(state, blocks, innerSize / 64U);
+
+    /* Reuse the pad and write the inner digest as the outer message. */
+    for (u32 i = 0; i < 64U; i++)
+        blocks[i] ^= 0x36U ^ 0x5cU;
+    for (u32 i = 0; i < 8U; i++) {
+        WriteBigEndian32(blocks + 64U + i * 4U, state[i]);
+        state[i] = iv[i];
+    }
+    blocks[96] = 0x80U;
+    for (u32 i = 97U; i < 124U; i++)
+        blocks[i] = 0;
+    WriteBigEndian32(blocks + 124U, 96U * 8U);
+    Sha256Blocks(state, blocks, 2);
+    for (u32 i = 0; i < 8U; i++)
+        WriteBigEndian32(outputP + i * 4U, state[i]);
+    ClearSecret(state, sizeof(state));
+    ClearSecret(blocks, sizeof(blocks));
     return PALM_TLS_ARMLET_SUCCESS;
 }
 
@@ -3011,6 +3067,8 @@ u32 PalmTlsArmletEntry(const void *emulStateP, void *userDataP,
     outputP = requestP + PALM_TLS_ARMLET_OUTPUT_OFFSET;
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_SHA256_TRANSFORM)
         return Sha256Transform(leftP, rightP, outputP, requestP[2]);
+    if (requestP[3] == PALM_TLS_ARMLET_COMMAND_HMAC_SHA256)
+        return HmacSha256(leftP, requestP[1], rightP, requestP[2], outputP);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_SHA512_TRANSFORM)
         return Sha512Transform(leftP, rightP, outputP, requestP[2]);
     if (requestP[3] == PALM_TLS_ARMLET_COMMAND_AES_GCM)

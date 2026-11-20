@@ -166,6 +166,10 @@ wolfSSL's software implementation if the native self-test or request fails.
 Groups of eight compression rounds rotate the working-word indices. Separate
 loops process the input words and the expanded schedule.
 
+The standard ARM TLS 1.3 engine uses one native HMAC-SHA256 call for short
+HKDF extracts and single-block expansions. The ARMlet reuses its SHA-256
+compression routine. Longer requests and other digests use wolfSSL's HKDF.
+
 On a reused trust context, a bounded cache can reuse a successful issuer
 signature check for the same ECDSA/SHA-256 certificate and issuer key.
 Certificate path, dates, hostname, and live CertificateVerify are checked

@@ -42,6 +42,11 @@
  * Right holds request[2] consecutive 128-byte blocks. */
 #define PALM_TLS_ARMLET_COMMAND_SHA512_TRANSFORM 14
 #define PALM_TLS_ARMLET_SHA512_MAX_BLOCKS 4
+/* HMAC with a key no longer than one SHA-256 block. Request bytes 1 and 2
+ * are the key (left) and message (right) lengths in bytes. */
+#define PALM_TLS_ARMLET_COMMAND_HMAC_SHA256 15
+#define PALM_TLS_ARMLET_HMAC_KEY_MAX 64
+#define PALM_TLS_ARMLET_HMAC_MESSAGE_MAX 119
 /* Public RSA-4096 arithmetic. The left operand stores big-endian 32-bit
  * addresses of the two inputs and output, followed by counts of 16-bit
  * digits. Read all input digits before changing the destination. */

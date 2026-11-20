@@ -108,6 +108,13 @@ int main(void) {
     assert(ApplyRelocations((UInt8 *)&table,10,segments,sizes));
     memcpy(&actual,segments[4],4);
     assert(actual==(UInt32)(uintptr_t)segments[4]+12);
+    table.entries[0].sourceSegment=PALM_TLS_WRITABLE_SEGMENT;
+    actual=PALM_TLS5_LINK_BASE+12;
+    memcpy(segments[PALM_TLS_WRITABLE_SEGMENT],&actual,4);
+    failAlloc=failWrite=1;
+    assert(ApplyRelocations((UInt8 *)&table,10,segments,sizes));
+    memcpy(&actual,segments[PALM_TLS_WRITABLE_SEGMENT],4);
+    assert(actual==(UInt32)(uintptr_t)segments[PALM_TLS_WRITABLE_SEGMENT]+12);
     assert(!live);
     return 0;
 }

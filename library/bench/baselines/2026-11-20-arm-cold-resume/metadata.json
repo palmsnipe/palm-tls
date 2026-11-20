@@ -1,0 +1,76 @@
+{
+  "starting_revision": "5848798",
+  "mips": 100,
+  "clock_hz": 100,
+  "key_exchange": "p256",
+  "stages": {
+    "release-0110": {
+      "arm_image_sha256": "f8d6667100c36d65863fa459980f080977229a29f9d800b2cab9cdc2d84163ad",
+      "arm_image_bytes": 51504,
+      "library_sha256": "411a9c99fd30cca84f733d9abd78ce73051a4ec57ebe79291dc86eae47078e97",
+      "prc_sha256": "9bd616baeefa830c0a0af6ad07fd97a3afdf643f51bdbb1d886e73c62f93aa24"
+    },
+    "baseline": {
+      "arm_image_sha256": "ceac698bc4c8b406eff6621585894aa22d9a40f8741d9563bac05c33290a8665",
+      "arm_image_bytes": 62532,
+      "library_sha256": "a49764dda6c5baffc3271a437846c5ee7d34f518f7108b3c745a750f591747a2",
+      "prc_sha256": "84491dfcdd2c10a96d2386a7bc25ae21b4b52e33dd79bc53c5c9cf044ba1384e"
+    },
+    "loader": {
+      "arm_image_sha256": "ceac698bc4c8b406eff6621585894aa22d9a40f8741d9563bac05c33290a8665",
+      "arm_image_bytes": 62532,
+      "library_sha256": "03caee98ff1cf4abdf1a3c34b837abe810ae5373bd8b56a3c1f645705f68a573",
+      "prc_sha256": "84491dfcdd2c10a96d2386a7bc25ae21b4b52e33dd79bc53c5c9cf044ba1384e"
+    },
+    "combined": {
+      "arm_image_sha256": "a796063170391dcfb46fe2ae45862e4e088244ce980e78faba5a1e45691a43f2",
+      "arm_image_bytes": 63300,
+      "library_sha256": "aa0308f0fffeb35ddc2e44de974c3cb501540fd85c4b71a5e0165cdf52f8c349",
+      "prc_sha256": "7b60233c2527278d3a9a52676ecb88459ca7b223ac2fd043572a272cbb0ba603"
+    },
+    "combined-aes": {
+      "arm_image_sha256": "a796063170391dcfb46fe2ae45862e4e088244ce980e78faba5a1e45691a43f2",
+      "arm_image_bytes": 63300,
+      "library_sha256": "aa0308f0fffeb35ddc2e44de974c3cb501540fd85c4b71a5e0165cdf52f8c349",
+      "prc_sha256": "7b60233c2527278d3a9a52676ecb88459ca7b223ac2fd043572a272cbb0ba603"
+    },
+    "baseline-profile": {
+      "arm_image_sha256": "ceac698bc4c8b406eff6621585894aa22d9a40f8741d9563bac05c33290a8665",
+      "arm_image_bytes": 62532,
+      "library_sha256": "a49764dda6c5baffc3271a437846c5ee7d34f518f7108b3c745a750f591747a2",
+      "prc_sha256": "d2b984b062164b1fa10c24add2a5969c0ec8ca780b3852cba383db47cdf075c4"
+    },
+    "loader-profile": {
+      "arm_image_sha256": "ceac698bc4c8b406eff6621585894aa22d9a40f8741d9563bac05c33290a8665",
+      "arm_image_bytes": 62532,
+      "library_sha256": "03caee98ff1cf4abdf1a3c34b837abe810ae5373bd8b56a3c1f645705f68a573",
+      "prc_sha256": "d2b984b062164b1fa10c24add2a5969c0ec8ca780b3852cba383db47cdf075c4"
+    },
+    "combined-profile": {
+      "arm_image_sha256": "a796063170391dcfb46fe2ae45862e4e088244ce980e78faba5a1e45691a43f2",
+      "arm_image_bytes": 63300,
+      "library_sha256": "aa0308f0fffeb35ddc2e44de974c3cb501540fd85c4b71a5e0165cdf52f8c349",
+      "prc_sha256": "e0c291064d8e715aa6d2450ab7cdceb2ea95fa986e540ed5fa1896d46e6a140c"
+    }
+  },
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "8cbf846c6f56a1c84bfe1bdfa6ed449e1102a608a4722a5ea7bfd2005ce8381a",
+    "leaf_sha256": "89938ee3285702303239ea68297a822f3798a0fc1346bc9aabc6718adfc0a7b4",
+    "port": 19443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "tls13_group": "p256"
+  },
+  "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "device": "auto",
+  "final_rebuild_matches_prc_resources": true,
+  "source_sha256": {
+    "library/src/tls_loader.c": "9aa4c8d8cfc0a512d93ab0ff7ef891f50bd8d74a03fd4246654c0bb3972fa963",
+    "library/src/tls_armlet.c": "543de096feeb5d0a1e0f4dd425002b458e5bc966b8c1d058b91c13d2cbfe7400",
+    "library/arm/armlet_abi.h": "e988fe20e021cc751833ac3f4d5b81efc31900c6806ccc9fef96562c82afe769",
+    "library/arm/multiply.c": "7a4f859ed75edfdcee6cc8d1eab9acb25787f0ccd834a119eccfb06cc1f89bf3",
+    "patches/wolfssl/wolfssl-palm-arm-hkdf.patch": "d70ed2bfd9ddd4d5a57fffe2a03df0876d800095c5d3e2c06bd5e101c9ba109d"
+  }
+}

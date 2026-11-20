@@ -32,6 +32,9 @@ static PalmTlsArmletMultiplyRequest *gRequestP;
 static ecc_point *gRawP256PointP;
 static Boolean gArmletChecked;
 static Boolean gArmletEnabled;
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && !defined(PALM_WOLFSSL_BROWSER)
+static Boolean gHmacSha256Enabled;
+#endif
 #ifdef PALM_WOLFSSL_WIDE_CERTS
 static Boolean gSha512Enabled;
 #endif
@@ -222,6 +225,27 @@ static Boolean RunSha384KnownAnswer(void)
 }
 #endif
 
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && !defined(PALM_WOLFSSL_BROWSER)
+static Boolean RunHmacSha256KnownAnswer(void)
+{
+    static const UInt8 expected[32] = {
+        0xb0,0x34,0x4c,0x61,0xd8,0xdb,0x38,0x53,
+        0x5c,0xa8,0xaf,0xce,0xaf,0x0b,0xf1,0x2b,
+        0x88,0x1d,0xc2,0x00,0xc9,0x83,0x3d,0xa7,
+        0x26,0xe9,0x37,0x6c,0x2e,0x32,0xcf,0xf7
+    };
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_HMAC_SHA256;
+    requestP->leftUsed = 20;
+    requestP->rightUsed = 8;
+    MemSet(requestP->left, 20, 0x0b);
+    MemMove(requestP->right, "Hi There", 8);
+    return PceNativeCall(gArmletEntryP, requestP) == PALM_TLS_ARMLET_SUCCESS &&
+        MemCmp(requestP->output, expected, sizeof(expected)) == 0;
+}
+#endif
+
 static Boolean RunAesGcmKnownAnswer(Boolean wide)
 {
     static const UInt8 cipher[2][16] = {
@@ -402,6 +426,9 @@ void PalmTlsArmletInitialize(void)
     if (gArmletChecked) return;
     gArmletChecked = true;
     gArmletEnabled = false;
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && !defined(PALM_WOLFSSL_BROWSER)
+    gHmacSha256Enabled = false;
+#endif
 #ifdef PALM_WOLFSSL_WIDE_CERTS
     gSha512Enabled = false;
 #endif
@@ -430,6 +457,9 @@ void PalmTlsArmletInitialize(void)
                 RunOrderKnownAnswer();
 #ifdef PALM_WOLFSSL_WIDE_CERTS
             gSha512Enabled = gArmletEnabled && RunSha384KnownAnswer();
+#endif
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && !defined(PALM_WOLFSSL_BROWSER)
+            gHmacSha256Enabled = gArmletEnabled && RunHmacSha256KnownAnswer();
 #endif
             gChaChaPolyEnabled = gArmletEnabled && RunChaChaPolyKnownAnswer();
             gEd25519FieldEnabled = gArmletEnabled;
@@ -461,6 +491,9 @@ void PalmTlsArmletShutdown(void)
     gArmletDatabaseP = 0;
     gArmletChecked = false;
     gArmletEnabled = false;
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && !defined(PALM_WOLFSSL_BROWSER)
+    gHmacSha256Enabled = false;
+#endif
 #ifdef PALM_WOLFSSL_WIDE_CERTS
     gSha512Enabled = false;
 #endif
@@ -515,6 +548,36 @@ int PalmTlsArmletSha512Transform(word64 *digestP, const byte *blockP,
     MemSet(requestP->left, 64, 0);
     MemSet(requestP->right, length, 0);
     MemSet(requestP->output, 64, 0);
+    return status == PALM_TLS_ARMLET_SUCCESS ? 0 : -1;
+}
+#endif
+
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && !defined(PALM_WOLFSSL_BROWSER)
+int PalmTlsArmletHkdfSha256(const byte *keyP, word32 keyLength,
+    const byte *messageP, word32 length, byte *outputP, word32 outputLength,
+    int expand)
+{
+    PalmTlsArmletMultiplyRequest *requestP = gRequestP;
+    word32 counterBytes = expand != 0;
+    if (!gHmacSha256Enabled || !requestP || !outputP || !outputLength ||
+        outputLength > 32U || keyLength > PALM_TLS_ARMLET_HMAC_KEY_MAX ||
+        length > PALM_TLS_ARMLET_HMAC_MESSAGE_MAX - counterBytes ||
+        (!keyP && keyLength) || (!messageP && length))
+        return -1;
+
+    requestP->version = PALM_TLS_ARMLET_VERSION;
+    requestP->command = PALM_TLS_ARMLET_COMMAND_HMAC_SHA256;
+    requestP->leftUsed = (UInt8)keyLength;
+    if (keyLength) MemMove(requestP->left, keyP, keyLength);
+    if (length) MemMove(requestP->right, messageP, length);
+    if (expand) requestP->right[length++] = 1;
+    requestP->rightUsed = (UInt8)length;
+    UInt32 status = PceNativeCall(gArmletEntryP, requestP);
+    if (status == PALM_TLS_ARMLET_SUCCESS)
+        MemMove(outputP, requestP->output, outputLength);
+    if (keyLength) MemSet(requestP->left, keyLength, 0);
+    if (length) MemSet(requestP->right, length, 0);
+    MemSet(requestP->output, 32, 0);
     return status == PALM_TLS_ARMLET_SUCCESS ? 0 : -1;
 }
 #endif
@@ -684,6 +747,9 @@ void PalmTlsArmletDisable(void)
     if (gArmletStatus != palmTlsArmUnavailable)
         gArmletStatus = palmTlsArmSelfTestFailed;
     gArmletEnabled = false;
+#if defined(PALM_WOLFSSL_WIDE_CERTS) && !defined(PALM_WOLFSSL_BROWSER)
+    gHmacSha256Enabled = false;
+#endif
 #ifdef PALM_WOLFSSL_WIDE_CERTS
     gSha512Enabled = false;
 #endif

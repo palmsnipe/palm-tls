@@ -72,12 +72,8 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
                                 UInt8 **segments, UInt32 *segmentSizes)
 {
     const UInt16 *headerP = (const UInt16 *)relocationsP;
-    const PalmTlsRelocation *entryP;
+    const PalmTlsRelocation *entryP, *endP;
     UInt16 count;
-    UInt16 index;
-    UInt16 segment;
-    UInt16 applied = 0;
-    UInt16 first[PALM_TLS_SEGMENT_COUNT], limit[PALM_TLS_SEGMENT_COUNT];
     UInt32 deltas[8];
 
     if (relocSize < 4 || headerP[0] != PALM_TLS_RELOC_VERSION) return false;
@@ -85,60 +81,44 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
     if (4UL + (UInt32)count * sizeof(PalmTlsRelocation) > relocSize)
         return false;
     entryP = (const PalmTlsRelocation *)(relocationsP + 4);
-    for (segment = 0; segment < PALM_TLS_SEGMENT_COUNT; segment++) {
-        first[segment] = count; limit[segment] = 0;
-    }
-    /* Bound each segment's scan. Generated tables are grouped; unsorted valid
-     * tables still work because the matching-segment check remains below. */
-    for (index = 0; index < count; index++) {
-        segment = entryP[index].sourceSegment;
-        if (segment >= PALM_TLS_SEGMENT_COUNT || !segments[segment]) return false;
-        if (first[segment] == count) first[segment] = index;
-        limit[segment] = index + 1;
-    }
-
+    endP = entryP + count;
     RuntimeDeltas(deltas, segments);
-    for (segment = 0; segment < PALM_TLS_SEGMENT_COUNT; segment++) {
-        const PalmTlsRelocation *currentP, *stopP;
+
+    /* Generated tables group entries by segment. Process each run once.
+     * Ungrouped tables still work, in their original order. */
+    while (entryP != endP) {
+        UInt16 segment = entryP->sourceSegment;
+        if (segment >= PALM_TLS_SEGMENT_COUNT || !segments[segment])
+            return false;
         UInt32 size = segmentSizes[segment];
-        if (first[segment] == count) continue;
         if (size < sizeof(UInt32)) return false;
         UInt32 maxOffset = size - sizeof(UInt32);
-        UInt8 *scratchP = (UInt8 *)MemPtrNew(size);
-        if (scratchP == 0) return false;
-        MemMove(scratchP, segments[segment], segmentSizes[segment]);
-        currentP = entryP + first[segment];
-        stopP = entryP + limit[segment];
-        for (; currentP != stopP; currentP++) {
-            UInt32 offset;
-            UInt32 linkedAddress;
-            UInt32 runtimeAddress;
-            if (currentP->sourceSegment != segment) continue;
-            offset = currentP->sourceOffset;
+        Boolean storage = segment != PALM_TLS_WRITABLE_SEGMENT;
+        UInt8 *scratchP = segments[segment];
+        if (storage) {
+            scratchP = (UInt8 *)MemPtrNew(size);
+            if (!scratchP) return false;
+            MemMove(scratchP, segments[segment], size);
+        }
+        do {
+            UInt32 offset = entryP->sourceOffset;
             if ((offset & 1U) || offset > maxOffset) {
-                MemPtrFree(scratchP);
+                if (storage) MemPtrFree(scratchP);
                 return false;
             }
-            /* Palm's 68000 ABI permits 32-bit values at two-byte alignment.
-             * Scratch is writable dynamic memory: avoid two system traps for
-             * each four-byte relocation. Storage is still updated by DmWrite. */
-            linkedAddress = *(const UInt32 *)(scratchP + offset);
-            runtimeAddress = RuntimeAddress(linkedAddress, deltas);
-            *(UInt32 *)(scratchP + offset) = runtimeAddress;
-            applied++;
+            /* The Palm ABI permits 32-bit values at two-byte alignment.
+             * The writable segment already lives in dynamic memory. */
+            UInt32 *wordP = (UInt32 *)(scratchP + offset);
+            *wordP = RuntimeAddress(*wordP, deltas);
+            entryP++;
+        } while (entryP != endP && entryP->sourceSegment == segment);
+        if (storage) {
+            Boolean written = DmWrite(segments[segment], 0, scratchP, size) == errNone;
+            MemPtrFree(scratchP);
+            if (!written) return false;
         }
-        if (segment != PALM_TLS_WRITABLE_SEGMENT) {
-            if (DmWrite(segments[segment], 0, scratchP,
-                    segmentSizes[segment]) != errNone) {
-                MemPtrFree(scratchP);
-                return false;
-            }
-        } else {
-            MemMove(segments[segment], scratchP, segmentSizes[segment]);
-        }
-        MemPtrFree(scratchP);
     }
-    return applied == count;
+    return true;
 }
 
 void PalmTlsUnloadEngine(PalmTlsLibraryState *stateP)
