@@ -78,13 +78,11 @@ for (let digit = 1; digit <= digits; digit++) {
 // Public width-7 wNAF digits select G, 3G, ... 63G. Unlike the private-scalar
 // comb table above, this small affine table can be indexed directly.
 const oddTable = [];
-if (format === "arm") {
-    const twiceGenerator = add(generator, generator);
-    let oddPoint = generator;
-    for (let index = 0; index < 32; index++) {
-        oddTable.push(` {{{${limbs(mod(oddPoint.x * montgomeryR))}}},{{${limbs(mod(oddPoint.y * montgomeryR))}}}}`);
-        oddPoint = add(oddPoint, twiceGenerator);
-    }
+const twiceGenerator = add(generator, generator);
+let oddPoint = generator;
+for (let index = 0; index < 32; index++) {
+    oddTable.push(` {{{${limbs(mod(oddPoint.x * montgomeryR))}}},{{${limbs(mod(oddPoint.y * montgomeryR))}}}}`);
+    oddPoint = add(oddPoint, twiceGenerator);
 }
 
 // Raw coordinates for recognizing the generator at the scalar-multiply ABI.
@@ -111,12 +109,10 @@ const source = [
     "static const Affine256 kGeneratorComb[P256_COMB_DIGITS] = {",
     table.join(",\n"),
     "};",
-    ...(format === "arm" ? [
-        "/* Public double-scalar width-7 wNAF table in Montgomery form. */",
-        "static const Affine256 kGeneratorOdd[32] = {",
-        oddTable.join(",\n"),
-        "};",
-    ] : []),
+    "/* Public double-scalar width-7 wNAF table in Montgomery form. */",
+    "static const Affine256 kGeneratorOdd[32] = {",
+    oddTable.join(",\n"),
+    "};",
     ""
 ].join("\n");
 fs.writeFileSync(outputPath, source);

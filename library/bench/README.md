@@ -56,7 +56,8 @@ clock at 10 ms resolution and exclude socket setup. See the
 [initial five rounds](baselines/2026-11-20-dragonball),
 [five-round ECDSA follow-up](baselines/2026-11-20-dragonball-ecdsa),
 [fixed-base key generation comparison](baselines/2026-11-20-dragonball-fixed-base),
-and [variable-base key agreement comparison](baselines/2026-11-20-dragonball-variable-base).
+[variable-base key agreement comparison](baselines/2026-11-20-dragonball-variable-base),
+and [fixed-width verification comparison](baselines/2026-11-20-dragonball-field-ecdsa).
 
 ## Full and resumed TLS 1.3 handshakes
 

@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 #include <wolfssl/wolfcrypt/ecc.h>
@@ -24,6 +25,7 @@ static const Fe256 kPrime = {{
     0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0, 0,
     0, 0, 0, 0, 1, 0, 0xffff, 0xffff
 }};
+static const Fe256 kZero = {{0}};
 static const Fe256 kOne = {{1}};
 static const Fe256 kMontgomeryOne = {{
     1, 0, 0, 0, 0, 0, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff,
@@ -95,8 +97,8 @@ static void FeSubtract(Fe256 *out, const Fe256 *left, const Fe256 *right)
  * Multiplying its complement brings the combined set-bit count to 16. */
 static inline __attribute__((always_inline)) u32 MultiplyWord(u16 left, u16 right)
 {
-    u16 complement = (u16)~right;
     u32 product = left;
+    u16 complement = (u16)~right;
     u32 padding = left;
     __asm__ volatile(
         "mulu.w %[right],%[product]\n\t"
@@ -221,35 +223,142 @@ static void FeSquare(Fe256 *out, const Fe256 *value)
     FeMontgomeryReduce(out, product);
 }
 
+/* Public operands allow early exit from the carry chain. Share the sparse
+ * cancellation row and canonical reduction with the private field path. */
+static void FeMontgomeryReducePublic(Fe256 *out, u16 *product)
+{
+    for (unsigned row = 0; row < FIELD_LIMBS; ++row) {
+        u32 carry = CancelMontgomeryWord(product + row);
+        u16 *next = product + row + FIELD_LIMBS;
+        while (carry != 0) {
+            u32 word = (u32)*next + carry;
+            *next++ = (u16)word;
+            carry = word >> 16;
+        }
+    }
+    FeReduce(out, product + FIELD_LIMBS, product[2 * FIELD_LIMBS]);
+}
+
+/* Accumulate one Comba column in 48 bits. The pointers move toward each
+ * other, and squaring reads each off-diagonal product only once. */
+static inline __attribute__((always_inline)) void PublicColumn(const u16 *left,
+    const u16 *right, u16 count, u32 *low, u16 *high, bool twice)
+{
+    u32 product;
+    if (count == 0)
+        return;
+    --count;
+    ++right;
+#define ADD_PRODUCT "add.l %[product],%[low]\n\taddx.w %[zero],%[high]\n\t"
+#define PUBLIC_COLUMN(add) \
+    __asm__("1: move.w (%[left])+,%[product]\n\t" \
+        "mulu.w -(%[right]),%[product]\n\t" add "dbra %[count],1b" \
+        : [left] "+&a"(left), [right] "+&a"(right), [count] "+&d"(count), \
+          [low] "+&d"(*low), [high] "+&d"(*high), [product] "=&d"(product) \
+        : [zero] "d"((u16)0) : "cc", "memory")
+    if (twice) {
+        PUBLIC_COLUMN(ADD_PRODUCT ADD_PRODUCT);
+    }
+    else {
+        PUBLIC_COLUMN(ADD_PRODUCT);
+    }
+#undef PUBLIC_COLUMN
+#undef ADD_PRODUCT
+}
+
+static inline __attribute__((always_inline)) u32 ForwardColumn(u32 low, u16 high)
+{
+    __asm__("move.w %1,%0\n\tswap %0" : "+d"(low) : "d"(high) : "cc");
+    return low;
+}
+
+static void FeMultiplyPublic(Fe256 *out, const Fe256 *left, const Fe256 *right)
+{
+    u16 product[2 * FIELD_LIMBS + 1];
+    u32 low = 0;
+    for (unsigned column = 0; column < 2 * FIELD_LIMBS - 1; ++column) {
+        unsigned first = column < FIELD_LIMBS ? 0 : column - (FIELD_LIMBS - 1);
+        unsigned last = column - first;
+        u16 high = 0;
+        PublicColumn(left->v + first, right->v + last, last - first + 1,
+            &low, &high, false);
+        product[column] = (u16)low;
+        low = ForwardColumn(low, high);
+    }
+    product[2 * FIELD_LIMBS - 1] = (u16)low;
+    product[2 * FIELD_LIMBS] = 0;
+    FeMontgomeryReducePublic(out, product);
+}
+
+static void FeSquarePublic(Fe256 *out, const Fe256 *value)
+{
+    u16 product[2 * FIELD_LIMBS + 1];
+    u32 low = 0;
+    for (unsigned column = 0; column < 2 * FIELD_LIMBS - 1; ++column) {
+        unsigned first = column < FIELD_LIMBS ? 0 : column - (FIELD_LIMBS - 1);
+        u16 high = 0;
+        PublicColumn(value->v + first, value->v + (column - first),
+            (column + 1) / 2 - first, &low, &high, true);
+        if ((column & 1U) == 0) {
+            u16 limb = value->v[column / 2];
+            u32 diagonal = limb;
+            __asm__("mulu.w %[limb],%[diagonal]\n\t"
+                "add.l %[diagonal],%[low]\n\taddx.w %[zero],%[high]"
+                : [low] "+&d"(low), [high] "+&d"(high), [diagonal] "+&d"(diagonal)
+                : [limb] "d"(limb), [zero] "d"((u16)0) : "cc");
+        }
+        product[column] = (u16)low;
+        low = ForwardColumn(low, high);
+    }
+    product[2 * FIELD_LIMBS - 1] = (u16)low;
+    product[2 * FIELD_LIMBS] = 0;
+    FeMontgomeryReducePublic(out, product);
+}
+
 #include "p256_inverse.inc"
 
+/* Compile separate point operations for private and public operands. */
+typedef void (*FieldMultiply)(Fe256 *, const Fe256 *, const Fe256 *);
+typedef void (*FieldSquare)(Fe256 *, const Fe256 *);
+
 /* Double in Jacobian coordinates for a=-3. The output can alias the input. */
-static void PointDouble(Point256 *point)
+static inline __attribute__((always_inline)) void PointDoubleWith(Point256 *point,
+    FieldMultiply multiply, FieldSquare square)
 {
     Fe256 delta, gamma, beta, alpha, temporary;
-    FeSquare(&delta, &point->z);
-    FeSquare(&gamma, &point->y);
-    FeMultiply(&beta, &point->x, &gamma);
+    square(&delta, &point->z);
+    square(&gamma, &point->y);
+    multiply(&beta, &point->x, &gamma);
     FeSubtract(&temporary, &point->x, &delta);
     FeAdd(&delta, &point->x, &delta);
-    FeMultiply(&temporary, &temporary, &delta);
+    multiply(&temporary, &temporary, &delta);
     FeAdd(&alpha, &temporary, &temporary);
     FeAdd(&alpha, &alpha, &temporary);
 
     /* Z' = 2YZ, X' = alpha^2 - 8 beta, Y' = alpha(4 beta - X') - 8 gamma^2. */
-    FeMultiply(&point->z, &point->y, &point->z);
+    multiply(&point->z, &point->y, &point->z);
     FeAdd(&point->z, &point->z, &point->z);
     FeAdd(&beta, &beta, &beta);
     FeAdd(&beta, &beta, &beta);
-    FeSquare(&point->x, &alpha);
+    square(&point->x, &alpha);
     FeSubtract(&point->x, &point->x, &beta);
     FeSubtract(&point->x, &point->x, &beta);
     FeSubtract(&temporary, &beta, &point->x);
-    FeMultiply(&point->y, &alpha, &temporary);
-    FeSquare(&temporary, &gamma);
+    multiply(&point->y, &alpha, &temporary);
+    square(&temporary, &gamma);
     for (unsigned i = 0; i < 3; ++i)
         FeAdd(&temporary, &temporary, &temporary);
     FeSubtract(&point->y, &point->y, &temporary);
+}
+
+static void PointDouble(Point256 *point)
+{
+    PointDoubleWith(point, FeMultiply, FeSquare);
+}
+
+static void PointDoublePublic(Point256 *point)
+{
+    PointDoubleWith(point, FeMultiplyPublic, FeSquarePublic);
 }
 
 static void SelectMixed(Fe256 *out, const volatile Fe256 *sum,
@@ -259,30 +368,47 @@ static void SelectMixed(Fe256 *out, const volatile Fe256 *sum,
         out->v[i] = (out->v[i] & keep) | (sum->v[i] & add) | (initial->v[i] & start);
 }
 
-/* Mixed affine/Jacobian sum for distinct, non-opposite finite points.
- * The masked caller also runs the formula when handling zero digits. */
-static void PointMixedSum(Point256 *sum, const Point256 *point,
-    const Affine256 *affine)
+/* The private schedule guarantees distinct, non-opposite finite operands.
+ * Public verification handles equal and opposite points explicitly. */
+static inline __attribute__((always_inline)) void PointMixedSumWith(Point256 *sum,
+    const Point256 *point, const Affine256 *affine, FieldMultiply multiply,
+    FieldSquare square, bool publicInputs)
 {
     Fe256 z2, h, r, h2, h3, v, temporary;
-    FeSquare(&z2, &point->z);
-    FeMultiply(&h, &affine->x, &z2);
-    FeMultiply(&temporary, &point->z, &z2);
-    FeMultiply(&r, &affine->y, &temporary);
+    square(&z2, &point->z);
+    multiply(&h, &affine->x, &z2);
+    multiply(&temporary, &point->z, &z2);
+    multiply(&r, &affine->y, &temporary);
     FeSubtract(&h, &h, &point->x);
     FeSubtract(&r, &r, &point->y);
-    FeSquare(&h2, &h);
-    FeMultiply(&h3, &h, &h2);
-    FeMultiply(&v, &point->x, &h2);
-    FeSquare(&sum->x, &r);
+    if (publicInputs && FeIsZero(&h)) {
+        if (FeIsZero(&r)) {
+            *sum = *point;
+            PointDoublePublic(sum);
+        }
+        else {
+            memset(sum, 0, sizeof(*sum));
+        }
+        return;
+    }
+    square(&h2, &h);
+    multiply(&h3, &h, &h2);
+    multiply(&v, &point->x, &h2);
+    square(&sum->x, &r);
     FeSubtract(&sum->x, &sum->x, &h3);
     FeSubtract(&sum->x, &sum->x, &v);
     FeSubtract(&sum->x, &sum->x, &v);
     FeSubtract(&temporary, &v, &sum->x);
-    FeMultiply(&sum->y, &r, &temporary);
-    FeMultiply(&temporary, &point->y, &h3);
-    FeSubtract(&sum->y, &sum->y, &temporary);
-    FeMultiply(&sum->z, &point->z, &h);
+    multiply(&h2, &point->y, &h3);
+    multiply(&sum->y, &r, &temporary);
+    FeSubtract(&sum->y, &sum->y, &h2);
+    multiply(&sum->z, &point->z, &h);
+}
+
+static void PointMixedSumPublic(Point256 *sum, const Point256 *point,
+    const Affine256 *affine)
+{
+    PointMixedSumWith(sum, point, affine, FeMultiplyPublic, FeSquarePublic, true);
 }
 
 /* The processed scalar bits and the new digit occupy disjoint positions
@@ -297,7 +423,7 @@ static void PointAddDigit(Point256 *point, const Affine256 *affine, u16 apply,
     u16 start = (u16)(0U - (apply & FeIsZero(&point->z)));
     u16 keep = (u16)(apply - 1U);
     u16 add = (u16)~(keep | start);
-    PointMixedSum(&sum, point, affine);
+    PointMixedSumWith(&sum, point, affine, FeMultiply, FeSquare, false);
     FeMultiply(&x, &affine->x, &scale->z2);
     FeMultiply(&y, &affine->y, &scale->z3);
     SelectMixed(&point->x, &sum.x, &x, keep, add, start);
@@ -331,16 +457,22 @@ static void StoreCoordinate(mp_int *out, const Fe256 *value)
     out->used = (int)used;
 }
 
-static void LoadMontgomery(Fe256 *out, const mp_int *value)
+static void LoadInteger(Fe256 *out, const mp_int *value)
 {
     for (unsigned i = 0; i < FIELD_LIMBS; ++i)
         out->v[i] = value->dp[i];
-    FeMultiply(out, out, &kMontgomerySquare);
+}
+
+static void LoadPublicMontgomery(Fe256 *out, const mp_int *value)
+{
+    LoadInteger(out, value);
+    FeMultiplyPublic(out, out, &kMontgomerySquare);
 }
 
 static void PrepareScale(ProjectiveScale *scale, const mp_int *randomizer)
 {
-    LoadMontgomery(&scale->z, randomizer);
+    LoadInteger(&scale->z, randomizer);
+    FeMultiply(&scale->z, &scale->z, &kMontgomerySquare);
     FeSquare(&scale->z2, &scale->z);
     FeMultiply(&scale->z3, &scale->z2, &scale->z);
 }
@@ -413,11 +545,11 @@ static int LoadPeer(Affine256 *affine, const ecc_point *peer)
     if (peer->x->used == 0 && peer->y->used == 0)
         return ECC_INF_E;
 
-    LoadMontgomery(&affine->x, peer->x);
-    LoadMontgomery(&affine->y, peer->y);
-    FeSquare(&lhs, &affine->y);
-    FeSquare(&term, &affine->x);
-    FeMultiply(&rhs, &term, &affine->x);
+    LoadPublicMontgomery(&affine->x, peer->x);
+    LoadPublicMontgomery(&affine->y, peer->y);
+    FeSquarePublic(&lhs, &affine->y);
+    FeSquarePublic(&term, &affine->x);
+    FeMultiplyPublic(&rhs, &term, &affine->x);
     FeSubtract(&rhs, &rhs, &affine->x);
     FeSubtract(&rhs, &rhs, &affine->x);
     FeSubtract(&rhs, &rhs, &affine->x);
@@ -437,30 +569,30 @@ static int BuildPeerTable(Point256 *table, const Affine256 *peer,
     table[0] = (Point256){peer->x, peer->y, kMontgomeryOne};
     for (unsigned i = 1; i < WINDOW_POINTS; i += 2) {
         table[i] = table[i / 2];
-        PointDouble(&table[i]);
-        PointMixedSum(&table[i + 1], &table[i], peer);
+        PointDoublePublic(&table[i]);
+        PointMixedSumPublic(&table[i + 1], &table[i], peer);
     }
     products[0] = table[1].z;
     for (unsigned i = 1; i < WINDOW_POINTS - 1; ++i)
-        FeMultiply(&products[i], &products[i - 1], &table[i + 1].z);
+        FeMultiplyPublic(&products[i], &products[i - 1], &table[i + 1].z);
 
-    FeMultiply(&reciprocal, &products[WINDOW_POINTS - 2], &kOne);
+    FeMultiplyPublic(&reciprocal, &products[WINDOW_POINTS - 2], &kOne);
     StoreCoordinate(inverse, &reciprocal);
     int err = mp_invmod(inverse, modulus, inverse);
     if (err != MP_OKAY)
         return err;
-    LoadMontgomery(&reciprocal, inverse);
+    LoadPublicMontgomery(&reciprocal, inverse);
     for (int i = WINDOW_POINTS - 1; i > 0; --i) {
         Fe256 zInverse = reciprocal;
         Fe256 power;
         if (i > 1) {
-            FeMultiply(&zInverse, &reciprocal, &products[i - 2]);
-            FeMultiply(&reciprocal, &reciprocal, &table[i].z);
+            FeMultiplyPublic(&zInverse, &reciprocal, &products[i - 2]);
+            FeMultiplyPublic(&reciprocal, &reciprocal, &table[i].z);
         }
-        FeSquare(&power, &zInverse);
-        FeMultiply(&table[i].x, &table[i].x, &power);
-        FeMultiply(&power, &power, &zInverse);
-        FeMultiply(&table[i].y, &table[i].y, &power);
+        FeSquarePublic(&power, &zInverse);
+        FeMultiplyPublic(&table[i].x, &table[i].x, &power);
+        FeMultiplyPublic(&power, &power, &zInverse);
+        FeMultiplyPublic(&table[i].y, &table[i].y, &power);
     }
     return MP_OKAY;
 }
@@ -536,4 +668,111 @@ int PalmTlsP256Agree(const mp_int *scalar, const ecc_point *peer,
     ClearSecret(&work, sizeof(work));
     PalmTlsEcdheProfileLeave();
     return err;
+}
+
+enum { SCALAR_BITS = FIELD_LIMBS * 16, GENERATOR_WINDOW = 7, PEER_WINDOW = 5 };
+
+/* Signed odd digits for a public scalar, with one extra position for carry. */
+static void RecodePublicScalar(const mp_int *scalar, signed char *digits,
+    unsigned width)
+{
+    unsigned carry = 0;
+    unsigned bit = 0;
+    const unsigned radix = 1U << width;
+    memset(digits, 0, SCALAR_BITS + 1);
+    while (bit <= SCALAR_BITS) {
+        unsigned limb = bit / 16;
+        unsigned shift = bit % 16;
+        u32 chunk = limb < FIELD_LIMBS ? scalar->dp[limb] : 0;
+        if (limb + 1 < FIELD_LIMBS && shift + width > 16)
+            chunk |= (u32)scalar->dp[limb + 1] << 16;
+        unsigned word = ((chunk >> shift) & (radix - 1)) + carry;
+        if ((word & 1U) != 0) {
+            carry = word >= radix / 2;
+            digits[bit] = (signed char)((int)word - (int)(radix * carry));
+            bit += width;
+        }
+        else {
+            ++bit;
+        }
+    }
+}
+
+static void AddPublicDigit(Point256 *point, Affine256 digitPoint, int digit)
+{
+    if (digit < 0)
+        FeSubtract(&digitPoint.y, &kZero, &digitPoint.y);
+    if (FeIsZero(&point->z)) {
+        *point = (Point256){digitPoint.x, digitPoint.y, kMontgomeryOne};
+    }
+    else {
+        PointMixedSumPublic(point, point, &digitPoint);
+    }
+}
+
+static int Magnitude(int digit)
+{
+    return digit < 0 ? -digit : digit;
+}
+
+/* X/Z^2 mod n equals r when X matches one of r*Z^2 or (r+n)*Z^2
+ * modulo p. The second candidate must be below p before multiplying. */
+static int MatchPublicSignature(const Point256 *point, mp_int *r,
+    mp_int *order, mp_int *scratch, int *verified)
+{
+    Fe256 z2, x, expected, difference;
+    if (FeIsZero(&point->z))
+        return MP_OKAY;
+
+    FeSquarePublic(&z2, &point->z);
+    FeMultiplyPublic(&x, &point->x, &kOne);
+    LoadInteger(&expected, r);
+    FeMultiplyPublic(&expected, &expected, &z2);
+    FeSubtract(&difference, &x, &expected);
+    if (FeIsZero(&difference)) {
+        *verified = 1;
+        return MP_OKAY;
+    }
+
+    int err = mp_add(r, order, scratch);
+    if (err == MP_OKAY && IsCanonical(scratch, kPrime.v)) {
+        LoadInteger(&expected, scratch);
+        FeMultiplyPublic(&expected, &expected, &z2);
+        FeSubtract(&difference, &x, &expected);
+        *verified = FeIsZero(&difference);
+    }
+    return err;
+}
+
+/* wolfSSL checks r/s and computes both public scalars modulo the group order.
+ * The peer is affine and its coordinates are validated before use. */
+int PalmTlsP256Verify(const mp_int *u1, const ecc_point *peer, const mp_int *u2,
+    mp_int *r, mp_int *order, mp_int *modulus, mp_int *scratch, int *verified)
+{
+    signed char generatorDigits[SCALAR_BITS + 1], peerDigits[SCALAR_BITS + 1];
+    Point256 table[WINDOW_POINTS], point = {0};
+    Affine256 affine;
+    *verified = 0;
+    int err = LoadPeer(&affine, peer);
+    if (err != MP_OKAY)
+        return err;
+    err = BuildPeerTable(table, &affine, scratch, modulus);
+    if (err != MP_OKAY)
+        return err;
+
+    RecodePublicScalar(u1, generatorDigits, GENERATOR_WINDOW);
+    RecodePublicScalar(u2, peerDigits, PEER_WINDOW);
+    for (int bit = SCALAR_BITS; bit >= 0; --bit) {
+        if (!FeIsZero(&point.z))
+            PointDoublePublic(&point);
+        int digit = generatorDigits[bit];
+        if (digit != 0)
+            AddPublicDigit(&point, kGeneratorOdd[Magnitude(digit) / 2], digit);
+        digit = peerDigits[bit];
+        if (digit != 0) {
+            const Point256 *entry = &table[Magnitude(digit) - 1];
+            AddPublicDigit(&point, (Affine256){entry->x, entry->y}, digit);
+        }
+    }
+    return MatchPublicSignature(&point, r, order, scratch, verified);
 }

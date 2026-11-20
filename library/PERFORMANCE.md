@@ -1,5 +1,13 @@
 # PalmTLS performance review
 
+## DragonBall P-256 verification with fixed-width field arithmetic
+
+Starting from the variable-base build, the shared 68K field backend and
+public Comba arithmetic cut the warm signature phase from 620 to 480 ms
+on the same Palm m515 emulator at 16× CPU overclock. The warm full TLS 1.3
+handshake fell from 1,300 to 1,150 ms. See the
+[fixed-width verification measurements](bench/baselines/2026-11-20-dragonball-field-ecdsa).
+
 ## DragonBall variable-base P-256 key agreement
 
 With fixed-base key generation as the baseline, the 68K variable-base

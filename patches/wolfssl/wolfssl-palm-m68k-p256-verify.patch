@@ -1,0 +1,44 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -9079,6 +9079,11 @@
+     !defined(ALT_ECC_SIZE) && !defined(HAVE_WOLF_BIGINT) && !defined(FP_ECC) && \
+     !defined(WOLFSSL_CHECK_VER_FAULTS) && !defined(WOLFSSL_NO_MALLOC)
+ #define PALM_ECC_PUBLIC_68K
++#ifdef PALM_WOLFSSL_68K_FIXED_BASE
++extern int PalmTlsP256Verify(const mp_int* u1, const ecc_point* peer,
++    const mp_int* u2, mp_int* r, mp_int* order, mp_int* modulus,
++    mp_int* scratch, int* verified);
++#else
+ #define PALM_P256_SCALAR_BITS 256
+ #define PALM_P256_WINDOW 4
+ #define PALM_P256_ODD_POINTS (1 << (PALM_P256_WINDOW - 2))
+@@ -9380,6 +9385,7 @@
+         wc_ecc_del_point_ex(table[i], heap);
+     return err;
+ }
++#endif /* PALM_WOLFSSL_68K_FIXED_BASE */
+ #endif
+ 
+ /** Computes kA*A + kB*B = C using Shamir's Trick
+@@ -10460,11 +10466,20 @@
+     /* use Shamir's trick to compute u1*mG + u2*mQ using half the doubles */
+     if (err == MP_OKAY) {
+ #ifdef PALM_ECC_PUBLIC_68K
++#ifdef PALM_WOLFSSL_68K_FIXED_BASE
++        if (key->idx != ECC_CUSTOM_IDX && key->dp->id == ECC_SECP256R1 &&
++                mp_cmp_d(mQ->z, 1) == MP_EQ) {
++            err = PalmTlsP256Verify(u1, mQ, u2, r, curve->order,
++                curve->prime, mG->x, res);
++            palmVerifyDone = 1;
++        }
++#else
+         if (key->dp->id == ECC_SECP256R1) {
+             err = PalmP256PublicVerify(mG, u1, mQ, u2, mG, curve->Af,
+                 curve->prime, curve->order, r, res, key->heap);
+             palmVerifyDone = 1;
+         }
++#endif
+         else
+ #endif
+         {

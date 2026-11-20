@@ -1,0 +1,9 @@
+run,case,samples,handshake_median_ms,handshake_min_ms,handshake_max_ms,load_median_ms,load_plus_handshake_median_ms,signature_median_ms,keyshare_median_ms,key_agreement_median_ms
+baseline,cache_full_cold,5,1320.0,1310.0,1320.0,20.0,1340.0,620.0,170.0,470.0
+baseline,cache_full_warm,5,1300.0,1300.0,1310.0,0.0,1300.0,620.0,170.0,480.0
+baseline-repeat,cache_full_cold,5,1320.0,1310.0,1320.0,20.0,1340.0,620.0,170.0,470.0
+baseline-repeat,cache_full_warm,5,1300.0,1290.0,1310.0,0.0,1300.0,620.0,160.0,480.0
+final,cache_full_cold,5,1170.0,1160.0,1170.0,20.0,1190.0,480.0,170.0,460.0
+final,cache_full_warm,5,1150.0,1150.0,1160.0,0.0,1150.0,480.0,170.0,460.0
+final-repeat,cache_full_cold,5,1170.0,1160.0,1170.0,20.0,1190.0,490.0,170.0,460.0
+final-repeat,cache_full_warm,5,1150.0,1150.0,1160.0,0.0,1150.0,480.0,170.0,460.0
