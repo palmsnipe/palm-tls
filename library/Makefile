@@ -49,6 +49,9 @@ RESOURCE_RCP := $(GENERATED)/library.rcp
 ARMLET_OBJECT := $(PALM_BUILD)/armlet.o
 ARMLET_CODE := $(PALM_BUILD)/armc0001.bin
 P256_COMB := $(GENERATED)/p256_comb.inc
+P256_COMB_68K := $(GENERATED)/p256_comb_68k.inc
+P256_INVERSE := src/p256_inverse.inc
+P256_FIXED_68K := $(PALM_BUILD)/tls_p256_68k.o
 ARMLET_HOST_TEST := $(BUILD)/host/armlet_math_test
 ARMLET_ORACLE := $(BUILD)/host/armlet_oracle.so
 COMMON_OBJECTS := $(PALM_BUILD)/palm_library.o $(PALM_BUILD)/tls_loader.o \
@@ -57,8 +60,8 @@ COMMON_OBJECTS_68K := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_68k.o
 COMMON_OBJECTS_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet.o
 LEGACY_RANDOM := $(PALM_BUILD)/tls_palm.o
 PINNED_RANDOM := $(PALM_BUILD)/tls_palm_13.o $(PALM_BUILD)/tls_drbg.o
-OBJECTS_12_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o
-OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o
+OBJECTS_12_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o $(P256_FIXED_68K)
+OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o $(P256_FIXED_68K)
 OBJECTS_11_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
 OBJECTS_12_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o
 OBJECTS_13_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_wide.o $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13_arm.o
@@ -180,6 +183,8 @@ $(PALM_BUILD)/tls_armlet_browser.o: src/tls_armlet.c src/tls_armlet.h src/tls_ar
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_WOLFSSL_BROWSER -c $< -o $@
 $(PALM_BUILD)/tls_armlet_68k.o: src/tls_armlet_68k.c include/palm_tls.h | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
+$(P256_FIXED_68K): src/tls_p256_68k.c $(P256_INVERSE) $(P256_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -I$(GENERATED) -c $< -o $@
 $(PALM_BUILD)/dispatch.o: $(DISPATCH) | $(PALM_BUILD)
 	$(CC) $(ABI_FLAGS) -c $< -o $@
 
@@ -240,12 +245,14 @@ $(PALM_ARM_BUILD)/TlsC0023.bin: $(ELF_browser_ARM)
 
 $(P256_COMB): tools/generate-p256-comb.mjs | $(GENERATED)
 	node $< $@
+$(P256_COMB_68K): tools/generate-p256-comb.mjs | $(GENERATED)
+	node $< $@ m68k
 
 $(PALM_BUILD)/armlet-config: FORCE | $(PALM_BUILD)
 	@printf '%s\n' '$(ARM_CC) --target=armv4t-none-eabi $(ARM_CPU_FLAGS) -march=armv4t -marm $(ARM_OPT_FLAGS)' > $@.tmp
 	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
 
-$(ARMLET_OBJECT): arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc $(P256_COMB) $(PALM_BUILD)/armlet-config Makefile | $(PALM_BUILD)
+$(ARMLET_OBJECT): arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc $(P256_INVERSE) $(P256_COMB) $(PALM_BUILD)/armlet-config Makefile | $(PALM_BUILD)
 	$(ARM_CC) --target=armv4t-none-eabi $(ARM_CPU_FLAGS) -march=armv4t -marm $(ARM_OPT_FLAGS) \
 		-ffreestanding -fno-builtin -fno-stack-protector -fomit-frame-pointer \
 		-fpic -ffunction-sections -fdata-sections -I$(GENERATED) \
@@ -254,11 +261,11 @@ $(ARMLET_CODE): $(ARMLET_OBJECT) tools/extract-armlet.mjs tools/arm-attributes.m
 	node tools/extract-armlet.mjs $< $@
 $(ARMLET_PAD): $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE) tools/generate-armlet-pad.mjs Makefile | $(PALM_BUILD)
 	node tools/generate-armlet-pad.mjs $@ $(PROFILE_RESOURCES_ARM) $(TEST_RANDOM_RESOURCE)
-$(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc src/tls_arm_compat.h $(P256_COMB)
+$(ARMLET_HOST_TEST): tests/armlet_math_test.c arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc src/tls_arm_compat.h $(P256_INVERSE) $(P256_COMB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -std=c99 -O2 -Wall -Wextra -Werror \
 		-DPALM_ARMLET_HOST_TEST -I$(GENERATED) $(filter %.c,$^) -o $@
-$(ARMLET_ORACLE): arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc $(P256_COMB)
+$(ARMLET_ORACLE): arm/multiply.c arm/armlet_abi.h arm/ed25519_field.inc $(P256_INVERSE) $(P256_COMB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -std=c99 -O2 -shared -fPIC -Wall -Wextra -Werror \
 		-DPALM_ARMLET_HOST_TEST -I$(GENERATED) $< -o $@

@@ -1,7 +1,9 @@
 import fs from "node:fs";
 
 const outputPath = process.argv[2];
-if (!outputPath) throw new Error("usage: generate-p256-comb.mjs OUTPUT");
+const format = process.argv[3] ?? "arm";
+if (!outputPath || !["arm", "m68k"].includes(format))
+    throw new Error("usage: generate-p256-comb.mjs OUTPUT [arm|m68k]");
 
 const p = (1n << 256n) - (1n << 224n) + (1n << 192n) +
     (1n << 96n) - 1n;
@@ -46,13 +48,12 @@ function add(left, right) {
 }
 
 function limbs(value) {
-    value = mod(value * montgomeryR);
-    const result = [];
-    for (let index = 0n; index < 8n; index++) {
-        const limb = Number((value >> (index * 32n)) & 0xffffffffn);
-        result.push(`0x${limb.toString(16).padStart(8, "0")}U`);
-    }
-    return result.join(",");
+    const bits = format === "m68k" ? 16 : 32;
+    const mask = (1n << BigInt(bits)) - 1n;
+    return Array.from({length: 256 / bits}, (_, index) => {
+        const word = (value >> BigInt(index * bits)) & mask;
+        return `0x${word.toString(16).padStart(bits / 4, "0")}U`;
+    }).join(",");
 }
 
 const width = 6;
@@ -69,19 +70,21 @@ for (let index = 1; index < width; index++) {
 const table = [];
 for (let digit = 1; digit <= digits; digit++) {
     let point = null;
-    for (let bit = 0; bit < 8; bit++)
+    for (let bit = 0; bit < width; bit++)
         if ((digit & (1 << bit)) !== 0) point = add(point, basis[bit]);
-    table.push(` {{{${limbs(point.x)}}},{{${limbs(point.y)}}}}`);
+    table.push(` {{{${limbs(mod(point.x * montgomeryR))}}},{{${limbs(mod(point.y * montgomeryR))}}}}`);
 }
 
 // Public width-7 wNAF digits select G, 3G, ... 63G. Unlike the private-scalar
 // comb table above, this small affine table can be indexed directly.
 const oddTable = [];
-const twiceGenerator = add(generator, generator);
-let oddPoint = generator;
-for (let index = 0; index < 32; index++) {
-    oddTable.push(` {{{${limbs(oddPoint.x)}}},{{${limbs(oddPoint.y)}}}}`);
-    oddPoint = add(oddPoint, twiceGenerator);
+if (format === "arm") {
+    const twiceGenerator = add(generator, generator);
+    let oddPoint = generator;
+    for (let index = 0; index < 32; index++) {
+        oddTable.push(` {{{${limbs(mod(oddPoint.x * montgomeryR))}}},{{${limbs(mod(oddPoint.y * montgomeryR))}}}}`);
+        oddPoint = add(oddPoint, twiceGenerator);
+    }
 }
 
 // Raw coordinates for recognizing the generator at the scalar-multiply ABI.
@@ -97,17 +100,23 @@ const source = [
     `#define P256_COMB_WIDTH ${width}U`,
     `#define P256_COMB_WINDOWS ${windows}U`,
     `#define P256_COMB_DIGITS ${digits}U`,
-    "static const u32 kGeneratorWords[16] = {",
-    ` ${bigEndianWords(generator.x)},`,
-    ` ${bigEndianWords(generator.y)}`,
-    "};",
+    ...(format === "arm" ? [
+        "static const u32 kGeneratorWords[16] = {",
+        ` ${bigEndianWords(generator.x)},`,
+        ` ${bigEndianWords(generator.y)}`,
+        "};",
+    ] : [
+        `static const Fe256 kMontgomerySquare = {{${limbs(mod(montgomeryR ** 2n))}}};`,
+    ]),
     "static const Affine256 kGeneratorComb[P256_COMB_DIGITS] = {",
     table.join(",\n"),
     "};",
-    "/* Public double-scalar width-7 wNAF table in Montgomery form. */",
-    "static const Affine256 kGeneratorOdd[32] = {",
-    oddTable.join(",\n"),
-    "};",
+    ...(format === "arm" ? [
+        "/* Public double-scalar width-7 wNAF table in Montgomery form. */",
+        "static const Affine256 kGeneratorOdd[32] = {",
+        oddTable.join(",\n"),
+        "};",
+    ] : []),
     ""
 ].join("\n");
 fs.writeFileSync(outputPath, source);

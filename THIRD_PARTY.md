@@ -2,7 +2,8 @@
 
 ## P-256 inversion schedule
 
-The addition-chain schedule in `library/arm/multiply.c:FeInverse` follows
+The addition-chain schedule shared by the ARM and 68K implementations in
+`library/src/p256_inverse.inc` follows
 `p256Inverse` in the Go standard library, copyright 2015 The Go Authors,
 under its BSD-3-Clause license. The notice and license are retained in
 `library/arm/p256-inverse.LICENSE` and must accompany binary distributions

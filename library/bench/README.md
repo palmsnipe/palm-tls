@@ -53,8 +53,9 @@ agreement and signature verification. The app also checks hostname and CA
 rejection and a successful TLS 1.2 handshake. The server independently checks
 protocol and cipher negotiation. The measurements use the emulator's Palm
 clock at 10 ms resolution and exclude socket setup. See the
-[initial five rounds](baselines/2026-11-20-dragonball) and the
-[five-round ECDSA follow-up](baselines/2026-11-20-dragonball-ecdsa).
+[initial five rounds](baselines/2026-11-20-dragonball),
+[five-round ECDSA follow-up](baselines/2026-11-20-dragonball-ecdsa), and
+[fixed-base key generation comparison](baselines/2026-11-20-dragonball-fixed-base).
 
 ## Full and resumed TLS 1.3 handshakes
 

@@ -1,0 +1,36 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -5662,6 +5662,14 @@
+ 
+ 
+ #if defined(HAVE_ECC_MAKE_PUB) && !defined(WOLF_CRYPTO_CB_ONLY_ECC)
++#if defined(PALM_WOLFSSL_68K_FIXED_BASE) && defined(USE_FAST_MATH) && \
++    !defined(ALT_ECC_SIZE) && !defined(HAVE_WOLF_BIGINT) && \
++    !defined(WOLFSSL_CHECK_VER_FAULTS)
++#define PALM_ECC_68K_FIXED_BASE
++extern void PalmTlsP256MakePublic(const mp_int* scalar,
++    const mp_int* randomizer, ecc_point* pub);
++#endif
++
+ /* compute the public key Q = d*G in software.
+  *
+  * key    private key holding the scalar d, must be present and in range
+@@ -5684,6 +5692,17 @@
+             (mp_cmp(ecc_get_k(key), curve->order) != MP_LT)) {
+         err = ECC_PRIV_KEY_E;
+     }
++
++#ifdef PALM_ECC_68K_FIXED_BASE
++    if (err == MP_OKAY && rng != NULL && key->idx != ECC_CUSTOM_IDX &&
++            key->dp->id == ECC_SECP256R1) {
++        /* Keep a random projective scale for the private scalar operation. */
++        err = wc_ecc_gen_k(rng, key->dp->size, pub->z, curve->prime);
++        if (err == MP_OKAY)
++            PalmTlsP256MakePublic(ecc_get_k(key), pub->z, pub);
++        return err;
++    }
++#endif
+ 
+ #if defined(WOLFSSL_ASYNC_CRYPT) && defined(WC_ASYNC_ENABLE_ECC_KEYGEN) && \
+     defined(HAVE_INTEL_QA)

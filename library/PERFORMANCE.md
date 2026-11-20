@@ -1,5 +1,14 @@
 # PalmTLS performance review
 
+## DragonBall fixed-base P-256 key generation
+
+The 68K TLS 1.2 and 1.3 engines use a six-tooth comb for P-256 key
+generation. On the same Palm m515 emulator at 16× CPU overclock, the
+warm TLS 1.3 handshake fell from 1,910 to 1,470–1,480 ms and key generation
+from 630 to 180–190 ms. See the
+[fixed-base measurements](bench/baselines/2026-11-20-dragonball-fixed-base)
+for repeats, validation, and the PRC size tradeoff.
+
 ## DragonBall P-256 signature verification
 
 Starting with the optimized 68K build below, five further rounds reduce

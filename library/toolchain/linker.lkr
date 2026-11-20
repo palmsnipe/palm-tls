@@ -38,6 +38,7 @@ SECTIONS
         *libwolfssl*.a:src_libwolfssl_la-asn.o(.text.GetUriHost* .text.DirStringNext*)
         *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text.wc_ecc_is_point*)
         *libwolfssl*.a:src_libwolfssl_la-ecc.o(.text.PalmP256Public* .text.PalmPublic*)
+        *tls_p256_68k.o(.text .text.* .rodata .rodata.*)
         *tls_engine_*.o(.text .text.* .rodata .rodata.*)
         *tls_armlet*.o(.text .text.* .rodata .rodata.*)
         *tls_verify_profile.o(.text .text.* .rodata .rodata.*)

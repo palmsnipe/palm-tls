@@ -30,7 +30,7 @@ $(BUILD)/host-config: FORCE | $(BUILD)
 	@printf '%s\n' '$(HOST_CC) $(HOST_OPT_FLAGS)' > $@.tmp
 	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
 $(BUILD)/host: host.c bench.c bench.h $(ROOT)/arm/multiply.c $(ROOT)/arm/armlet_abi.h \
-        $(ROOT)/build/generated/p256_comb.inc $(BUILD)/bench_vectors.inc $(BUILD)/host-config Makefile
+        $(ROOT)/src/p256_inverse.inc $(ROOT)/build/generated/p256_comb.inc $(BUILD)/bench_vectors.inc $(BUILD)/host-config Makefile
 	$(HOST_CC) -std=c99 $(HOST_OPT_FLAGS) -Wall -Wextra -Werror \
 		-DPALM_ARMLET_HOST_TEST -I$(BUILD) -I$(ROOT)/build/generated \
 		host.c bench.c $(ROOT)/arm/multiply.c -o $@
