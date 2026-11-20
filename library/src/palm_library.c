@@ -49,6 +49,8 @@ typedef char PalmTlsAssertSessionEcdheProfile[
 typedef char PalmTlsAssertLoadProfile[sizeof(PalmTlsLoadProfile) == PALM_TLS_LOAD_PROFILE_SIZE ? 1 : -1];
 typedef char PalmTlsAssertTrustProfile[sizeof(PalmTlsTrustProfile) == PALM_TLS_TRUST_PROFILE_SIZE ? 1 : -1];
 typedef char PalmTlsAssertStartupProfile[sizeof(PalmTlsSessionStartupProfile) == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE ? 1 : -1];
+typedef char PalmTlsAssertSignatureProfile[sizeof(PalmTlsSessionSignatureProfile) ==
+    PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE ? 1 : -1];
 _Static_assert(sizeof(PalmTlsIdentityParams) == PALM_TLS_IDENTITY_PARAMS_SIZE,
     "Identity parameter ABI changed");
 _Static_assert(sizeof(PalmTlsIdentityResult) == PALM_TLS_IDENTITY_RESULT_SIZE,
@@ -425,7 +427,7 @@ Err PalmTlsLibGetCapabilities(UInt16 refNum, UInt32 *capabilitiesP)
         PALM_TLS_CAP_COOPERATIVE_IO | PALM_TLS_CAP_VERIFY_PROFILE;
     if ((*capabilitiesP & PALM_TLS_CAP_TLS_1_3) != 0)
         *capabilitiesP |= PALM_TLS_CAP_HANDSHAKE_PROFILE | PALM_TLS_CAP_CONTEXT_REUSE |
-            PALM_TLS_CAP_ECDHE_PROFILE | PALM_TLS_CAP_STARTUP_PROFILE |
+            PALM_TLS_CAP_ECDHE_PROFILE | PALM_TLS_CAP_STARTUP_PROFILE | PALM_TLS_CAP_SIGNATURE_PROFILE |
             PALM_TLS_CAP_PINNED_CLIENT | PALM_TLS_CAP_STYLUS_SEED |
             PinnedRandomCapability(stateP);
     if ((*capabilitiesP & PALM_TLS_CAP_HOST_SEED) && HostRandomReady(stateP))
@@ -1067,7 +1069,8 @@ Err PalmTlsLibGetSessionProfile(UInt16 refNum, unsigned long sessionId,
     UInt16 size;
     if (!resultP || (resultP->structSize != PALM_TLS_SESSION_PROFILE_SIZE &&
         resultP->structSize != PALM_TLS_SESSION_ECDHE_PROFILE_SIZE &&
-        resultP->structSize != PALM_TLS_SESSION_STARTUP_PROFILE_SIZE))
+        resultP->structSize != PALM_TLS_SESSION_STARTUP_PROFILE_SIZE &&
+        resultP->structSize != PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE))
         return sysErrParamErr;
     size = resultP->structSize;
     MemSet(resultP, size, 0);

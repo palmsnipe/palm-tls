@@ -19,6 +19,10 @@ static void Charge(PalmTlsHandshakeProfiler *p, UInt32 now)
         p->trust.ticks[p->trustPhase] += elapsed;
         p->trust.elapsedTicks += elapsed;
     }
+    if (!p->finished && p->phase == palmTlsHsSignature) {
+        p->signature.ticks[p->signaturePhase] += elapsed;
+        p->signature.elapsedTicks += elapsed;
+    }
     p->lastTick = now;
     Bucket(p)->elapsedTicks = (UInt32)(now - p->periodStart);
 }
@@ -68,6 +72,10 @@ void PalmTlsHandshakeProfileEnter(unsigned short phase)
         p->ecdhe.complete = 0;
         p->ecdhe.calls[palmTlsEcdheOther]++;
     }
+    if (phase == palmTlsHsSignature && !p->finished) {
+        p->signature.complete = 0;
+        p->signature.calls[palmTlsSignatureOther]++;
+    }
 }
 void PalmTlsHandshakeProfileLeave(void)
 {
@@ -79,6 +87,9 @@ void PalmTlsHandshakeProfileLeave(void)
         p->ecdhe.complete = !p->ecdheBroken && !p->ecdheDepth;
     if (p->phase == palmTlsHsTrust && !p->finished)
         p->trust.complete = !p->trustBroken && !p->trustDepth;
+    if (p->phase == palmTlsHsSignature && !p->finished)
+        p->signature.complete = !p->signatureBroken &&
+            p->signaturePhase == palmTlsSignatureOther;
     p->phase = p->stack[--p->depth];
 }
 /* Share the enclosing phase's clock and charge function, so detailed ticks
@@ -128,6 +139,32 @@ void PalmTlsTrustProfileLeave(void)
     if (!p->trustDepth) { p->trustBroken = true; return; }
     Charge(p, TimGetTicks());
     p->trustPhase = p->trustStack[--p->trustDepth];
+}
+void PalmTlsSignatureProfileEnter(unsigned short phase)
+{
+    PalmTlsHandshakeProfiler *p = gCurrent;
+    if (!p || p->broken || p->finished || p->phase != palmTlsHsSignature ||
+        p->signatureBroken) return;
+    if (phase == palmTlsSignatureOther || phase >= palmTlsSignaturePhaseCount ||
+        p->signaturePhase != palmTlsSignatureOther) {
+        p->signatureBroken = true;
+        return;
+    }
+    Charge(p, TimGetTicks());
+    p->signaturePhase = phase;
+    p->signature.calls[phase]++;
+}
+void PalmTlsSignatureProfileLeave(void)
+{
+    PalmTlsHandshakeProfiler *p = gCurrent;
+    if (!p || p->broken || p->finished || p->phase != palmTlsHsSignature ||
+        p->signatureBroken) return;
+    if (p->signaturePhase == palmTlsSignatureOther) {
+        p->signatureBroken = true;
+        return;
+    }
+    Charge(p, TimGetTicks());
+    p->signaturePhase = palmTlsSignatureOther;
 }
 void PalmTlsHandshakeProfileSuspend(void)
 {

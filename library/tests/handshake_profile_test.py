@@ -46,6 +46,8 @@ int main(void) {
     clockTick=104; PalmTlsHandshakeProfileLeave();
     PalmTlsHandshakeProfileEnter(palmTlsHsTrust);
     clockTick=106; PalmTlsHandshakeProfileEnter(palmTlsHsSignature);
+    clockTick=107; PalmTlsSignatureProfileEnter(palmTlsSignatureDouble);
+    clockTick=109; PalmTlsSignatureProfileLeave();
     clockTick=110; PalmTlsHandshakeProfileLeave();
     clockTick=112; PalmTlsHandshakeProfileLeave();
     clockTick=115; PalmTlsHandshakeProfileSuspend();
@@ -61,6 +63,11 @@ int main(void) {
     assert(a.result.handshake.elapsedTicks==125);
     assert(a.result.handshake.ticks[palmTlsHsTrust]==4);
     assert(a.result.handshake.ticks[palmTlsHsSignature]==4);
+    assert(a.signature.complete && a.signature.elapsedTicks==4);
+    assert(a.signature.ticks[palmTlsSignatureDouble]==2);
+    assert(a.signature.ticks[palmTlsSignatureOther]==2);
+    assert(a.signature.calls[palmTlsSignatureDouble]==1);
+    assert(!b.signature.elapsedTicks);
     assert(a.result.handshake.ticks[palmTlsHsIdle]==95);
     assert(a.result.handshake.ticks[palmTlsHsKeyShare]==8);
     clockTick=227; PalmTlsHandshakeProfileEnter(palmTlsHsTicket);

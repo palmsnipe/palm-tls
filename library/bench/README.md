@@ -69,6 +69,16 @@ both cases. Pass `--group x25519 --server-group p256` to verify that the
 production client retries with P-256. Keep the retry run separate from
 the direct comparison. [Full TLS 1.3 comparison](baselines/2026-11-20-dragonball-x25519-tls13)
 
+Use `--signature` to summarize the signature breakdown from a recent run.
+Stock speed gives finer attribution across adjacent elliptic-curve operations.
+
+```sh
+python3 library/bench/handshake_results.py --dragonball --signature \
+  library/build/bench/dragonball/run/results.csv
+```
+
+[68K signature profile and optimization](baselines/2026-11-20-dragonball-signature-profile)
+
 ## DragonBall X25519 and P-256 key exchange
 
 The standalone 68K app times public-key generation and shared-secret

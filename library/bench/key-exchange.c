@@ -30,6 +30,8 @@ int PalmTlsP256Agree(const mp_int *scalar, const ecc_point *peer,
 /* The library's TLS profiling hooks are outside this standalone measurement. */
 void PalmTlsEcdheProfileEnter(unsigned short phase) { (void)phase; }
 void PalmTlsEcdheProfileLeave(void) {}
+void PalmTlsSignatureProfileEnter(unsigned short phase) { (void)phase; }
+void PalmTlsSignatureProfileLeave(void) {}
 
 void *WolfPalmMalloc(unsigned long size) { return MemPtrNew(size); }
 void WolfPalmFree(void *memory) { if (memory) MemPtrFree(memory); }

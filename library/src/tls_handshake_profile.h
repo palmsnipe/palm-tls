@@ -6,6 +6,8 @@ typedef struct PalmTlsHandshakeProfiler {
     PalmTlsSessionProfile result;
     PalmTlsEcdhePhaseProfile ecdhe;
     PalmTlsTrustProfile trust;
+    PalmTlsSignaturePhaseProfile signature;
+    unsigned short signaturePhase, signatureBroken;
     unsigned short trustStack[8];
     unsigned short trustPhase, trustDepth, trustBroken;
     unsigned short ecdheStack[8];
@@ -26,6 +28,8 @@ void PalmTlsEcdheProfileEnter(unsigned short phase);
 void PalmTlsEcdheProfileLeave(void);
 void PalmTlsTrustProfileEnter(unsigned short phase);
 void PalmTlsTrustProfileLeave(void);
+void PalmTlsSignatureProfileEnter(unsigned short phase);
+void PalmTlsSignatureProfileLeave(void);
 void PalmTlsHandshakeProfileFinish(unsigned long ticks);
 void PalmTlsHandshakeProfileClose(void);
 void PalmTlsHandshakeProfileSnapshot(PalmTlsHandshakeProfiler *p,

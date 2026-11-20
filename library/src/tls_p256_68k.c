@@ -111,30 +111,58 @@ static inline __attribute__((always_inline)) u32 MultiplyWord(u16 left, u16 righ
 /* For radix R=2^256, p=R-2^224+2^192+2^96-1. The low word m
  * cancels against -m. Add the terms at words 6 and 12, subtract the
  * term at word 14, and return the contribution at word 16. */
-static inline __attribute__((always_inline)) u16 CancelMontgomeryWord(u16 *row)
+static inline __attribute__((always_inline)) u16 CancelMontgomeryWord(u16 *row,
+    bool publicInputs)
 {
     u16 m = row[0];
-    u16 *next = row + 7;
     u16 carry = 0;
     u16 word;
     u32 tail;
 
-    __asm__ volatile(
-        "add.w %[m],-2(%[next])\n\t"
-        ".rept 5\n\t"
-        "move.w (%[next]),%[word]\n\t"
-        "addx.w %[carry],%[word]\n\t"
-        "move.w %[word],(%[next])+\n\t"
-        ".endr\n\t"
-        "move.w (%[next]),%[word]\n\t"
-        "addx.w %[m],%[word]\n\t"
-        "move.w %[word],(%[next])+\n\t"
-        "move.w (%[next]),%[word]\n\t"
-        "addx.w %[carry],%[word]\n\t"
-        "move.w %[word],(%[next])\n\t"
-        "addx.w %[carry],%[carry]"
-        : [next] "+&a"(next), [carry] "+&d"(carry), [word] "=&d"(word)
-        : [m] "d"(m) : "cc", "memory");
+    if (publicInputs) {
+        /* The five limbs between the positive terms need writes only
+         * while a carry propagates. Branches preserve the extend bit. */
+        __asm__ volatile(
+            "add.w %[m],12(%[row])\n\t"
+            "bcc.s 1f\n\t"
+            "addq.w #1,14(%[row])\n\t"
+            "bcc.s 1f\n\t"
+            "addq.w #1,16(%[row])\n\t"
+            "bcc.s 1f\n\t"
+            "addq.w #1,18(%[row])\n\t"
+            "bcc.s 1f\n\t"
+            "addq.w #1,20(%[row])\n\t"
+            "bcc.s 1f\n\t"
+            "addq.w #1,22(%[row])\n\t"
+            "1: move.w 24(%[row]),%[word]\n\t"
+            "addx.w %[m],%[word]\n\t"
+            "move.w %[word],24(%[row])\n\t"
+            "move.w 26(%[row]),%[word]\n\t"
+            "addx.w %[carry],%[word]\n\t"
+            "move.w %[word],26(%[row])\n\t"
+            "addx.w %[carry],%[carry]"
+            : [carry] "+&d"(carry), [word] "=&d"(word)
+            : [row] "a"(row), [m] "d"(m) : "cc", "memory");
+    }
+    else {
+        u16 *next = row + 7;
+        __asm__ volatile(
+            "add.w %[m],-2(%[next])\n\t"
+            ".rept 5\n\t"
+            "move.w (%[next]),%[word]\n\t"
+            "addx.w %[carry],%[word]\n\t"
+            "move.w %[word],(%[next])+\n\t"
+            ".endr\n\t"
+            "move.w (%[next]),%[word]\n\t"
+            "addx.w %[m],%[word]\n\t"
+            "move.w %[word],(%[next])+\n\t"
+            "move.w (%[next]),%[word]\n\t"
+            "addx.w %[carry],%[word]\n\t"
+            "move.w %[word],(%[next])\n\t"
+            "addx.w %[carry],%[carry]"
+            : [next] "+&a"(next), [carry] "+&d"(carry), [word] "=&d"(word)
+            : [m] "d"(m) : "cc", "memory");
+    }
 
     /* A carry from the positive terms implies m is nonzero. The last
      * two limbs fit in one long after swapping their order. */
@@ -155,7 +183,7 @@ static inline __attribute__((always_inline)) u16 CancelMontgomeryWord(u16 *row)
 static void FeMontgomeryReduce(Fe256 *out, u16 *product)
 {
     for (unsigned row = 0; row < FIELD_LIMBS; ++row) {
-        u16 carry = CancelMontgomeryWord(product + row);
+        u16 carry = CancelMontgomeryWord(product + row, false);
         u16 *next = product + row + FIELD_LIMBS;
         u16 count = FIELD_LIMBS - row - 1;
         u16 word;
@@ -228,7 +256,7 @@ static void FeSquare(Fe256 *out, const Fe256 *value)
 static void FeMontgomeryReducePublic(Fe256 *out, u16 *product)
 {
     for (unsigned row = 0; row < FIELD_LIMBS; ++row) {
-        u32 carry = CancelMontgomeryWord(product + row);
+        u32 carry = CancelMontgomeryWord(product + row, true);
         u16 *next = product + row + FIELD_LIMBS;
         while (carry != 0) {
             u32 word = (u32)*next + carry;
@@ -323,12 +351,20 @@ typedef void (*FieldSquare)(Fe256 *, const Fe256 *);
 
 /* Double in Jacobian coordinates for a=-3. The output can alias the input. */
 static inline __attribute__((always_inline)) void PointDoubleWith(Point256 *point,
-    FieldMultiply multiply, FieldSquare square)
+    FieldMultiply multiply, FieldSquare square, bool squareZ)
 {
     Fe256 delta, gamma, beta, alpha, temporary;
     square(&delta, &point->z);
     square(&gamma, &point->y);
     multiply(&beta, &point->x, &gamma);
+    if (squareZ) {
+        /* dbl-2001-b: Z' = (Y + Z)^2 - Y^2 - Z^2.
+         * A square and field additions cost less than a multiply here. */
+        FeAdd(&temporary, &point->y, &point->z);
+        square(&point->z, &temporary);
+        FeSubtract(&point->z, &point->z, &gamma);
+        FeSubtract(&point->z, &point->z, &delta);
+    }
     FeSubtract(&temporary, &point->x, &delta);
     FeAdd(&delta, &point->x, &delta);
     multiply(&temporary, &temporary, &delta);
@@ -336,8 +372,10 @@ static inline __attribute__((always_inline)) void PointDoubleWith(Point256 *poin
     FeAdd(&alpha, &alpha, &temporary);
 
     /* Z' = 2YZ, X' = alpha^2 - 8 beta, Y' = alpha(4 beta - X') - 8 gamma^2. */
-    multiply(&point->z, &point->y, &point->z);
-    FeAdd(&point->z, &point->z, &point->z);
+    if (!squareZ) {
+        multiply(&point->z, &point->y, &point->z);
+        FeAdd(&point->z, &point->z, &point->z);
+    }
     FeAdd(&beta, &beta, &beta);
     FeAdd(&beta, &beta, &beta);
     square(&point->x, &alpha);
@@ -353,12 +391,12 @@ static inline __attribute__((always_inline)) void PointDoubleWith(Point256 *poin
 
 static void PointDouble(Point256 *point)
 {
-    PointDoubleWith(point, FeMultiply, FeSquare);
+    PointDoubleWith(point, FeMultiply, FeSquare, false);
 }
 
 static void PointDoublePublic(Point256 *point)
 {
-    PointDoubleWith(point, FeMultiplyPublic, FeSquarePublic);
+    PointDoubleWith(point, FeMultiplyPublic, FeSquarePublic, true);
 }
 
 static void SelectMixed(Fe256 *out, const volatile Fe256 *sum,
@@ -560,39 +598,42 @@ static int LoadPeer(Affine256 *affine, const ecc_point *peer)
 }
 
 /* All inputs here are public. Batch normalization uses one ordinary
- * inversion via wolfSSL, then all secret arithmetic uses fixed schedules. */
+ * inversion via wolfSSL. Signed verification digits only use odd multiples
+ * (even table indexes), while key agreement uses every multiple. */
 static int BuildPeerTable(Point256 *table, const Affine256 *peer,
-    mp_int *inverse, mp_int *modulus)
+    mp_int *inverse, mp_int *modulus, unsigned stride)
 {
     Fe256 products[WINDOW_POINTS - 1];
     Fe256 reciprocal;
+    unsigned count = (WINDOW_POINTS - 1) / stride;
     table[0] = (Point256){peer->x, peer->y, kMontgomeryOne};
     for (unsigned i = 1; i < WINDOW_POINTS; i += 2) {
         table[i] = table[i / 2];
         PointDoublePublic(&table[i]);
         PointMixedSumPublic(&table[i + 1], &table[i], peer);
     }
-    products[0] = table[1].z;
-    for (unsigned i = 1; i < WINDOW_POINTS - 1; ++i)
-        FeMultiplyPublic(&products[i], &products[i - 1], &table[i + 1].z);
+    products[0] = table[stride].z;
+    for (unsigned i = 1; i < count; ++i)
+        FeMultiplyPublic(&products[i], &products[i - 1], &table[(i + 1) * stride].z);
 
-    FeMultiplyPublic(&reciprocal, &products[WINDOW_POINTS - 2], &kOne);
+    FeMultiplyPublic(&reciprocal, &products[count - 1], &kOne);
     StoreCoordinate(inverse, &reciprocal);
     int err = mp_invmod(inverse, modulus, inverse);
     if (err != MP_OKAY)
         return err;
     LoadPublicMontgomery(&reciprocal, inverse);
-    for (int i = WINDOW_POINTS - 1; i > 0; --i) {
+    for (unsigned i = count; i > 0; --i) {
+        Point256 *entry = &table[i * stride];
         Fe256 zInverse = reciprocal;
         Fe256 power;
         if (i > 1) {
             FeMultiplyPublic(&zInverse, &reciprocal, &products[i - 2]);
-            FeMultiplyPublic(&reciprocal, &reciprocal, &table[i].z);
+            FeMultiplyPublic(&reciprocal, &reciprocal, &entry->z);
         }
         FeSquarePublic(&power, &zInverse);
-        FeMultiplyPublic(&table[i].x, &table[i].x, &power);
+        FeMultiplyPublic(&entry->x, &entry->x, &power);
         FeMultiplyPublic(&power, &power, &zInverse);
-        FeMultiplyPublic(&table[i].y, &table[i].y, &power);
+        FeMultiplyPublic(&entry->y, &entry->y, &power);
     }
     return MP_OKAY;
 }
@@ -634,7 +675,7 @@ int PalmTlsP256Agree(const mp_int *scalar, const ecc_point *peer,
         return err;
 
     PalmTlsEcdheProfileEnter(palmTlsEcdheMultiply);
-    err = BuildPeerTable(table, &work.selected, scratch->x, modulus);
+    err = BuildPeerTable(table, &work.selected, scratch->x, modulus, 1);
     if (err != MP_OKAY) {
         PalmTlsEcdheProfileLeave();
         return err;
@@ -753,26 +794,43 @@ int PalmTlsP256Verify(const mp_int *u1, const ecc_point *peer, const mp_int *u2,
     Point256 table[WINDOW_POINTS], point = {0};
     Affine256 affine;
     *verified = 0;
+    PalmTlsSignatureProfileEnter(palmTlsSignaturePeerValidation);
     int err = LoadPeer(&affine, peer);
+    PalmTlsSignatureProfileLeave();
     if (err != MP_OKAY)
         return err;
-    err = BuildPeerTable(table, &affine, scratch, modulus);
+    PalmTlsSignatureProfileEnter(palmTlsSignaturePeerTable);
+    err = BuildPeerTable(table, &affine, scratch, modulus, 2);
+    PalmTlsSignatureProfileLeave();
     if (err != MP_OKAY)
         return err;
 
+    PalmTlsSignatureProfileEnter(palmTlsSignatureRecode);
     RecodePublicScalar(u1, generatorDigits, GENERATOR_WINDOW);
     RecodePublicScalar(u2, peerDigits, PEER_WINDOW);
+    PalmTlsSignatureProfileLeave();
     for (int bit = SCALAR_BITS; bit >= 0; --bit) {
-        if (!FeIsZero(&point.z))
+        if (!FeIsZero(&point.z)) {
+            PalmTlsSignatureProfileEnter(palmTlsSignatureDouble);
             PointDoublePublic(&point);
+            PalmTlsSignatureProfileLeave();
+        }
         int digit = generatorDigits[bit];
-        if (digit != 0)
+        if (digit != 0) {
+            PalmTlsSignatureProfileEnter(palmTlsSignatureAdd);
             AddPublicDigit(&point, kGeneratorOdd[Magnitude(digit) / 2], digit);
+            PalmTlsSignatureProfileLeave();
+        }
         digit = peerDigits[bit];
         if (digit != 0) {
             const Point256 *entry = &table[Magnitude(digit) - 1];
+            PalmTlsSignatureProfileEnter(palmTlsSignatureAdd);
             AddPublicDigit(&point, (Affine256){entry->x, entry->y}, digit);
+            PalmTlsSignatureProfileLeave();
         }
     }
-    return MatchPublicSignature(&point, r, order, scratch, verified);
+    PalmTlsSignatureProfileEnter(palmTlsSignatureCompare);
+    err = MatchPublicSignature(&point, r, order, scratch, verified);
+    PalmTlsSignatureProfileLeave();
+    return err;
 }

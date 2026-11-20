@@ -12,6 +12,7 @@ PHASES=('other','context','trust','keyshare','key_agreement','certificate',
 ECDHE_PHASES=('other','import','validate','multiply','map')
 LOAD_PHASES=('setup','copy','relocate','native','wolf','qualify','other')
 TRUST_PHASES=('other','pem','decode','store','cache')
+SIGNATURE_PHASES=('other','peer_validation','peer_table','recode','double','add','compare')
 CASES={f'{cache}_{kind}' for cache in ('nocache','cache')
        for kind in ('full_cold','full_warm','resumed')}
 REGRESSIONS={'owned_exact_trust','hostname_mode_and_bad_ca','purge',
@@ -100,7 +101,27 @@ def load(text, dragonball=False):
             raise ValueError('resumed handshake processed a certificate')
     load_ecdhe(text, grouped, profiles)
     load_startup(text, grouped, profiles)
+    load_signature(text, grouped, profiles)
     return grouped,profiles
+
+
+def load_signature(text, rows, profiles):
+    details={}
+    for line in text.splitlines():
+        if not line.startswith('# signature,'): continue
+        _,name,sample,phase,ticks,calls=line.split(',')
+        key=(name,int(sample),phase)
+        value=(int(ticks),int(calls))
+        if key in details or phase not in SIGNATURE_PHASES or min(value)<0:
+            raise ValueError('invalid/duplicate signature phase')
+        details[key]=value
+    if details:
+        if set(details)!={(name,sample,phase) for name,sample in rows for phase in SIGNATURE_PHASES}:
+            raise ValueError('incomplete signature profile')
+        for name,sample in rows:
+            if sum(details[name,sample,phase][0] for phase in SIGNATURE_PHASES)!=profiles[name,sample,0,'signature'][0]:
+                raise ValueError('signature phases do not partition verification')
+    return details
 
 
 def load_ecdhe(text, rows, profiles):
@@ -182,14 +203,30 @@ def main():
     p.add_argument('--dragonball',action='store_true')
     p.add_argument('--group',choices=('p256','x25519'))
     p.add_argument('--client-hellos',type=int,choices=(1,2),default=1)
+    p.add_argument('--signature',action='store_true',help='summarize the detailed signature profile')
     args=p.parse_args()
-    rows,profiles=load(args.input.read_text(),args.dragonball)
-    print('case,median_handshake_ms,min_ms,max_ms,median_load_ms')
-    for case in sorted(CASES_68K if args.dragonball else CASES):
-        samples=[r for (name,_),r in rows.items() if name==case]
-        ms=[r['handshake_ticks']*1000/r['frequency'] for r in samples]
-        loads=[r['load_ticks']*1000/r['frequency'] for r in samples]
-        print(f'{case},{statistics.median(ms):.1f},{min(ms):.1f},{max(ms):.1f},{statistics.median(loads):.1f}')
+    raw=args.input.read_text()
+    rows,profiles=load(raw,args.dragonball)
+    cases=sorted(CASES_68K if args.dragonball else CASES)
+    if args.signature:
+        detail=load_signature(raw,rows,profiles)
+        if not detail:
+            p.error('input has no detailed signature profile')
+        print('case,phase,median_ms,median_calls')
+        for case in cases:
+            for phase in SIGNATURE_PHASES:
+                samples=[(detail[name,i,phase], row['frequency'])
+                         for (name,i),row in rows.items() if name==case]
+                times=[ticks*1000/frequency for (ticks,_),frequency in samples]
+                calls=[count for (_,count),_ in samples]
+                print(f'{case},{phase},{statistics.median(times):.1f},{statistics.median(calls):g}')
+    else:
+        print('case,median_handshake_ms,min_ms,max_ms,median_load_ms')
+        for case in cases:
+            samples=[r for (name,_),r in rows.items() if name==case]
+            ms=[r['handshake_ticks']*1000/r['frequency'] for r in samples]
+            loads=[r['load_ticks']*1000/r['frequency'] for r in samples]
+            print(f'{case},{statistics.median(ms):.1f},{min(ms):.1f},{max(ms):.1f},{statistics.median(loads):.1f}')
     if args.server_log:
         validate_server(args.server_log,args.dragonball,args.group,args.client_hellos)
         if args.dragonball:

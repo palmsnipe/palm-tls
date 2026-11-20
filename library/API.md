@@ -377,6 +377,24 @@ public certificates. Private/encrypted key decoding is unchanged. Certificate
 parsing, restrictions, signatures, hostname checks, and exact trust identity
 remain in the normal verification path; no serialized CA cache is restored.
 
+### Signature verification profile
+
+For sessions opened with `PALM_TLS_SESSION_PROFILE`, check
+`PALM_TLS_CAP_SIGNATURE_PROFILE` to request the 464-byte result.
+
+```c
+PalmTlsSessionSignatureProfile detail;
+MemSet(&detail, sizeof(detail), 0);
+detail.startup.session.base.structSize = PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE;
+PalmTlsLibGetSessionProfile(refNum, sessionId, &detail.startup.session.base);
+```
+
+`signature` partitions the handshake's exclusive Signature phase into native
+68K P-256 peer validation, peer table setup, scalar recoding, point doubling,
+point addition, final comparison, and other work. Other includes signature
+processing outside the native verifier. Call counts distinguish operations
+that took less than a Palm clock tick from phases that were skipped.
+
 ## Offline ARM self-test
 
 Zero a `PalmTlsSelfTestResult`, set `structSize`, and call

@@ -33,6 +33,7 @@
 #define PALM_TLS_IDENTITY_CERT_MAX 1024
 #define PALM_TLS_IDENTITY_KEY_MAX 128
 #define PALM_TLS_SESSION_STARTUP_PROFILE_SIZE 400
+#define PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE 464
 
 #define PALM_TLS_CAP_TLS_1_2 0x00000001UL
 #define PALM_TLS_CAP_EXACT_PEER 0x00000002UL
@@ -64,6 +65,7 @@
 #define PALM_TLS_CAP_HOST_RANDOM 0x08000000UL
 #define PALM_TLS_CAP_BROWSER_STYLUS_SEED 0x10000000UL
 #define PALM_TLS_CAP_BROWSER_STYLUS_RANDOM 0x20000000UL
+#define PALM_TLS_CAP_SIGNATURE_PROFILE 0x40000000UL
 #define PALM_TLS_HOST_SEED_SIZE 48
 #define PALM_TLS_STYLUS_POINTS 256
 #define PALM_TLS_STYLUS_MAX_POINTS 1024
@@ -274,6 +276,32 @@ typedef struct PalmTlsSessionStartupProfile {
     PalmTlsLoadProfile load;
     PalmTlsTrustProfile trust;
 } PalmTlsSessionStartupProfile;
+
+typedef enum PalmTlsSignaturePhase {
+    palmTlsSignatureOther = 0,
+    palmTlsSignaturePeerValidation,
+    palmTlsSignaturePeerTable,
+    palmTlsSignatureRecode,
+    palmTlsSignatureDouble,
+    palmTlsSignatureAdd,
+    palmTlsSignatureCompare,
+    palmTlsSignaturePhaseCount
+} PalmTlsSignaturePhase;
+
+typedef struct PalmTlsSignaturePhaseProfile {
+    unsigned long ticks[palmTlsSignaturePhaseCount];
+    unsigned long calls[palmTlsSignaturePhaseCount];
+    unsigned long elapsedTicks;
+    unsigned short complete, reserved;
+} PalmTlsSignaturePhaseProfile;
+
+/* GetSessionProfile extension. Check PALM_TLS_CAP_SIGNATURE_PROFILE and
+ * pass &result.startup.session.base with structSize=464. The detailed phases
+ * describe native 68K P-256 verification. Other signature work is in Other. */
+typedef struct PalmTlsSessionSignatureProfile {
+    PalmTlsSessionStartupProfile startup;
+    PalmTlsSignaturePhaseProfile signature;
+} PalmTlsSessionSignatureProfile;
 
 /* Return zero to accept a chunk. A non-zero result aborts the exchange and is
  * returned in PalmTlsStreamResult.sinkError. The data is valid only for the

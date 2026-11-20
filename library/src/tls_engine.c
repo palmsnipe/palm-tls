@@ -1215,7 +1215,8 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
             if (controlP->profiler.enabled && paramsP->responseP &&
                 (paramsP->responseCapacity == PALM_TLS_SESSION_PROFILE_SIZE ||
                  paramsP->responseCapacity == PALM_TLS_SESSION_ECDHE_PROFILE_SIZE ||
-                 paramsP->responseCapacity == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE)) {
+                 paramsP->responseCapacity == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE ||
+                 paramsP->responseCapacity == PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE)) {
                 PalmTlsHandshakeProfileSnapshot(&controlP->profiler,
                     (PalmTlsSessionProfile *)paramsP->responseP);
                 if (paramsP->responseCapacity >= PALM_TLS_SESSION_ECDHE_PROFILE_SIZE) {
@@ -1224,10 +1225,14 @@ PalmTlsSegmentEntry(const PalmTlsEngineParams *paramsP,
                     MemMove(&profileP->ecdhe, &controlP->profiler.ecdhe,
                             sizeof(profileP->ecdhe));
                 }
-                if (paramsP->responseCapacity == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE) {
+                if (paramsP->responseCapacity >= PALM_TLS_SESSION_STARTUP_PROFILE_SIZE) {
                     PalmTlsSessionStartupProfile *profileP = paramsP->responseP;
                     profileP->load = controlP->loadProfile;
                     profileP->trust = controlP->profiler.trust;
+                }
+                if (paramsP->responseCapacity == PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE) {
+                    PalmTlsSessionSignatureProfile *profileP = paramsP->responseP;
+                    profileP->signature = controlP->profiler.signature;
                 }
                 resultP->status = palmTlsStatusOk;
             }
