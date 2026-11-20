@@ -221,8 +221,12 @@ For TLS 1.3, each slot also retains its configured `WOLFSSL_CTX` and parsed
 trust store after normal close. Reuse requires the same hostname, verification
 mode, and exact trust bytes. This is independent of
 `PALM_TLS_SESSION_ALLOW_RESUME`: a full handshake can reuse its context without
-offering a ticket. Every connection still creates a fresh `WOLFSSL`, ephemeral
-P-256 key share, I/O bindings, SNI, and hostname check.
+offering a ticket. Every connection creates a fresh `WOLFSSL`, ephemeral
+key share, I/O bindings, SNI, and hostname check. The 68K TLS 1.3 engine
+first offers X25519 and supports P-256 when requested. It can reuse
+a successful issuer signature check for the same ECDSA/SHA-256 certificate
+and issuer key. Certificate path, validity, hostname, and live
+`CertificateVerify` are checked on each full handshake.
 
 `PALM_TLS_SESSION_NO_CONTEXT_REUSE` disables context reuse for that connection
 for diagnostic comparisons; it does not disable ticket resumption. TLS 1.1/1.2

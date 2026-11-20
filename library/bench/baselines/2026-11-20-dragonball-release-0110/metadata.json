@@ -1,0 +1,32 @@
+{
+  "baseline_version": "0.1.10",
+  "baseline_source": "https://github.com/palmsnipe/palm-tls/releases/tag/v0.1.10",
+  "measured_current_commit": "c8c42bae0b61058f7b30421990c13318e7e4da56",
+  "platform": "Palm m515, Palm OS 4.1, CloudpilotEmu DragonBall CLI",
+  "current_capture": "../2026-11-20-dragonball-certificate-signature-cache",
+  "baseline": {
+    "1x": {
+      "dragonball_overclock": 1,
+      "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+      "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+      "prc_sha256": "09a69a8beface04839909249e0a91c0dbdfb884de2f0cbf623f0bba2006d8c13",
+      "library_sha256": "c07e366725dccd6a7290d01ef579a8041647fdbc6ab33925158be5fffdf0d24c"
+    },
+    "16x": {
+      "dragonball_overclock": 16,
+      "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+      "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+      "prc_sha256": "09a69a8beface04839909249e0a91c0dbdfb884de2f0cbf623f0bba2006d8c13",
+      "library_sha256": "c07e366725dccd6a7290d01ef579a8041647fdbc6ab33925158be5fffdf0d24c"
+    }
+  },
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "956bd2d265a0c780fbe255835dbf6c437b6bed2e6aeb5c6dee799c58fa0673aa",
+    "leaf_sha256": "aea233816457e554350bbd55c4e553891e0a0a553b3fd52ac8458c40b4fe8d8b",
+    "port": 23443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "tls13_group": "p256"
+  }
+}

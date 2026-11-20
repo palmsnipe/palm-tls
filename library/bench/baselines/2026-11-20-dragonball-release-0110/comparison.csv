@@ -1,0 +1,5 @@
+cpu_speed,full_handshake,release_median_ms,current_median_ms,saved_ms,reduction_percent,speedup_factor
+1x,cold,36470,12060,24410,66.9,3.02
+1x,warm,36280,8460,27820,76.7,4.29
+16x,cold,2280,750,1530,67.1,3.04
+16x,warm,2260,530,1730,76.5,4.26
