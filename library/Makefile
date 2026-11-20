@@ -316,6 +316,7 @@ test: profiles $(ARMLET_HOST_TEST) $(ARMLET_ORACLE)
 	python3 tests/hex_import_test.py --source $(DEPS_PREFIX)/../src/wolfssl
 	python3 tests/verify_profile_test.py
 	python3 tests/handshake_profile_test.py
+	python3 tests/cert_signature_cache_test.py
 	python3 tests/session_id_test.py
 	python3 tests/p256_validation_bridge_test.py
 	python3 tests/public_ca_pem_test.py

@@ -1,0 +1,49 @@
+{
+  "platform": "Palm m515, Palm OS 4.1, CloudpilotEmu DragonBall CLI",
+  "toolchain": "m68k-none-elf-gcc 16.1.0, -m68000 -mshort -Os",
+  "palm_ticks_per_second": 100,
+  "samples_per_case": 5,
+  "builds": {
+    "baseline": {
+      "git_revision": "e6f04df4bc77fece1360b6c77d36168445ed5e53",
+      "git_dirty": false,
+      "library_sha256": "e653c49d25a3ad6c45982bf997fcedc2cbb6d6d4e107d1d40dcac5b0b2663503",
+      "wolfssl": {
+        "version": "5.9.4",
+        "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+        "fast_hex": 1,
+        "fingerprint": "8d2afbc6246e856ac7474e02da57bbb6b966d4a5745dd88ce6587fdf4b2d9021"
+      },
+      "library_bytes": 674477
+    },
+    "cache": {
+      "git_revision": "e6f04df4bc77fece1360b6c77d36168445ed5e53",
+      "git_dirty": true,
+      "library_sha256": "3ee660bfc692b96256e2fe523b6f6aed3be60054c310f34dc1881b4c8bac09ba",
+      "wolfssl": {
+        "version": "5.9.4",
+        "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+        "fast_hex": 1,
+        "fingerprint": "d9477bf6f575e0addb0849e1d549175cad1d18b44a3b9e08e70225b18fbf3082"
+      },
+      "library_bytes": 675081
+    }
+  },
+  "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+  "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+  "prc_sha256": "09a69a8beface04839909249e0a91c0dbdfb884de2f0cbf623f0bba2006d8c13",
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "956bd2d265a0c780fbe255835dbf6c437b6bed2e6aeb5c6dee799c58fa0673aa",
+    "leaf_sha256": "aea233816457e554350bbd55c4e553891e0a0a553b3fd52ac8458c40b4fe8d8b",
+    "port": 23443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "tls13_group": "x25519"
+  },
+  "cipher": "TLS_AES_128_GCM_SHA256",
+  "source_sha256": {
+    "patches/wolfssl/wolfssl-palm-68k-cert-signature-cache.patch": "11f8107b0ec125f637fc238e78e0276127696327e261f3240af35ee6de983083",
+    "scripts/bootstrap.sh": "deab57d052534699f830cc10e4f1f5dc99657d252fa61144f70b0d77d16ca325"
+  }
+}

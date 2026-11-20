@@ -1,0 +1,9 @@
+cpu_speed,build,full_handshake,median_ms,min_ms,max_ms,median_load_ms,median_certificate_signature_scope_ms,median_live_certificate_verify_ms,p256_signature_checks_per_handshake
+1x,baseline,cold,12020,11960,12050,350,3330,3310,2
+1x,baseline,warm,11770,11750,11810,0,3320,3310,2
+1x,cache,cold,12060,12010,12080,350,3340,3330,2
+1x,cache,warm,8460,8450,8500,0,20,3310,1
+16x,baseline,cold,750,740,750,20,210,210,2
+16x,baseline,warm,730,730,740,0,200,210,2
+16x,cache,cold,750,740,750,30,210,200,2
+16x,cache,warm,530,520,530,0,0,210,1

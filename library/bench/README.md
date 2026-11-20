@@ -49,8 +49,9 @@ with the same port and overclock to compare code changes.
 The driver installs `PalmTLS68K.prc` and measures five cold and five warm full
 handshakes against the local fixture. Cold samples purge the engine
 and context first. Warm samples reuse the context and perform fresh key
-agreement and signature verification. The app also checks hostname and CA
-rejection and a successful TLS 1.2 handshake. The server checks the
+agreement and live `CertificateVerify`. Eligible issuer signature checks can
+hit the certificate signature cache in the reused context. The app checks
+hostname and CA rejection and a successful TLS 1.2 handshake. The server checks the
 protocol, cipher, negotiated group, and ClientHello count. The measurements
 use the emulator's Palm clock at 10 ms resolution and exclude socket setup.
 See the
@@ -82,7 +83,8 @@ python3 library/bench/handshake_results.py --dragonball --signature \
 
 For certificate signature and live TLS `CertificateVerify` timings, use
 `--signature-sources` with the same results file.
-[m515 signature timings by source](baselines/2026-11-20-dragonball-signature-sources)
+[m515 signature timings by source](baselines/2026-11-20-dragonball-signature-sources) ·
+[Cold and warm certificate signature cache comparison](baselines/2026-11-20-dragonball-certificate-signature-cache)
 
 ## DragonBall X25519 and P-256 key exchange
 

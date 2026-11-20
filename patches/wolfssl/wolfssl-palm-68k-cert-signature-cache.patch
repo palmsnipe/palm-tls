@@ -1,0 +1,133 @@
+diff --git a/wolfssl/internal.h b/wolfssl/internal.h
+--- a/wolfssl/internal.h
++++ b/wolfssl/internal.h
+@@ -2784,8 +2784,24 @@
+     #define TP_TABLE_SIZE 11
+ #endif
+ 
++#ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
++    #if !defined(SINGLE_THREADED) || defined(HAVE_PK_CALLBACKS) || \
++        defined(WOLFSSL_ASYNC_CRYPT) || defined(WOLF_CRYPTO_CB) || \
++        defined(WOLFCRYPT_ONLY) || defined(NO_ASN_CRYPT) || \
++        !defined(WOLFSSL_SMALL_CERT_VERIFY) || !defined(WOLFSSL_ASN_TEMPLATE)
++        #error Certificate signature cache requires the synchronous Palm verifier
++    #endif
++    #define PALM_CERT_SIGNATURE_CACHE_SIZE 4
++#endif
++
+ /* wolfSSL Certificate Manager */
+ struct WOLFSSL_CERT_MANAGER {
++#ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
++    byte            palmCertSignatures[PALM_CERT_SIGNATURE_CACHE_SIZE]
++                                      [WC_SHA256_DIGEST_SIZE];
++    byte            palmCertSignatureCount;
++    byte            palmCertSignatureNext;
++#endif
+     Signer*         caTable[CA_TABLE_SIZE]; /* the CA signer table */
+     void*           heap;                /* heap helper */
+ #ifdef WOLFSSL_TRUST_PEER_CERT
+diff --git a/wolfcrypt/src/asn.c b/wolfcrypt/src/asn.c
+--- a/wolfcrypt/src/asn.c
++++ b/wolfcrypt/src/asn.c
+@@ -18832,6 +18832,74 @@
+     return result;
+ }
+ 
++#ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
++static int PalmCertSignatureKey(byte* digest, const byte* buf, word32 bufSz,
++    const byte* key, word32 keySz, const byte* sig, word32 sigSz)
++{
++    /* Only ECDSA with SHA-256 and no parameters is cached. Lengths bind the
++     * boundaries of the signed certificate bytes, issuer key and signature. */
++    const word32 sizes[] = { bufSz, keySz, sigSz };
++    wc_Sha256 sha;
++    int ret = wc_InitSha256(&sha);
++    if (ret == 0) {
++        ret = wc_Sha256Update(&sha, (const byte*)sizes, sizeof(sizes));
++        if (ret == 0) ret = wc_Sha256Update(&sha, buf, bufSz);
++        if (ret == 0) ret = wc_Sha256Update(&sha, key, keySz);
++        if (ret == 0) ret = wc_Sha256Update(&sha, sig, sigSz);
++        if (ret == 0) ret = wc_Sha256Final(&sha, digest);
++        wc_Sha256Free(&sha);
++    }
++    return ret;
++}
++
++static int ConfirmSignatureWithCache(SignatureCtx* sigCtx,
++    const byte* buf, word32 bufSz,
++    const byte* key, word32 keySz, word32 keyOID,
++    const byte* sig, word32 sigSz, word32 sigOID,
++    const byte* sigParams, word32 sigParamsSz,
++    byte* rsaKeyIdx, WOLFSSL_CERT_MANAGER* manager)
++{
++    int result;
++    byte digest[WC_SHA256_DIGEST_SIZE];
++    int haveCacheKey;
++    int i;
++
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsSignatureSourceEnter(palmTlsSignatureSourceCertificate);
++#endif
++    haveCacheKey = manager != NULL && sigCtx != NULL &&
++        sigCtx->state == SIG_STATE_BEGIN && keyOID == ECDSAk &&
++        sigOID == CTC_SHA256wECDSA && sigParamsSz == 0 &&
++        buf != NULL && bufSz != 0 && key != NULL && keySz != 0 &&
++        sig != NULL && sigSz != 0 &&
++        PalmCertSignatureKey(digest, buf, bufSz, key, keySz, sig, sigSz) == 0;
++    if (haveCacheKey) {
++        for (i = 0; i < manager->palmCertSignatureCount; ++i) {
++            if (XMEMCMP(digest, manager->palmCertSignatures[i],
++                        sizeof(digest)) == 0) {
++                result = 0;
++                goto done;
++            }
++        }
++    }
++    result = PalmRaw_ConfirmSignature(sigCtx, buf, bufSz, key, keySz,
++        keyOID, sig, sigSz, sigOID, sigParams, sigParamsSz, rsaKeyIdx);
++    if (haveCacheKey && result == 0) {
++        XMEMCPY(manager->palmCertSignatures[manager->palmCertSignatureNext],
++            digest, sizeof(digest));
++        manager->palmCertSignatureNext =
++            (manager->palmCertSignatureNext + 1) % PALM_CERT_SIGNATURE_CACHE_SIZE;
++        if (manager->palmCertSignatureCount < PALM_CERT_SIGNATURE_CACHE_SIZE)
++            ++manager->palmCertSignatureCount;
++    }
++done:
++#ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
++    PalmTlsHandshakeProfileLeave();
++#endif
++    return result;
++}
++#endif
++
+ 
+ #ifndef IGNORE_NAME_CONSTRAINTS
+ 
+@@ -24719,10 +24787,22 @@
+         {
+             InitSignatureCtx(sigCtx, heap, INVALID_DEVID);
+ 
+-            /* Check signature. */
+-            ret = ConfirmSignature(sigCtx, tbs, tbsSz, pubKey, pubKeySz,
+-                (word32)pubKeyOID, sig, sigSz, sigOID, sigParams, sigParamsSz,
+-                NULL);
++            /* The small-stack path selects an issuer before checking the
++             * signature. The caller still runs the full parse and policy checks
++             * after this function returns. */
++        #ifdef PALM_WOLFSSL_68K_CERT_SIGNATURE_CACHE
++            if (!req && ca != NULL) {
++                ret = ConfirmSignatureWithCache(sigCtx, tbs, tbsSz,
++                    pubKey, pubKeySz, (word32)pubKeyOID, sig, sigSz, sigOID,
++                    sigParams, sigParamsSz, NULL, (WOLFSSL_CERT_MANAGER*)cm);
++            }
++            else
++        #endif
++            {
++                ret = ConfirmSignature(sigCtx, tbs, tbsSz, pubKey, pubKeySz,
++                    (word32)pubKeyOID, sig, sigSz, sigOID, sigParams,
++                    sigParamsSz, NULL);
++            }
+             if (ret != 0) {
+                 WOLFSSL_MSG("Confirm signature failed");
+             }
