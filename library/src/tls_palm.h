@@ -4,6 +4,19 @@
 #include <PalmOS.h>
 #include "tls_drbg.h"
 
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+#include <time.h>
+
+typedef struct PalmTlsTrustClock {
+    time_t now;
+    time_t converted;
+    struct tm date;
+} PalmTlsTrustClock;
+
+void WolfPalmTrustClockBegin(PalmTlsTrustClock *clockP);
+void WolfPalmTrustClockEnd(void);
+#endif
+
 void *WolfPalmMalloc(unsigned long size);
 void WolfPalmFree(void *pointerP);
 void *WolfPalmRealloc(void *pointerP, unsigned long size);

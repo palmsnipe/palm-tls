@@ -65,13 +65,13 @@ COMMON_OBJECTS := $(PALM_BUILD)/palm_library.o $(PALM_BUILD)/tls_loader.o \
 COMMON_OBJECTS_68K := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_68k.o
 COMMON_OBJECTS_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet.o
 LEGACY_RANDOM := $(PALM_BUILD)/tls_palm.o
-PINNED_RANDOM := $(PALM_BUILD)/tls_palm_13.o $(PALM_BUILD)/tls_drbg.o
 OBJECTS_12_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o $(P256_FIXED_68K)
-OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13.o \
+OBJECTS_13_68K := $(COMMON_OBJECTS_68K) $(PALM_BUILD)/tls_palm_13.o $(PALM_BUILD)/tls_drbg.o $(PALM_BUILD)/tls_engine_13.o \
 	$(P256_FIXED_68K) $(X25519_68K)
 OBJECTS_11_68K := $(COMMON_OBJECTS_68K) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
 OBJECTS_12_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_12.o
-OBJECTS_13_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_wide.o $(PINNED_RANDOM) $(PALM_BUILD)/tls_engine_13_arm.o
+OBJECTS_13_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_wide.o \
+	$(PALM_BUILD)/tls_palm_13_arm.o $(PALM_BUILD)/tls_drbg.o $(PALM_BUILD)/tls_engine_13_arm.o
 OBJECTS_11_ARM := $(COMMON_OBJECTS_ARM) $(LEGACY_RANDOM) $(PALM_BUILD)/tls_engine_11.o
 OBJECTS_browser_ARM := $(COMMON_OBJECTS) $(PALM_BUILD)/tls_armlet_browser.o $(PALM_BUILD)/tls_palm_browser.o \
 	$(PALM_BUILD)/tls_drbg_browser.o $(PALM_BUILD)/tls_engine_browser.o
@@ -171,6 +171,8 @@ $(PALM_BUILD)/tls_palm.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
 $(PALM_BUILD)/tls_palm_13.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DWOLFSSL_NO_TLS12 -c $< -o $@
+$(PALM_BUILD)/tls_palm_13_arm.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DWOLFSSL_NO_TLS12 -DPALM_WOLFSSL_PARSED_CA_CACHE -c $< -o $@
 $(PALM_BUILD)/tls_palm_browser.o: src/tls_palm.c src/tls_palm.h src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_WOLFSSL_BROWSER -c $< -o $@
 $(PALM_BUILD)/tls_drbg.o: src/tls_drbg.c src/tls_drbg.h $(WOLFSSL_SETTINGS) | $(PALM_BUILD)

@@ -1,0 +1,41 @@
+diff --git a/wolfcrypt/src/asn.c b/wolfcrypt/src/asn.c
+--- a/wolfcrypt/src/asn.c
++++ b/wolfcrypt/src/asn.c
+@@ -23557,6 +23557,7 @@
+     word32 pubKeyOffset = 0;
+     word32 pubKeyEnd = 0;
+     int done = 0;
++    int decodeIssuer = 1;
+ 
+ #if defined(HAVE_RPK)
+     /* try to parse the cert as Raw Public Key cert */
+@@ -23845,7 +23846,17 @@
+     /* Dispose of memory before allocating for extension decoding. */
+     FREE_ASNGETDATA(dataASN, cert->heap);
+ 
+-    if ((ret == 0) && (issuer != NULL)) {
++#if defined(PALM_WOLFSSL_PARSED_CA_CACHE) && \
++    !defined(WOLFSSL_X509_NAME_AVAILABLE) && !defined(WOLFSSL_HAVE_ISSUER_NAMES) && \
++    !defined(HAVE_PKCS7) && !defined(WOLFSSL_CERT_EXT)
++    /* If there is no separate issuer-side metadata, a byte-identical
++     * issuer can use the fully decoded subject name and its digest. */
++    if ((ret == 0) && (issuer != NULL) && (subject != NULL) &&
++            (issuerSz == subjectSz) && XMEMCMP(issuer, subject, issuerSz) == 0) {
++        decodeIssuer = 0;
++    }
++#endif
++    if ((ret == 0) && (issuer != NULL) && decodeIssuer) {
+         idx = 0;
+         /* Put issuer into cert and calculate hash. */
+         ret = GetCertName(cert, cert->issuer, cert->issuerHash, ASN_ISSUER, issuer,
+@@ -23858,6 +23869,10 @@
+             subject, &idx, subjectSz);
+     }
+     if (ret == 0) {
++        if (!decodeIssuer) {
++            XMEMCPY(cert->issuer, cert->subject, sizeof(cert->issuer));
++            XMEMCPY(cert->issuerHash, cert->subjectHash, KEYID_SIZE);
++        }
+         /* Determine if self signed by comparing issuer and subject hashes. */
+     #ifdef WOLFSSL_CERT_REQ
+         if (cert->isCSR) {

@@ -1,0 +1,138 @@
+{
+  "baseline": "917dd98",
+  "anchor_count": 8,
+  "batches": {
+    "e2-base": {
+      "device": "Tungsten E2",
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "d380ebac9ade541cf768d3e08820a518a282467ae0f3cf51680e945f164b19f4",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-base-profile": {
+      "device": "Tungsten E2",
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "d380ebac9ade541cf768d3e08820a518a282467ae0f3cf51680e945f164b19f4",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-names": {
+      "device": "Tungsten E2",
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "5a2f03009d3a7f9ac5a7a6237bfac45f18f7daea02d9f3335013ee39cb2837c2",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-combined": {
+      "device": "Tungsten E2",
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "62b91e0d6cd4b7da1a2f3a5bba32b3fec8be5527ef224d18f16af66c8843afae",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-combined-profile": {
+      "device": "Tungsten E2",
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "62b91e0d6cd4b7da1a2f3a5bba32b3fec8be5527ef224d18f16af66c8843afae",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-base": {
+      "device": "Palm TX",
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "d380ebac9ade541cf768d3e08820a518a282467ae0f3cf51680e945f164b19f4",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-base-profile": {
+      "device": "Palm TX",
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "d380ebac9ade541cf768d3e08820a518a282467ae0f3cf51680e945f164b19f4",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-names": {
+      "device": "Palm TX",
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "5a2f03009d3a7f9ac5a7a6237bfac45f18f7daea02d9f3335013ee39cb2837c2",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-combined": {
+      "device": "Palm TX",
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "62b91e0d6cd4b7da1a2f3a5bba32b3fec8be5527ef224d18f16af66c8843afae",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-combined-profile": {
+      "device": "Palm TX",
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "62b91e0d6cd4b7da1a2f3a5bba32b3fec8be5527ef224d18f16af66c8843afae",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    }
+  },
+  "trust.pem_sha256": "8cbf846c6f56a1c84bfe1bdfa6ed449e1102a608a4722a5ea7bfd2005ce8381a",
+  "server.der_sha256": "89938ee3285702303239ea68297a822f3798a0fc1346bc9aabc6718adfc0a7b4",
+  "normal_build": {
+    "library_sha256": "791c9dca3a14166482375476dffcf98e3e805c38efd36753117b50b6f1c16f6f",
+    "resources_match_measured_combined": true,
+    "wolfssl_build": {
+      "version": "5.9.4",
+      "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+      "fast_hex": 1,
+      "fingerprint": "3870c076f8d8e7ac80d2f84bba6a9876ee496b86307e7ea2411f0b847f4d08d1"
+    }
+  }
+}

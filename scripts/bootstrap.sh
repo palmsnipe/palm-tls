@@ -70,6 +70,7 @@ patches=(
   wolfssl-palm-arm-tls13-transcript.patch
   wolfssl-palm-arm-sha512.patch
   wolfssl-palm-arm-hkdf.patch
+  wolfssl-palm-reuse-identical-names.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \

@@ -24,8 +24,18 @@ int PalmTlsParseIpv4(const char *text, unsigned char *address)
 
 #define PALM_UNIX_EPOCH_OFFSET 2082844800UL
 
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+static PalmTlsTrustClock *TrustClockP;
+#endif
+
 time_t WolfPalmTime(time_t *timerP)
 {
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+    if (TrustClockP) {
+        if (timerP) *timerP = TrustClockP->now;
+        return TrustClockP->now;
+    }
+#endif
     UInt32 palmSeconds = TimGetSeconds();
     UInt32 romVersion = 0;
     Int32 utcSeconds;
@@ -46,12 +56,33 @@ time_t WolfPalmTime(time_t *timerP)
     return (time_t)utcSeconds;
 }
 
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+/* A synchronous trust import checks every anchor at the time it started. */
+void WolfPalmTrustClockBegin(PalmTlsTrustClock *clockP)
+{
+    clockP->now = WolfPalmTime(NULL);
+    clockP->converted = (time_t)-1;
+    TrustClockP = clockP;
+}
+
+void WolfPalmTrustClockEnd(void)
+{
+    TrustClockP = NULL;
+}
+#endif
+
 struct tm *WolfPalmGmtime(const time_t *timerP, struct tm *resultP)
 {
     DateTimeType dateTime;
     UInt32 palmSeconds;
 
     if (timerP == 0 || resultP == 0 || *timerP < 0) return 0;
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+    if (TrustClockP && TrustClockP->converted == *timerP) {
+        *resultP = TrustClockP->date;
+        return resultP;
+    }
+#endif
     palmSeconds = (UInt32)*timerP + PALM_UNIX_EPOCH_OFFSET;
     TimSecondsToDateTime(palmSeconds, &dateTime);
     resultP->tm_sec = dateTime.second;
@@ -63,6 +94,12 @@ struct tm *WolfPalmGmtime(const time_t *timerP, struct tm *resultP)
     resultP->tm_wday = dateTime.weekDay;
     resultP->tm_yday = 0;
     resultP->tm_isdst = 0;
+#ifdef PALM_WOLFSSL_PARSED_CA_CACHE
+    if (TrustClockP) {
+        TrustClockP->date = *resultP;
+        TrustClockP->converted = *timerP;
+    }
+#endif
     return resultP;
 }
 

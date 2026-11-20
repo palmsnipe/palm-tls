@@ -686,7 +686,10 @@ static int LoadParsedTrust(WOLFSSL_CTX *contextP, const UInt8 *bytesP,
     }
     FreeParsedTrust();
     void *datesP = NULL;
+    PalmTlsTrustClock clock;
+    WolfPalmTrustClockBegin(&clock);
     int ret = PalmTlsWolfLoadAnchorDates(contextP, bytesP, size, format, &datesP);
+    WolfPalmTrustClockEnd();
     if (ret != WOLFSSL_SUCCESS || !datesP)
         return ret;
 
