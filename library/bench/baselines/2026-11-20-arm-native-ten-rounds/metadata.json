@@ -1,0 +1,116 @@
+{
+  "repository_baseline": "d52861b3531b15604464378c086f68f600d2d04c",
+  "platform": "CloudpilotEmu cp-uarm 100 MIPS, Palm OS 5 session",
+  "clock_hz": 100,
+  "key_exchange": "p256",
+  "toolchain": "Apple clang version 21.0.0 (clang-2100.4.1.1)",
+  "target": "ARMv4T, ARM7TDMI, ARM mode, -Os",
+  "stages": {
+    "baseline": {
+      "library_sha256": "ca8faf491ffb846ecce9936cc3303d85c4e63acc9eea680102fb545ea617641f",
+      "arm_image_sha256": "c7f2dde8fda9555ecac946a00a3a4b1a40a31ab82758046e9e76381322f8ed74",
+      "arm_image_bytes": 55340,
+      "prc_sha256": "5f88ba3eb4862569e0908e84dbdf67b8b1f37b63dbf9735e8f1e01e7031916ec"
+    },
+    "baseline-aes": {
+      "library_sha256": "ca8faf491ffb846ecce9936cc3303d85c4e63acc9eea680102fb545ea617641f",
+      "arm_image_sha256": "c7f2dde8fda9555ecac946a00a3a4b1a40a31ab82758046e9e76381322f8ed74",
+      "arm_image_bytes": 55340,
+      "prc_sha256": "5f88ba3eb4862569e0908e84dbdf67b8b1f37b63dbf9735e8f1e01e7031916ec"
+    },
+    "01-sha512-register-rotation": {
+      "library_sha256": "0641ac18bfb465d111231de3bdfcfeee55d8fd78614484cffac9a6df48f58e35",
+      "arm_image_sha256": "bd92e3679736cb319193795cc86f346ed29013faeeaf6541fdb1b87fd216ca3e",
+      "arm_image_bytes": 59852,
+      "prc_sha256": "d7273dcac6a74712c4e3c3969551f909aa7fbab6e36024a8b89d704ee4075576"
+    },
+    "02-sha512-split-schedule": {
+      "library_sha256": "ecd8dc4b356992d8e8ff1cfb948cda5d5d79050d1fc992b007f44cea45dd1c15",
+      "arm_image_sha256": "453df03e1d17b361ef34784ef3896f7d96418f7827c6731d47e66f697c1c457c",
+      "arm_image_bytes": 61932,
+      "prc_sha256": "a3d0f763f85c83c7250f3e3f24ef4f3e56a4ceb64ed7defba60b5b33b064e165"
+    },
+    "03-sha512-expanded-schedule": {
+      "library_sha256": "a44d3c2456455f03c74d1338c2e3aa2e2b92bd4e6abc8367d121d9b45e735d50",
+      "arm_image_sha256": "963bdc64a7d18eaffe019b25c2521a8a73599cb0ebe909f63791425cb415c04c",
+      "arm_image_bytes": 57524,
+      "prc_sha256": "c10317d58fa43a3db262efd317bc8ed88139214fcb741494a82a9f1cceba830c"
+    },
+    "04-aligned-hash-loads": {
+      "library_sha256": "5b01239bc0aa0700ad05b5548cbe2b315b1c9994c25381f096913ebc3fb9dcaa",
+      "arm_image_sha256": "2ac2724e366b220cf8ebc1aa13d1a4db364b6c07b551e94b87bcce92ea15e76b",
+      "arm_image_bytes": 62140,
+      "prc_sha256": "78263710ce1d1e4387988bc89e2c8f0f40122a877a4724a15715241816a8d7b6"
+    },
+    "05-unroll-mixed-selection": {
+      "library_sha256": "bbb3337b98c0cf1e3511fc45776fca042ebca43878d1378729cd131ef7325a2f",
+      "arm_image_sha256": "4bbdca23a30594a669aa8d2bea777f057b3ac54bfcfe22f4591e3e77ec2bf8ad",
+      "arm_image_bytes": 62164,
+      "prc_sha256": "35ca7abe33b55e192f3d3b1029939131c4a77901a020456cdc52bdd8d5ff04e3"
+    },
+    "06-private-window-5": {
+      "library_sha256": "a0aa6698da440479be6a9002308b42d3fbde898078657496121ca266ee42521f",
+      "arm_image_sha256": "5aa5fc3b1fc09f3367e9eb36730bdbc1a9b0f148a77d2d155f77204f15902d82",
+      "arm_image_bytes": 61948,
+      "prc_sha256": "3913e51434cdfd822b94075061ba9607af091e309ed78a1d0f786f46aff0c2bb"
+    },
+    "07-private-window-3": {
+      "library_sha256": "cce1f84640427a8223ee1e43a7f220624e41bb3b52c00a2f6777206efd97903c",
+      "arm_image_sha256": "510febb88469427f779bf8908fe56fc58c4f8e50cacc0dc1ba97cb4b4473aaf6",
+      "arm_image_bytes": 61924,
+      "prc_sha256": "55bc3013daa5e1ddc11b2273ccda7cb70d699e1cc2b53adf5d81a79400a73b76"
+    },
+    "08-public-window-4": {
+      "library_sha256": "32898dabb4dce36261ce2371b040be037829e5123928d1c8c657b1f44e4112c4",
+      "arm_image_sha256": "a3bb95ce120b803d14fc6d81645a4098555aa8b93a1c8a11027517ba2dd318fe",
+      "arm_image_bytes": 61932,
+      "prc_sha256": "f3169114f48e08e6a7a55320e8208ca546749a494790a971609757de43bfc3dd"
+    },
+    "09-column-field-square": {
+      "library_sha256": "e102f414e61d5cc256183f6549ddec2f31a511bef9879210789efb02e7d8cb86",
+      "arm_image_sha256": "062657061ac916c02dd78d24ce7ad7b0ae8b16c29df32b5b564791950162d749",
+      "arm_image_bytes": 61988,
+      "prc_sha256": "ba8c0e5f98d9b538fae419c078477c0f172961fdeed39b81baacba151d6b9b02"
+    },
+    "10-initialize-first-window": {
+      "library_sha256": "da1594f0c2128acea91289a6454104e4f52c44bb069f77e84b53cf1b7450d3bc",
+      "arm_image_sha256": "ceac698bc4c8b406eff6621585894aa22d9a40f8741d9563bac05c33290a8665",
+      "arm_image_bytes": 62532,
+      "prc_sha256": "84491dfcdd2c10a96d2386a7bc25ae21b4b52e33dd79bc53c5c9cf044ba1384e"
+    },
+    "round2-chacha-reference": {
+      "library_sha256": "ecd8dc4b356992d8e8ff1cfb948cda5d5d79050d1fc992b007f44cea45dd1c15",
+      "arm_image_sha256": "453df03e1d17b361ef34784ef3896f7d96418f7827c6731d47e66f697c1c457c",
+      "arm_image_bytes": 61932,
+      "prc_sha256": "a3d0f763f85c83c7250f3e3f24ef4f3e56a4ceb64ed7defba60b5b33b064e165"
+    },
+    "final": {
+      "library_sha256": "da1594f0c2128acea91289a6454104e4f52c44bb069f77e84b53cf1b7450d3bc",
+      "arm_image_sha256": "ceac698bc4c8b406eff6621585894aa22d9a40f8741d9563bac05c33290a8665",
+      "arm_image_bytes": 62532,
+      "prc_sha256": "84491dfcdd2c10a96d2386a7bc25ae21b4b52e33dd79bc53c5c9cf044ba1384e"
+    },
+    "final-aes": {
+      "library_sha256": "da1594f0c2128acea91289a6454104e4f52c44bb069f77e84b53cf1b7450d3bc",
+      "arm_image_sha256": "ceac698bc4c8b406eff6621585894aa22d9a40f8741d9563bac05c33290a8665",
+      "arm_image_bytes": 62532,
+      "prc_sha256": "84491dfcdd2c10a96d2386a7bc25ae21b4b52e33dd79bc53c5c9cf044ba1384e"
+    }
+  },
+  "session_sha256": "ad10ec566e3f864f0d90b3f093f3c469fbe61053d41a170b57f184a3224b11f9",
+  "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+  "device": "auto",
+  "mips": 100,
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "8cbf846c6f56a1c84bfe1bdfa6ed449e1102a608a4722a5ea7bfd2005ce8381a",
+    "leaf_sha256": "89938ee3285702303239ea68297a822f3798a0fc1346bc9aabc6718adfc0a7b4",
+    "port": 19443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "tls13_group": "p256"
+  },
+  "final_production_prc_sha256": "a49764dda6c5baffc3271a437846c5ee7d34f518f7108b3c745a750f591747a2",
+  "final_resource_payloads_match_production": true,
+  "final_source_sha256": "45c834ef825358e9a9b364bb6fe1de4ff6bdb0728a558a648b2aa192c0e6271e"
+}

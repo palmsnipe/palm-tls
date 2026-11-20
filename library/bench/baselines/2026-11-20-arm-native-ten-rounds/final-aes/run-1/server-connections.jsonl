@@ -1,0 +1,15 @@
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": true, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": true, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": true, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": true, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": false, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}
+{"version": "TLSv1.3", "resumed": true, "cipher": "TLS_AES_256_GCM_SHA384", "group": "p256", "client_hellos": 1, "request": "release-probe\n"}

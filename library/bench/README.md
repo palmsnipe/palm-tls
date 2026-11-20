@@ -30,8 +30,9 @@ allocated on the heap.
 
 ## ARM TLS 1.3 handshake optimization
 
-The five-round comparison covers cold, warm and resumed connections on
-cp-uarm at 100 MIPS. [ARM results](baselines/2026-11-20-arm-handshake-rounds)
+Both comparisons cover cold, warm and resumed connections on cp-uarm at
+100 MIPS. [Initial five ARM rounds](baselines/2026-11-20-arm-handshake-rounds) ·
+[Ten native ARM rounds](baselines/2026-11-20-arm-native-ten-rounds)
 
 ## DragonBall TLS 1.3 handshakes
 

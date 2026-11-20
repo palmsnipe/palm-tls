@@ -359,6 +359,50 @@ static u64 ReadBigEndian64(const volatile u8 *bytesP)
     return ((u64)ReadBigEndian32(bytesP) << 32) | ReadBigEndian32(bytesP + 4U);
 }
 
+static __inline__ __attribute__((always_inline))
+u64 Sha512Schedule(u64 words[16], u32 round)
+{
+    u32 column = round & 15U;
+    u64 x = words[(round - 15U) & 15U];
+    u64 y = words[(round - 2U) & 15U];
+    u64 small0 = RotateRight64(x, 1U) ^ RotateRight64(x, 8U) ^ (x >> 7U);
+    u64 small1 = RotateRight64(y, 19U) ^ RotateRight64(y, 61U) ^ (y >> 6U);
+    words[column] += small0 + words[(round - 7U) & 15U] + small1;
+    return words[column];
+}
+
+/* Rotate the working-word indices across each group of eight rounds.
+ * Each round changes only d and h. Message and constant indices are public. */
+#define SHA512_ROUND(a, b, c, d, e, f, g, h, i, word) do { \
+    u64 s1 = RotateRight64(e, 14U) ^ RotateRight64(e, 18U) ^ \
+             RotateRight64(e, 41U); \
+    u64 s0 = RotateRight64(a, 28U) ^ RotateRight64(a, 34U) ^ \
+             RotateRight64(a, 39U); \
+    u64 t1 = h + s1 + (g ^ (e & (f ^ g))) + constants[i] + (word); \
+    u64 t2 = s0 + ((a & b) | (c & (a | b))); \
+    d += t1; \
+    h = t1 + t2; \
+} while (0)
+
+#define SHA512_EIGHT_ROUNDS(word) do { \
+    SHA512_ROUND(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], \
+                 round + 0U, word(round + 0U)); \
+    SHA512_ROUND(v[7], v[0], v[1], v[2], v[3], v[4], v[5], v[6], \
+                 round + 1U, word(round + 1U)); \
+    SHA512_ROUND(v[6], v[7], v[0], v[1], v[2], v[3], v[4], v[5], \
+                 round + 2U, word(round + 2U)); \
+    SHA512_ROUND(v[5], v[6], v[7], v[0], v[1], v[2], v[3], v[4], \
+                 round + 3U, word(round + 3U)); \
+    SHA512_ROUND(v[4], v[5], v[6], v[7], v[0], v[1], v[2], v[3], \
+                 round + 4U, word(round + 4U)); \
+    SHA512_ROUND(v[3], v[4], v[5], v[6], v[7], v[0], v[1], v[2], \
+                 round + 5U, word(round + 5U)); \
+    SHA512_ROUND(v[2], v[3], v[4], v[5], v[6], v[7], v[0], v[1], \
+                 round + 6U, word(round + 6U)); \
+    SHA512_ROUND(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[0], \
+                 round + 7U, word(round + 7U)); \
+} while (0)
+
 static u32 Sha512Transform(const volatile u8 *stateP, const volatile u8 *blockP,
                            volatile u8 *outputP, u32 blockCount)
 {
@@ -415,28 +459,14 @@ static u32 Sha512Transform(const volatile u8 *stateP, const volatile u8 *blockP,
             words[round] = ReadBigEndian64(blockP + block * 128U + round * 8U);
         for (round = 0; round < 8U; round++)
             v[round] = state[round];
-        for (round = 0; round < 80U; round++) {
-            u32 column = round & 15U;
-            u64 word = words[column];
-            if (round >= 16U) {
-                u64 x = words[(round - 15U) & 15U];
-                u64 y = words[(round - 2U) & 15U];
-                u64 small0 = RotateRight64(x, 1U) ^ RotateRight64(x, 8U) ^ (x >> 7U);
-                u64 small1 = RotateRight64(y, 19U) ^ RotateRight64(y, 61U) ^ (y >> 6U);
-                word += small0 + words[(round - 7U) & 15U] + small1;
-                words[column] = word;
-            }
-            u64 choice = v[6] ^ (v[4] & (v[5] ^ v[6]));
-            u64 majority = (v[0] & v[1]) | (v[2] & (v[0] | v[1]));
-            u64 sum1 = RotateRight64(v[4], 14U) ^ RotateRight64(v[4], 18U) ^
-                       RotateRight64(v[4], 41U);
-            u64 sum0 = RotateRight64(v[0], 28U) ^ RotateRight64(v[0], 34U) ^
-                       RotateRight64(v[0], 39U);
-            u64 t1 = v[7] + sum1 + choice + constants[round] + word;
-            u64 t2 = sum0 + majority;
-            v[7] = v[6]; v[6] = v[5]; v[5] = v[4]; v[4] = v[3] + t1;
-            v[3] = v[2]; v[2] = v[1]; v[1] = v[0]; v[0] = t1 + t2;
-        }
+#define SHA512_INITIAL(i) words[i]
+        for (round = 0; round < 16U; round += 8U)
+            SHA512_EIGHT_ROUNDS(SHA512_INITIAL);
+#undef SHA512_INITIAL
+#define SHA512_EXPANDED(i) Sha512Schedule(words, (i))
+        for (; round < 80U; round += 8U)
+            SHA512_EIGHT_ROUNDS(SHA512_EXPANDED);
+#undef SHA512_EXPANDED
         for (round = 0; round < 8U; round++)
             state[round] += v[round];
     }
@@ -449,6 +479,8 @@ static u32 Sha512Transform(const volatile u8 *stateP, const volatile u8 *blockP,
     ClearSecret(v, sizeof(v));
     return PALM_TLS_ARMLET_SUCCESS;
 }
+#undef SHA512_EIGHT_ROUNDS
+#undef SHA512_ROUND
 
 
 static void AesExpand(const volatile u8 *keyP, volatile u8 *roundKeyP,
@@ -2167,6 +2199,22 @@ static void SelectWindowCoordinate(Fe256 *resultP,
 
 static void ReduceP256Scalar(Order256 *resultP, const volatile u8 *scalarP);
 
+/* The first window starts at infinity. Select either the affine point
+ * or infinity with a mask, without doubling or doing a mixed addition. */
+static void PointStartWindow(Point256 *pointP, const Affine256 *selectedP,
+                            u32 apply)
+{
+    u32 mask = 0U - apply;
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+    for (u32 limb = 0; limb < 8U; limb++) {
+        pointP->x.v[limb] = (selectedP->x.v[limb] & mask) | (kOne.v[limb] & ~mask);
+        pointP->y.v[limb] = (selectedP->y.v[limb] & mask) | (kOne.v[limb] & ~mask);
+        pointP->z.v[limb] = kR.v[limb] & mask;
+    }
+}
+
 /* The caller owns the point and can reuse it as affine scratch space. */
 static u32 P256WritePoint(Point256 *resultP, volatile u8 *outputP, u32 map)
 {
@@ -2218,12 +2266,17 @@ static __attribute__((noinline)) u32 P256MultiplyGeneralPoint(
         u32 digit = (scalar.v[bit >> 5] >> (bit & 31U)) & 0x0fU;
         /* Use Q for a zero digit, then discard its addition. */
         u32 selection = (digit | EqualSmall(digit, 0)) - 1U;
-        for (index = 0; index < 4; index++)
-            PointDouble(&result, &result);
+        if (window != 63) {
+            for (index = 0; index < 4; index++)
+                PointDouble(&result, &result);
+        }
         SelectWindowCoordinate(&selected.x, table, selection, 0U);
         SelectWindowCoordinate(&selected.y, table, selection, 1U);
-        PointAddMixed(&result, &result, &selected.x, &selected.y,
-                      EqualSmall(digit, 0) ^ 1U);
+        if (window == 63)
+            PointStartWindow(&result, &selected, EqualSmall(digit, 0) ^ 1U);
+        else
+            PointAddMixed(&result, &result, &selected.x, &selected.y,
+                          EqualSmall(digit, 0) ^ 1U);
     }
     ClearSecret(&scalar, sizeof(scalar));
     return P256WritePoint(&result, outputP, map);
@@ -2253,7 +2306,8 @@ static u32 P256Multiply(const volatile u8 *scalarP,
      * reduced scalar a nonzero accumulator and addition term encode
      * distinct positive coefficients below n. */
     for (window = P256_COMB_WINDOWS - 1; window >= 0; window--) {
-        PointDouble(&result, &result);
+        if (window != (int)P256_COMB_WINDOWS - 1)
+            PointDouble(&result, &result);
         for (u32 table = 0; table < P256_COMB_TABLES; table++) {
             Affine256 selected;
             u32 digit = 0;
@@ -2264,8 +2318,11 @@ static u32 P256Multiply(const volatile u8 *scalarP,
                     digit |= ((scalar.v[bit >> 5] >> (bit & 31U)) & 1U) << index;
             }
             SelectGeneratorComb(&selected, table, digit);
-            PointAddMixed(&result, &result, &selected.x, &selected.y,
-                          EqualSmall(digit, 0) ^ 1U);
+            if (window == (int)P256_COMB_WINDOWS - 1 && table == 0U)
+                PointStartWindow(&result, &selected, EqualSmall(digit, 0) ^ 1U);
+            else
+                PointAddMixed(&result, &result, &selected.x, &selected.y,
+                              EqualSmall(digit, 0) ^ 1U);
         }
     }
     ClearSecret(&scalar, sizeof(scalar));

@@ -118,7 +118,8 @@ The ARM variant moves each complete P-256 operation across the architecture
 boundary as one call. General points use a constant-time 4-bit window. Standard
 generator multiplication uses three interleaved five-tooth comb tables with
 18 point doublings. Each lookup scans all 31 entries of its table and masks
-the matching coordinates into the result. ECDHE key generation and shared-secret
+the matching coordinates into the result. The first window initializes the
+accumulator with a mask. ECDHE key generation and shared-secret
 calculation therefore use native ARM P-256 math. Field squaring uses a
 shared integrated Montgomery multiplier with equal operands, preserving
 in-place aliases. ECDSA verification dispatches its complete
@@ -162,6 +163,8 @@ the final ServerHello. It keeps both hashes through negotiation, including
 HelloRetryRequest and ticket binders. The SHA-384 and SHA-512 compression
 path batches up to four 128-byte blocks per native call and falls back to
 wolfSSL's software implementation if the native self-test or request fails.
+Groups of eight compression rounds rotate the working-word indices. Separate
+loops process the input words and the expanded schedule.
 
 On a reused trust context, a bounded cache can reuse a successful issuer
 signature check for the same ECDSA/SHA-256 certificate and issuer key.

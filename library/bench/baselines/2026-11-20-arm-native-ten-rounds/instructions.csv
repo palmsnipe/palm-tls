@@ -1,0 +1,12 @@
+round,change,reference,decision,arm_image_bytes,keygen,agreement,verification,sha256,sha512,square
+0,baseline,,baseline,55340,475985,1425475,1161348,18998,56561,17649
+1,sha512-register-rotation,baseline,keep,59852,475985,1425475,1161348,19104,50339,17649
+2,sha512-split-schedule,01-sha512-register-rotation,keep,61932,475986,1425476,1161349,19044,44894,17650
+3,sha512-expanded-schedule,02-sha512-split-schedule,discard,57524,475985,1425475,1161348,19038,44670,17649
+4,aligned-hash-loads,02-sha512-split-schedule,discard,62140,475986,1425476,1161349,19362,44880,17650
+5,unroll-mixed-selection,02-sha512-split-schedule,discard,62164,473934,1422778,1161349,19044,44894,17650
+6,private-window-5,02-sha512-split-schedule,discard,61948,475986,1518028,1161349,19044,44894,17650
+7,private-window-3,02-sha512-split-schedule,discard,61924,475986,1465364,1161349,19044,44894,17650
+8,public-window-4,02-sha512-split-schedule,discard,61932,475986,1425476,1173790,19044,44894,17650
+9,column-field-square,02-sha512-split-schedule,discard,61988,482846,1450536,1176847,19044,44894,18350
+10,initialize-first-window,02-sha512-split-schedule,keep,62532,468563,1408582,1161349,19044,44894,17650
