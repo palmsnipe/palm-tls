@@ -47,13 +47,15 @@ class Arm:
         from unicorn import arm_const as regs
         self.regs = regs
         self.machine = uc.Uc(uc.UC_ARCH_ARM, uc.UC_MODE_ARM | uc.UC_MODE_LITTLE_ENDIAN)
-        model = regs.UC_CPU_ARM_TI925T if cpu == 'ti925t' else regs.UC_CPU_ARM_PXA270
+        model = {'ti925t': regs.UC_CPU_ARM_TI925T,
+                 'pxa255': regs.UC_CPU_ARM_PXA255,
+                 'pxa270': regs.UC_CPU_ARM_PXA270}[cpu]
         self.machine.ctl_set_cpu_model(model)
         for address, length in [(self.CODE, 0x10000), (self.DATA, 0x10000),
                                 (self.STACK, 0x10000), (self.STOP, 0x1000)]:
             self.machine.mem_map(address, length)
         # Verify that the selected model really distinguishes the old ISA:
-        # CLZ r0,r0 is unavailable on TI925T and available on PXA270.
+        # CLZ r0,r0 is unavailable on TI925T and available on both XScale models.
         self.machine.mem_write(self.CODE, bytes.fromhex('100f6fe1'))
         try:
             self.machine.emu_start(self.CODE, self.CODE + 4, count=1)
@@ -741,7 +743,7 @@ def main():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--host-library', type=Path)
     source.add_argument('--arm-image', type=Path)
-    parser.add_argument('--cpu', choices=['ti925t', 'pxa270'], default='ti925t')
+    parser.add_argument('--cpu', choices=['ti925t', 'pxa255', 'pxa270'], default='ti925t')
     args = parser.parse_args()
     backend = Host(args.host_library) if args.host_library else Arm(args.arm_image, args.cpu)
     rng = random.Random(0x50414c4d)

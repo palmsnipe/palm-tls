@@ -327,8 +327,8 @@ static u32 HmacSha256(const volatile u8 *keyP, u32 keyLength,
         0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
         0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U
     };
-    u32 state[8];
-    u8 blocks[192];
+    u32 state[8], blockWords[48];
+    u8 *blocks = (u8 *)blockWords;
     if (keyLength > PALM_TLS_ARMLET_HMAC_KEY_MAX ||
         length > PALM_TLS_ARMLET_HMAC_MESSAGE_MAX)
         return PALM_TLS_ARMLET_ERROR;
@@ -336,8 +336,11 @@ static u32 HmacSha256(const volatile u8 *keyP, u32 keyLength,
     /* The inner hash starts with a full key-pad block. The message
      * length chooses whether its padding needs a third block. */
     u32 innerSize = length <= 55U ? 128U : 192U;
-    for (u32 i = 0; i < 64U; i++)
-        blocks[i] = (i < keyLength ? keyP[i] : 0) ^ 0x36U;
+    /* Fill the pad a word at a time, then mix in the possibly unaligned key. */
+    for (u32 i = 0; i < 16U; i++)
+        blockWords[i] = 0x36363636U;
+    for (u32 i = 0; i < keyLength; i++)
+        blocks[i] ^= keyP[i];
     for (u32 i = 0; i < length; i++)
         blocks[64U + i] = messageP[i];
     blocks[64U + length] = 0x80U;
@@ -349,8 +352,8 @@ static u32 HmacSha256(const volatile u8 *keyP, u32 keyLength,
     Sha256Blocks(state, blocks, innerSize / 64U);
 
     /* Reuse the pad and write the inner digest as the outer message. */
-    for (u32 i = 0; i < 64U; i++)
-        blocks[i] ^= 0x36U ^ 0x5cU;
+    for (u32 i = 0; i < 16U; i++)
+        blockWords[i] ^= 0x36363636U ^ 0x5c5c5c5cU;
     for (u32 i = 0; i < 8U; i++) {
         WriteBigEndian32(blocks + 64U + i * 4U, state[i]);
         state[i] = iv[i];
@@ -363,7 +366,7 @@ static u32 HmacSha256(const volatile u8 *keyP, u32 keyLength,
     for (u32 i = 0; i < 8U; i++)
         WriteBigEndian32(outputP + i * 4U, state[i]);
     ClearSecret(state, sizeof(state));
-    ClearSecret(blocks, sizeof(blocks));
+    ClearSecret(blockWords, sizeof(blockWords));
     return PALM_TLS_ARMLET_SUCCESS;
 }
 
@@ -398,6 +401,18 @@ static u32 AesSubWord(u32 word)
 static void ClearSecret(volatile void *pointerP, u32 length)
 {
     volatile u8 *bytesP = (volatile u8 *)pointerP;
+#if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
+    /* Some request buffers are unaligned. Keep the byte loop for those
+     * and use alias-safe word stores for aligned storage. */
+    typedef u32 WipeWord __attribute__((may_alias));
+    if (((__UINTPTR_TYPE__)bytesP & 3U) == 0U) {
+        volatile WipeWord *wordsP = (volatile WipeWord *)bytesP;
+        for (u32 words = length / 4U; words; words--)
+            *wordsP++ = 0;
+        bytesP = (volatile u8 *)wordsP;
+        length &= 3U;
+    }
+#endif
     while (length != 0) {
         *bytesP++ = 0;
         length--;
@@ -1196,9 +1211,11 @@ static __inline__ __attribute__((always_inline)) u32 SubtractLimb(
 }
 
 #if defined(__clang__) && defined(__arm__) && !defined(__thumb__)
-#define FE_ARM_LIMB(op, word, offset) \
-    "ldr r3, [r2, #" #offset "]\n\t" \
-    #op " " #word ", " #word ", r3\n\t"
+/* Two limbs per load, preserving the carry between pairs. */
+#define FE_ARM_LIMB_PAIR(first, next, low, high) \
+    "ldmia r2!, {r3, r12}\n\t" \
+    #first " " #low ", " #low ", r3\n\t" \
+    #next " " #high ", " #high ", r12\n\t"
 
 /* Add p under the word mask in r2 and the bit mask in r3. */
 #define FE_ARM_ADD_MASKED_P(last) \
@@ -1220,10 +1237,10 @@ static void FeSubtract(Fe256 *resultP, const Fe256 *leftP,
     __asm__ volatile(
         "push {r4-r11}\n\t"
         "ldmia r1, {r4-r11}\n\t"
-        FE_ARM_LIMB(subs, r4, 0) FE_ARM_LIMB(sbcs, r5, 4)
-        FE_ARM_LIMB(sbcs, r6, 8) FE_ARM_LIMB(sbcs, r7, 12)
-        FE_ARM_LIMB(sbcs, r8, 16) FE_ARM_LIMB(sbcs, r9, 20)
-        FE_ARM_LIMB(sbcs, r10, 24) FE_ARM_LIMB(sbcs, r11, 28)
+        FE_ARM_LIMB_PAIR(subs, sbcs, r4, r5)
+        FE_ARM_LIMB_PAIR(sbcs, sbcs, r6, r7)
+        FE_ARM_LIMB_PAIR(sbcs, sbcs, r8, r9)
+        FE_ARM_LIMB_PAIR(sbcs, sbcs, r10, r11)
         "sbc r2, r3, r3\n\t"
         "and r3, r2, #1\n\t"
         FE_ARM_ADD_MASKED_P(adc)
@@ -1440,10 +1457,10 @@ static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
     __asm__ volatile(
         "push {r4-r11}\n\t"
         "ldmia r1, {r4-r11}\n\t"
-        FE_ARM_LIMB(adds, r4, 0) FE_ARM_LIMB(adcs, r5, 4)
-        FE_ARM_LIMB(adcs, r6, 8) FE_ARM_LIMB(adcs, r7, 12)
-        FE_ARM_LIMB(adcs, r8, 16) FE_ARM_LIMB(adcs, r9, 20)
-        FE_ARM_LIMB(adcs, r10, 24) FE_ARM_LIMB(adcs, r11, 28)
+        FE_ARM_LIMB_PAIR(adds, adcs, r4, r5)
+        FE_ARM_LIMB_PAIR(adcs, adcs, r6, r7)
+        FE_ARM_LIMB_PAIR(adcs, adcs, r8, r9)
+        FE_ARM_LIMB_PAIR(adcs, adcs, r10, r11)
         "mov r12, #0\n\t"
         "adc r12, r12, #0\n\t"
         FE_ARM_REDUCE
@@ -1452,7 +1469,7 @@ static void FeAdd(Fe256 *resultP, const Fe256 *leftP, const Fe256 *rightP)
         "bx lr\n\t"
     );
 }
-#undef FE_ARM_LIMB
+#undef FE_ARM_LIMB_PAIR
 
 __attribute__((naked, noinline))
 static void FeDouble(Fe256 *resultP, const Fe256 *valueP)

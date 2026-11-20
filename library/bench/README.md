@@ -33,7 +33,8 @@ allocated on the heap.
 These comparisons cover cold, warm and resumed connections on cp-uarm at
 100 MIPS. [Initial five ARM rounds](baselines/2026-11-20-arm-handshake-rounds) ·
 [Ten native ARM rounds](baselines/2026-11-20-arm-native-ten-rounds) ·
-[Cold loading and resumed key derivation](baselines/2026-11-20-arm-cold-resume)
+[Cold loading and resumed key derivation](baselines/2026-11-20-arm-cold-resume) ·
+[Five XScale rounds on PXA255 and PXA270](baselines/2026-11-20-arm-xscale)
 
 ## DragonBall TLS 1.3 handshakes
 
@@ -445,9 +446,9 @@ The original selector fails this check; the fixed selector passes on both CPU
 models. These checks do not establish physical multiply timing or formal
 constant-time behavior on every Palm CPU.
 
-Optional instruction emulation runs the same extracted native image on both
-TI925T and PXA270 CPU models. This also checks that an ARMv5 `CLZ` probe traps
-on TI925T and succeeds on PXA270, so a permissive CPU model cannot mask the
+Optional instruction emulation runs the same extracted native image on
+TI925T, PXA255 and PXA270 CPU models. An ARMv5 `CLZ` probe traps on TI925T
+and succeeds on both XScale models, so a permissive CPU model cannot mask the
 original compatibility problem:
 
 ```sh

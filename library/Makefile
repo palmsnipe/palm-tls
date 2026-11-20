@@ -323,9 +323,10 @@ test: profiles $(ARMLET_HOST_TEST) $(ARMLET_ORACLE)
 	python3 tests/loader_relocation_test.py
 
 # Optional CPU instruction emulation requires tests/requirements-arm.txt.
-# The same extracted image must execute on the older TI925T and PXA270.
+# The same extracted image must execute on TI925T, PXA255 and PXA270.
 test-arm: $(ARMLET_CODE)
 	$(ARM_TEST_PYTHON) tests/crypto_oracle_test.py --arm-image $(ARMLET_CODE) --cpu ti925t
+	$(ARM_TEST_PYTHON) tests/crypto_oracle_test.py --arm-image $(ARMLET_CODE) --cpu pxa255
 	$(ARM_TEST_PYTHON) tests/crypto_oracle_test.py --arm-image $(ARMLET_CODE) --cpu pxa270
 
 benchmark:
