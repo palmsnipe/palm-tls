@@ -1,0 +1,50 @@
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -4964,6 +4964,14 @@
+     !defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_KCAPI_ECC) && \
+     !defined(WOLF_CRYPTO_CB_ONLY_ECC)
+ 
++#if defined(PALM_WOLFSSL_68K_FIXED_BASE) && defined(USE_FAST_MATH) && \
++    defined(ECC_TIMING_RESISTANT) && !defined(ALT_ECC_SIZE) && \
++    !defined(HAVE_WOLF_BIGINT) && !defined(WOLFSSL_CHECK_VER_FAULTS)
++#define PALM_ECC_68K_VARIABLE_BASE
++extern int PalmTlsP256Agree(const mp_int* scalar, const ecc_point* peer,
++    const mp_int* order, mp_int* modulus, ecc_point* scratch, byte* out);
++#endif
++
+ int wc_ecc_shared_secret_gen_sync(ecc_key* private_key, ecc_point* point,
+                                byte* out, word32* outlen)
+ {
+@@ -5149,6 +5157,20 @@
+         }
+ #endif
+ 
++#ifdef PALM_ECC_68K_VARIABLE_BASE
++        if (err == MP_OKAY && private_key->idx != ECC_CUSTOM_IDX &&
++                private_key->dp->id == ECC_SECP256R1 && *outlen >= 32 &&
++                mp_cmp_d(point->z, 1) == MP_EQ) {
++            err = wc_ecc_gen_k(private_key->rng, 32, result->z, curve->prime);
++            if (err == MP_OKAY) {
++                err = PalmTlsP256Agree(k, point, curve->order, curve->prime,
++                    result, out);
++            }
++            x = err == MP_OKAY ? 32 : 0;
++            goto write_secret_size;
++        }
++#endif
++
+         if (err == MP_OKAY) {
+             /* Map in a separate call as this should be constant time */
+ #ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+@@ -5205,6 +5227,10 @@
+             err = mp_to_unsigned_bin(result->x, out +
+                                      (x - mp_unsigned_bin_size(result->x)));
+         }
++#ifdef PALM_ECC_68K_VARIABLE_BASE
++write_secret_size:
++        mp_forcezero(result->z);
++#endif
+         *outlen = (word32)x;
+ 
+         mp_forcezero(result->x);

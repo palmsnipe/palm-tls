@@ -183,7 +183,7 @@ $(PALM_BUILD)/tls_armlet_browser.o: src/tls_armlet.c src/tls_armlet.h src/tls_ar
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_WOLFSSL_BROWSER -c $< -o $@
 $(PALM_BUILD)/tls_armlet_68k.o: src/tls_armlet_68k.c include/palm_tls.h | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
-$(P256_FIXED_68K): src/tls_p256_68k.c $(P256_INVERSE) $(P256_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(P256_FIXED_68K): src/tls_p256_68k.c src/tls_handshake_profile.h include/palm_tls.h $(P256_INVERSE) $(P256_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -I$(GENERATED) -c $< -o $@
 $(PALM_BUILD)/dispatch.o: $(DISPATCH) | $(PALM_BUILD)
 	$(CC) $(ABI_FLAGS) -c $< -o $@

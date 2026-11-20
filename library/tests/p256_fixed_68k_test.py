@@ -19,12 +19,15 @@ class M68k:
     STOP = 0x100000
     SCALAR = 0x101002
     POINT = 0x102002
-    STACK = 0x110000
+    STACK = 0x120000
 
     def __init__(self, elf, nm):
         symbols = subprocess.check_output([str(nm), str(elf)], text=True)
-        self.entry = next(int(line.split()[0], 16) for line in symbols.splitlines()
-                          if line.endswith(' T PalmTlsP256MakePublic'))
+        self.symbols = {}
+        for line in symbols.splitlines():
+            fields = line.split()
+            if len(fields) == 3:
+                self.symbols[fields[2]] = int(fields[0], 16)
         self.cpu = uc.Uc(uc.UC_ARCH_M68K, uc.UC_MODE_BIG_ENDIAN)
         self.cpu.ctl_set_cpu_model(regs.UC_CPU_M68K_M68000)
 
@@ -37,7 +40,7 @@ class M68k:
             if kind == 1:  # PT_LOAD
                 self.cpu.mem_map(address, (memory + 4095) & ~4095)
                 self.cpu.mem_write(address, image[offset:offset + size])
-        self.cpu.mem_map(self.STOP, 0x11000)
+        self.cpu.mem_map(self.STOP, self.STACK - self.STOP + 4096)
 
     def field_input(self, address, value):
         limbs = [(value >> (16 * i)) & 0xffff for i in range(264)]
@@ -51,14 +54,10 @@ class M68k:
         assert not any(limbs[used:])
         return value
 
-    def run(self, scalar, blind, trace=False):
+    def invoke(self, name, args, trace):
         cpu = self.cpu
-        self.field_input(self.SCALAR, scalar)
-        cpu.mem_write(self.POINT - 2, b'OK' + b'\xa5' * (3 * INTEGER.size) + b'OK')
-        z = self.POINT + 2 * INTEGER.size
-        self.field_input(z, blind)  # Production passes the output Z as the blinding input.
         cpu.reg_write(regs.UC_M68K_REG_A7, self.STACK)
-        cpu.mem_write(self.STACK, struct.pack('>4I', self.STOP, self.SCALAR, z, self.POINT))
+        cpu.mem_write(self.STACK, struct.pack(f'>{len(args) + 1}I', self.STOP, *args))
 
         hooks = []
         instructions = 0
@@ -80,7 +79,7 @@ class M68k:
             hooks.append(cpu.hook_add(uc.UC_HOOK_CODE, instruction))
             hooks.append(cpu.hook_add(uc.UC_HOOK_MEM_READ | uc.UC_HOOK_MEM_WRITE, memory))
         try:
-            cpu.emu_start(self.entry, self.STOP, count=20_000_000)
+            cpu.emu_start(self.symbols[name], self.STOP, count=100_000_000)
             assert cpu.reg_read(regs.UC_M68K_REG_PC) == self.STOP
         finally:
             for hook in hooks:
@@ -88,12 +87,22 @@ class M68k:
             if hooks:
                 cpu.ctl_flush_tb()
 
+        status = cpu.reg_read(regs.UC_M68K_REG_D0) & 65535
+        return status, (instructions, accesses, digest.hexdigest())
+
+    def run(self, scalar, blind, trace=False):
+        cpu = self.cpu
+        self.field_input(self.SCALAR, scalar)
+        cpu.mem_write(self.POINT - 2, b'OK' + b'\xa5' * (3 * INTEGER.size) + b'OK')
+        z = self.POINT + 2 * INTEGER.size
+        self.field_input(z, blind)  # Production passes the output Z as the blinding input.
+        _, trace_result = self.invoke('PalmTlsP256MakePublic', (self.SCALAR, z, self.POINT), trace)
         assert self.field_output(self.SCALAR) == scalar
         assert self.field_output(z) == 1
         assert cpu.mem_read(self.POINT - 2, 2) == b'OK'
         assert cpu.mem_read(z + INTEGER.size, 2) == b'OK'
         coordinates = self.field_output(self.POINT), self.field_output(self.POINT + INTEGER.size)
-        return coordinates, (instructions, accesses, digest.hexdigest())
+        return coordinates, trace_result
 
 
 def main():

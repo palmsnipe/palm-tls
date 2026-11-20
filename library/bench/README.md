@@ -54,8 +54,9 @@ rejection and a successful TLS 1.2 handshake. The server independently checks
 protocol and cipher negotiation. The measurements use the emulator's Palm
 clock at 10 ms resolution and exclude socket setup. See the
 [initial five rounds](baselines/2026-11-20-dragonball),
-[five-round ECDSA follow-up](baselines/2026-11-20-dragonball-ecdsa), and
-[fixed-base key generation comparison](baselines/2026-11-20-dragonball-fixed-base).
+[five-round ECDSA follow-up](baselines/2026-11-20-dragonball-ecdsa),
+[fixed-base key generation comparison](baselines/2026-11-20-dragonball-fixed-base),
+and [variable-base key agreement comparison](baselines/2026-11-20-dragonball-variable-base).
 
 ## Full and resumed TLS 1.3 handshakes
 

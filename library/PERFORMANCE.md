@@ -1,5 +1,13 @@
 # PalmTLS performance review
 
+## DragonBall variable-base P-256 key agreement
+
+With fixed-base key generation as the baseline, the 68K variable-base
+path and shared reducer reduced key agreement from 630 to 470 ms on the
+same Palm m515 emulator at 16× CPU overclock. The warm TLS 1.3 handshake
+fell from 1,480 to 1,300–1,310 ms. See the
+[variable-base measurements](bench/baselines/2026-11-20-dragonball-variable-base).
+
 ## DragonBall fixed-base P-256 key generation
 
 The 68K TLS 1.2 and 1.3 engines use a six-tooth comb for P-256 key

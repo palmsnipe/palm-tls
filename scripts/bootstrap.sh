@@ -61,6 +61,7 @@ patches=(
   wolfssl-palm-m68k-ecdsa-projective-x.patch
   wolfssl-palm-m68k-ecdsa-public-double.patch
   wolfssl-palm-m68k-p256-keygen.patch
+  wolfssl-palm-m68k-p256-agreement.patch
 )
 for patch_name in "${patches[@]}"; do
   apply_git_patch_once "$wolfssl" "$PALM_TLS_ROOT/patches/wolfssl/$patch_name" \
