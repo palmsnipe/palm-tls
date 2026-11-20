@@ -1,0 +1,8 @@
+# multiply: 452 identical traces, 3293 instructions and 875 data accesses
+# square: 270 identical traces, 2657 instructions and 642 data accesses
+# 1128 linked field cases passed
+variant,operation,median_instructions,min_instructions,max_instructions
+baseline,multiply,7623,7623,7623
+baseline,square,4639,4639,4639
+candidate,multiply,3293,3293,3293
+candidate,square,2657,2657,2657

@@ -2,6 +2,10 @@
 #include "tls_x25519_68k.h"
 #include <string.h>
 
+#ifdef __m68k__
+#include "palm_comba_68k.h"
+#endif
+
 #ifdef PALM_WOLFSSL_68K_X25519
 #include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/random.h>
@@ -11,7 +15,8 @@
 typedef uint16_t u16;
 typedef uint32_t u32;
 
-enum { LIMBS = 16 };
+enum { LIMBS = 16, HALF_LIMBS = LIMBS / 2 };
+_Static_assert(HALF_LIMBS == 8, "68K Comba kernels use eight-word halves");
 typedef struct { u16 limb[LIMBS]; } Field;
 typedef struct { Field plus, minus, xy2d; } AffineNiels;
 typedef struct { Field x, y, z, t; } EdwardsPoint;
@@ -23,22 +28,14 @@ static const Field kPrime = {{
     0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0x7fff
 }};
 
-/* Like the P-256 private field path, use two 68000 MULU instructions
- * whose source words have a total of 16 set bits. */
-static inline __attribute__((always_inline)) u32 MultiplyWord(u16 left, u16 right)
+static inline __attribute__((always_inline)) u16 WordMask(u16 bit)
 {
+    u16 mask = (u16)(0U - bit);
 #ifdef __m68k__
-    u32 result = left, padding = left;
-    u16 complement = (u16)~right;
-    __asm__ volatile(
-        "mulu.w %[right],%[result]\n\t"
-        "mulu.w %[complement],%[padding]"
-        : [result] "+&d"(result), [padding] "+&d"(padding)
-        : [right] "d"(right), [complement] "d"(complement) : "cc");
-    return result;
-#else
-    return (u32)left * right;
+    /* Keep GCC from turning a masked assignment into a branch. */
+    __asm__("" : "+d"(mask));
 #endif
+    return mask;
 }
 
 /* MULU timing depends on the source word. Use the public operand there. */
@@ -50,19 +47,6 @@ static inline __attribute__((always_inline)) u32 MultiplyPublicWord(u16 left, u1
     return result;
 #else
     return (u32)left * right;
-#endif
-}
-
-static inline __attribute__((always_inline)) void Accumulate(u32 *low, u16 *high, u32 product)
-{
-#ifdef __m68k__
-    __asm__("add.l %[product],%[low]\n\taddx.w %[zero],%[high]"
-        : [low] "+&d"(*low), [high] "+&d"(*high)
-        : [product] "d"(product), [zero] "d"((u16)0) : "cc");
-#else
-    u32 sum = *low + product;
-    *high += (u16)(sum < *low);
-    *low = sum;
 #endif
 }
 
@@ -130,16 +114,130 @@ static void ReduceProduct(Field *out, const u16 product[2 * LIMBS])
     FoldCarry(out, (u16)carry);
 }
 
-static inline __attribute__((always_inline)) void MultiplyField(Field *out,
-    const Field *left, const Field *right, bool publicRight)
+#ifdef __m68k__
+/* The two MULU source words are complementary. Their combined popcount
+ * is fixed, which balances the operand-dependent 68000 multiply time. */
+#define HALF_ADD_SECRET_PRODUCT \
+    "move.w (2*.Lword%=)(%[left]),%[term]\n\t" \
+    "move.w %[term],%[padding]\n\t" \
+    "move.w (2*(.Lcolumn%= - .Lword%=))(%[right]),%[source]\n\t" \
+    "mulu.w %[source],%[term]\n\t" \
+    "not.w %[source]\n\t" \
+    "mulu.w %[source],%[padding]\n\t" \
+    PALM_COMBA_8_ACCUMULATE
+
+static void MultiplyHalf(u16 *out, const u16 *left, const u16 *right)
+{
+    u32 low = 0, term, padding;
+    u16 high, source;
+    __asm__ volatile(PALM_COMBA_8_MULTIPLY(HALF_ADD_SECRET_PRODUCT)
+        : [out] "+&a"(out), [low] "+&d"(low), [high] "=&d"(high), [term] "=&d"(term),
+          [padding] "=&d"(padding), [source] "=&d"(source)
+        : [left] "a"(left), [right] "a"(right), [zero] "d"((u16)0) : "cc", "memory");
+}
+
+static void SquareHalf(u16 *out, const u16 *value)
+{
+    u32 low, carry = 0, term, padding;
+    u16 high, source;
+    __asm__ volatile(PALM_COMBA_8_SQUARE(HALF_ADD_SECRET_PRODUCT)
+        : [out] "+&a"(out), [carry] "+&d"(carry), [low] "=&d"(low), [high] "=&d"(high),
+          [term] "=&d"(term), [padding] "=&d"(padding), [source] "=&d"(source)
+        : [left] "a"(value), [right] "a"(value), [zero] "d"((u16)0) : "cc", "memory");
+}
+#undef HALF_ADD_SECRET_PRODUCT
+#else
+static void MultiplyHalf(u16 *out, const u16 *left, const u16 *right)
+{
+    memset(out, 0, LIMBS * sizeof(*out));
+    for (unsigned i = 0; i < HALF_LIMBS; i++) {
+        u32 carry = 0;
+        for (unsigned j = 0; j < HALF_LIMBS; j++) {
+            u32 word = (u32)left[i] * right[j] + out[i + j] + carry;
+            out[i + j] = (u16)word;
+            carry = word >> 16;
+        }
+        out[i + HALF_LIMBS] = (u16)carry;
+    }
+}
+
+static void SquareHalf(u16 *out, const u16 *value)
+{
+    MultiplyHalf(out, value, value);
+}
+#endif
+
+/* Store |low - high| and return the borrow. Taking the magnitude always
+ * visits all eight words, even when the halves are equal. */
+static u16 HalfDifference(u16 *out, const Field *value)
+{
+    u32 borrow = 0;
+    for (unsigned i = 0; i < HALF_LIMBS; i++) {
+        u32 word = (u32)value->limb[i] - value->limb[i + HALF_LIMBS] - borrow;
+        out[i] = (u16)word;
+        borrow = word >> 31;
+    }
+    u16 mask = WordMask((u16)borrow);
+    u32 carry = borrow;
+    for (unsigned i = 0; i < HALF_LIMBS; i++) {
+        carry += out[i] ^ mask;
+        out[i] = (u16)carry;
+        carry >>= 16;
+    }
+    return (u16)borrow;
+}
+
+/* The middle coefficient is lowProduct + highProduct minus the signed
+ * difference product. It can take 257 bits. Add it at bit 128 and carry
+ * through the rest of the product on a fixed schedule. */
+static void CombineHalfProducts(u16 product[2 * LIMBS], u16 middle[LIMBS + 1], u16 subtract)
+{
+    u16 mask = WordMask(subtract);
+    int32_t carry = 0;
+    for (unsigned i = 0; i < LIMBS; i++) {
+        int32_t term = (int32_t)(middle[i] ^ mask) - mask;
+        int32_t word = (int32_t)product[i] + product[i + LIMBS] + term + carry;
+        middle[i] = (u16)word;
+        carry = word >> 16;
+    }
+    middle[LIMBS] = (u16)carry;
+
+    u32 carryWord = 0;
+    u16 *dest = product + HALF_LIMBS;
+    for (unsigned i = 0; i <= LIMBS; i++) {
+        carryWord += (u32)dest[i] + middle[i];
+        dest[i] = (u16)carryWord;
+        carryWord >>= 16;
+    }
+    for (unsigned i = LIMBS + 1; i < 2 * LIMBS - HALF_LIMBS; i++) {
+        carryWord += dest[i];
+        dest[i] = (u16)carryWord;
+        carryWord >>= 16;
+    }
+}
+
+static void FieldMultiply(Field *out, const Field *left, const Field *right)
+{
+    u16 product[2 * LIMBS], middle[LIMBS + 1];
+    u16 leftDiff[HALF_LIMBS], rightDiff[HALF_LIMBS];
+    u16 leftBorrow = HalfDifference(leftDiff, left);
+    u16 rightBorrow = HalfDifference(rightDiff, right);
+    MultiplyHalf(product, left->limb, right->limb);
+    MultiplyHalf(product + LIMBS, left->limb + HALF_LIMBS, right->limb + HALF_LIMBS);
+    MultiplyHalf(middle, leftDiff, rightDiff);
+    CombineHalfProducts(product, middle, (u16)(1U ^ leftBorrow ^ rightBorrow));
+    ReduceProduct(out, product);
+}
+
+/* The peer coordinate supplies the public multiplier word in the ladder. */
+static void FieldMultiplyByPublic(Field *out, const Field *left, const Field *right)
 {
     u16 product[2 * LIMBS] = {0};
     for (unsigned i = 0; i < LIMBS; i++) {
         u32 carry = 0;
         for (unsigned j = 0; j < LIMBS; j++) {
-            u32 term = publicRight ? MultiplyPublicWord(left->limb[i], right->limb[j]) :
-                MultiplyWord(left->limb[i], right->limb[j]);
-            u32 word = term + product[i + j] + carry;
+            u32 word = MultiplyPublicWord(left->limb[i], right->limb[j]) +
+                product[i + j] + carry;
             product[i + j] = (u16)word;
             carry = word >> 16;
         }
@@ -148,36 +246,14 @@ static inline __attribute__((always_inline)) void MultiplyField(Field *out,
     ReduceProduct(out, product);
 }
 
-static void FieldMultiply(Field *out, const Field *left, const Field *right)
-{
-    MultiplyField(out, left, right, false);
-}
-
-static void FieldMultiplyByPublic(Field *out, const Field *left, const Field *right)
-{
-    MultiplyField(out, left, right, true);
-}
-
 static void FieldSquare(Field *out, const Field *value)
 {
-    u16 product[2 * LIMBS];
-    u32 low = 0;
-    for (unsigned column = 0; column < 2 * LIMBS - 1; column++) {
-        u16 high = 0;
-        unsigned first = column < LIMBS ? 0 : column - (LIMBS - 1);
-        for (unsigned i = first; i < column - i; i++) {
-            u32 word = MultiplyWord(value->limb[i], value->limb[column - i]);
-            Accumulate(&low, &high, word);
-            Accumulate(&low, &high, word);
-        }
-        if ((column & 1U) == 0) {
-            u16 diagonal = value->limb[column / 2];
-            Accumulate(&low, &high, MultiplyWord(diagonal, diagonal));
-        }
-        product[column] = (u16)low;
-        low = (low >> 16) | ((u32)high << 16);
-    }
-    product[2 * LIMBS - 1] = (u16)low;
+    u16 product[2 * LIMBS], middle[LIMBS + 1], difference[HALF_LIMBS];
+    HalfDifference(difference, value);
+    SquareHalf(product, value->limb);
+    SquareHalf(product + LIMBS, value->limb + HALF_LIMBS);
+    SquareHalf(middle, difference);
+    CombineHalfProducts(product, middle, 1);
     ReduceProduct(out, product);
 }
 
@@ -370,12 +446,7 @@ static void FieldMultiplyA24(Field *out, const Field *input)
 
 static void SwapPoints(MontgomeryPoint *left, MontgomeryPoint *right, u16 bit)
 {
-    u16 mask = (u16)(0U - bit);
-#ifdef __m68k__
-    /* Keep GCC from recognizing the all-zero/all-one mask as a conditional
-     * assignment and introducing a branch on the swap bit. */
-    __asm__("" : "+d"(mask));
-#endif
+    u16 mask = WordMask(bit);
     for (unsigned i = 0; i < LIMBS; i++) {
         u16 x = (left->x.limb[i] ^ right->x.limb[i]) & mask;
         u16 z = (left->z.limb[i] ^ right->z.limb[i]) & mask;

@@ -109,6 +109,7 @@ noncanonical peer encodings, and rejection of all-zero shared secrets.
 python3 library/bench/check-x25519-68k.py
 ```
 
+[Karatsuba key exchange and handshake results](baselines/2026-11-20-dragonball-x25519-karatsuba) ·
 [Variable-base agreement results](baselines/2026-11-20-dragonball-x25519-agreement) ·
 [Fixed-base results](baselines/2026-11-20-dragonball-x25519-fixed-base) ·
 [Original portable comparison](baselines/2026-11-20-dragonball-x25519)

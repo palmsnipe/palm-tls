@@ -5,6 +5,7 @@
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/error-crypt.h>
 
+#include "palm_comba_68k.h"
 #include "tls_handshake_profile.h"
 
 typedef mp_digit u16;
@@ -270,39 +271,16 @@ static void FeMontgomeryReducePublic(Fe256 *out, u16 *product)
 enum { HALF_LIMBS = FIELD_LIMBS / 2, HALF_PRODUCT_LIMBS = 2 * HALF_LIMBS };
 _Static_assert(HALF_LIMBS == 8, "public Comba kernels use eight-word halves");
 
-/* Expand the constant bounds in the assembler. Each column has a 32-bit
- * accumulator and a separate carry word. */
-#define HALF_COMBA_START \
-    ".set .Lcolumn%=,0\n\t" \
-    ".rept 15\n\t" \
-    ".set .Lfirst%=,0\n\t" \
-    ".if .Lcolumn%= > 7\n\t" \
-    ".set .Lfirst%=,.Lcolumn%= - 7\n\t" \
-    ".endif\n\t" \
-    ".set .Lword%=,.Lfirst%=\n\t" \
-    "moveq #0,%[high]\n\t"
 #define HALF_ADD_PRODUCT \
     "move.w (2*.Lword%=)(%[left]),%[term]\n\t" \
     "mulu.w (2*(.Lcolumn%= - .Lword%=))(%[right]),%[term]\n\t" \
-    "add.l %[term],%[low]\n\taddx.w %[zero],%[high]\n\t" \
-    ".set .Lword%=,.Lword%= + 1\n\t"
-#define HALF_COMBA_NEXT \
-    "move.w %[low],(%[out])+\n\t" \
-    "move.w %[high],%[low]\n\tswap %[low]\n\t"
+    PALM_COMBA_8_ACCUMULATE
 
 static void MultiplyHalf(u16 *out, const u16 *left, const u16 *right)
 {
     u32 low = 0, term;
     u16 high;
-    __asm__ volatile(
-        HALF_COMBA_START
-        ".rept .Lcolumn%= - 2*.Lfirst%= + 1\n\t"
-        HALF_ADD_PRODUCT
-        ".endr\n\t"
-        HALF_COMBA_NEXT
-        ".set .Lcolumn%=,.Lcolumn%= + 1\n\t"
-        ".endr\n\t"
-        "move.w %[low],(%[out])"
+    __asm__ volatile(PALM_COMBA_8_MULTIPLY(HALF_ADD_PRODUCT)
         : [out] "+&a"(out), [low] "+&d"(low), [high] "=&d"(high), [term] "=&d"(term)
         : [left] "a"(left), [right] "a"(right), [zero] "d"((u16)0) : "cc", "memory");
 }
@@ -311,33 +289,13 @@ static void SquareHalf(u16 *out, const u16 *value)
 {
     u32 low, carry = 0, term;
     u16 high;
-    __asm__ volatile(
-        HALF_COMBA_START
-        "moveq #0,%[low]\n\t"
-        ".rept (.Lcolumn%= + 1)/2 - .Lfirst%=\n\t"
-        HALF_ADD_PRODUCT
-        ".endr\n\t"
-        /* Double the sum of the off-diagonal terms once per column. */
-        ".if (.Lcolumn%= + 1)/2 > .Lfirst%=\n\t"
-        "add.l %[low],%[low]\n\taddx.w %[high],%[high]\n\t"
-        ".endif\n\t"
-        "add.l %[carry],%[low]\n\taddx.w %[zero],%[high]\n\t"
-        ".if (.Lcolumn%= & 1) == 0\n\t"
-        HALF_ADD_PRODUCT
-        ".endif\n\t"
-        HALF_COMBA_NEXT
-        "move.l %[low],%[carry]\n\t"
-        ".set .Lcolumn%=,.Lcolumn%= + 1\n\t"
-        ".endr\n\t"
-        "move.w %[carry],(%[out])"
+    __asm__ volatile(PALM_COMBA_8_SQUARE(HALF_ADD_PRODUCT)
         : [out] "+&a"(out), [carry] "+&d"(carry), [low] "=&d"(low),
           [high] "=&d"(high), [term] "=&d"(term)
         : [left] "a"(value), [right] "a"(value), [zero] "d"((u16)0) : "cc", "memory");
 }
 
-#undef HALF_COMBA_START
 #undef HALF_ADD_PRODUCT
-#undef HALF_COMBA_NEXT
 
 /* Return the sign of low - high and write its magnitude. The caller
  * only supplies public coordinates or verification intermediates. */

@@ -191,11 +191,11 @@ $(PALM_BUILD)/tls_armlet_browser.o: src/tls_armlet.c src/tls_armlet.h src/tls_ar
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DPALM_WOLFSSL_BROWSER -c $< -o $@
 $(PALM_BUILD)/tls_armlet_68k.o: src/tls_armlet_68k.c include/palm_tls.h | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -c $< -o $@
-$(P256_FIXED_68K): src/tls_p256_68k.c src/tls_handshake_profile.h include/palm_tls.h $(P256_INVERSE) $(P256_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(P256_FIXED_68K): src/tls_p256_68k.c src/palm_comba_68k.h src/tls_handshake_profile.h include/palm_tls.h $(P256_INVERSE) $(P256_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -I$(GENERATED) -c $< -o $@
 $(X25519_COMB_68K): tools/generate-x25519-comb.mjs | $(GENERATED)
 	node $< $@
-$(X25519_68K): src/tls_x25519_68k.c src/tls_x25519_68k.h src/tls_handshake_profile.h $(X25519_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
+$(X25519_68K): src/tls_x25519_68k.c src/tls_x25519_68k.h src/palm_comba_68k.h src/tls_handshake_profile.h $(X25519_COMB_68K) $(WOLFSSL_SETTINGS) | $(PALM_BUILD)
 	$(CC) $(filter-out -mpcrel -fpic,$(COMMON_FLAGS)) -DWOLFSSL_NO_TLS12 \
 		-DPALM_WOLFSSL_68K_X25519 -I$(GENERATED) -c $< -o $@
 $(PALM_BUILD)/dispatch.o: $(DISPATCH) | $(PALM_BUILD)

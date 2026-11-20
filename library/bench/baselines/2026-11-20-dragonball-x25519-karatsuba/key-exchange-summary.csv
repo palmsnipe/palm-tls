@@ -1,0 +1,13 @@
+cpu_multiplier,variant,case,median_ms,min_ms,max_ms
+1,baseline,x25519_fixed_keygen,1800,1800,1810
+1,baseline,x25519_native_agreement,4680,4680,4690
+1,baseline,x25519_native_combined,6490,6480,6500
+1,candidate,x25519_fixed_keygen,1230,1230,1230
+1,candidate,x25519_native_agreement,3240,3230,3240
+1,candidate,x25519_native_combined,4470,4460,4470
+16,baseline,x25519_fixed_keygen,110,110,120
+16,baseline,x25519_native_agreement,290,290,300
+16,baseline,x25519_native_combined,400,400,410
+16,candidate,x25519_fixed_keygen,80,70,80
+16,candidate,x25519_native_agreement,200,200,210
+16,candidate,x25519_native_combined,280,280,280

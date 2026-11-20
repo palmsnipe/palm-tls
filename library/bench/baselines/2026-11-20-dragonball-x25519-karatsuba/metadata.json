@@ -1,0 +1,44 @@
+{
+  "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+  "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+  "git_revision": "8595557d19d24ab1557c972b9edfc74e942266f7",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "bfd7da532abcfdfbaa880bf82b24b866f2d0c5f05e0d9f7ff5884fd714658b0c"
+  },
+  "platform": "Palm m515, Palm OS 4.1, CloudpilotEmu DragonBall CLI",
+  "toolchain": "m68k-none-elf-gcc 16.1.0, -m68000 -mshort -Os",
+  "palm_ticks_per_second": 100,
+  "samples_per_case": 5,
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "956bd2d265a0c780fbe255835dbf6c437b6bed2e6aeb5c6dee799c58fa0673aa",
+    "leaf_sha256": "aea233816457e554350bbd55c4e553891e0a0a553b3fd52ac8458c40b4fe8d8b",
+    "port": 23443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "tls13_group": "x25519"
+  },
+  "fixture_cipher": "TLS_AES_128_GCM_SHA256",
+  "handshake_prc_sha256": "3bffb1fdf0840efe4fd03f3c42a4fb10c27b03352842964578b0b6047929c6c0",
+  "key_exchange_prc_sha256": {
+    "baseline": "cabac82b1573d857a9720c252ad7360797cce4394e4fbac20e566b0a1dabc106",
+    "candidate": "7328a928caffd48f750c32c7bef4572e609ee29e860edb58781e99fa56470925"
+  },
+  "library_sha256": {
+    "baseline": "606d63bc51a07e8ee7976f1a5ecb1ad7f39728fc935dc5fc68fd7681f2d7cab5",
+    "candidate": "ecad38923bb45565b76c3ef9fda093d5a50d7fb4102488beed835608256d0ed2"
+  },
+  "oracle_elf_sha256": {
+    "baseline": "9be0bc0335c41db2ec52cad8ecd9fa4085a72a0175e0673151ff5af7f1b29e7d",
+    "candidate": "3322108ed2e548e622399802ab9f687f9ff756971546af5ccec791eb207dbab3"
+  },
+  "candidate_source_sha256": {
+    "library/src/tls_x25519_68k.c": "1a352f8db916a3e6b3d50b6eb1a51578f78a13e9d7fdceb5112ca1e9bef84851",
+    "library/src/palm_comba_68k.h": "25354b26e0255493b487dc898c2587a42215526e61be59c568bd942c995107fe",
+    "library/src/tls_p256_68k.c": "d3bc91d2d5529f80e5a62589429ef41d533d1a798e3369ebfc56796e2ecbd7a3",
+    "library/tests/x25519_field_68k_test.py": "1ce9a5b76b8a7718cb57906c6156863f46c91171e289d3685a0ad1fe3f0493b0"
+  }
+}
