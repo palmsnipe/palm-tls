@@ -88,8 +88,9 @@ static Boolean SumProfile(const PalmTlsHandshakePhaseProfile *p)
 }
 
 static Boolean EmitProfile(DmOpenRef db, const char *name, UInt16 sample,
-    const PalmTlsSessionSignatureProfile *full, const PalmTlsSessionOpenResult *open)
+    const PalmTlsSessionSignatureSourceProfile *result, const PalmTlsSessionOpenResult *open)
 {
+    const PalmTlsSessionSignatureProfile *full = &result->detail;
     const PalmTlsSessionStartupProfile *startup = &full->startup;
     char row[200];
     const PalmTlsSessionEcdheProfile *detail = &startup->session;
@@ -144,7 +145,7 @@ static Boolean EmitProfile(DmOpenRef db, const char *name, UInt16 sample,
             if (!Emit(db,row)) return false;
         }
     }
-    if (profile->structSize == sizeof(*full)) {
+    if (profile->structSize >= sizeof(*full)) {
         static const char signatureNames[][16] = {
             "other", "peer_validation", "peer_table", "recode", "double", "add", "compare"
         };
@@ -159,6 +160,20 @@ static Boolean EmitProfile(DmOpenRef db, const char *name, UInt16 sample,
             if (!Emit(db, row)) return false;
         }
     }
+    if (profile->structSize == sizeof(*result)) {
+        static const char sourceNames[][20] = {"other", "certificate", "certificate_verify"};
+        unsigned long calls = 0;
+        sum = 0;
+        for (phase = 0; phase < palmTlsSignatureSourceCount; phase++) {
+            sum += result->sources.ticks[phase];
+            calls += result->sources.calls[phase];
+            StrPrintF(row, "# signature_source,%s,%u,%s,%lu,%lu\n", name, sample,
+                sourceNames[phase], result->sources.ticks[phase], result->sources.calls[phase]);
+            if (!Emit(db, row)) return false;
+        }
+        if (sum != profile->handshake.ticks[palmTlsHsSignature] ||
+            calls != profile->handshake.calls[palmTlsHsSignature]) return false;
+    }
     return true;
 }
 
@@ -169,7 +184,7 @@ typedef struct Connection {
     Int16 socket;
     UInt16 check, tls12;
     PalmTlsSessionOpenResult open;
-    PalmTlsSessionSignatureProfile profile;
+    PalmTlsSessionSignatureSourceProfile profile;
 } Connection;
 
 static Boolean Connect(UInt16 tls, UInt16 net, Connection *c,
@@ -263,10 +278,15 @@ static Boolean Finish(UInt16 tls, UInt16 net, Connection *c)
     }
     UInt32 capabilities = 0;
     if (PalmTlsLibGetCapabilities(tls, &capabilities) != errNone) return false;
-    c->profile.startup.session.base.structSize = (capabilities & PALM_TLS_CAP_SIGNATURE_PROFILE) ?
-        sizeof(c->profile) : sizeof(c->profile.startup);
-    error = PalmTlsLibGetSessionProfile(tls, c->open.sessionId, &c->profile.startup.session.base);
-    profileOk = !error && c->profile.startup.session.base.status == palmTlsStatusOk;
+    PalmTlsSessionProfile *profile = &c->profile.detail.startup.session.base;
+    profile->structSize = (capabilities & PALM_TLS_CAP_SIGNATURE_PROFILE) ?
+        sizeof(c->profile) : sizeof(c->profile.detail.startup);
+    error = PalmTlsLibGetSessionProfile(tls, c->open.sessionId, profile);
+    if (error == sysErrParamErr && (capabilities & PALM_TLS_CAP_SIGNATURE_PROFILE)) {
+        profile->structSize = sizeof(c->profile.detail);
+        error = PalmTlsLibGetSessionProfile(tls, c->open.sessionId, profile);
+    }
+    profileOk = !error && profile->status == palmTlsStatusOk;
     NetLibSocketClose(net, c->socket, SysTicksPerSecond(), &error);
     c->socket = -1;
     return profileOk;
@@ -288,9 +308,9 @@ static Boolean CheckedConnect(UInt16 tls, UInt16 net, Connection *c,
     c->check = true;
     if (!Finish(tls, net, c)) return false;
     return c->tls12 ? c->open.sessionReused == expectedResume :
-        c->profile.startup.session.base.contextReused == expectedContext &&
-        c->profile.startup.session.base.sessionReused == expectedResume &&
-        SumProfile(&c->profile.startup.session.base.handshake) && SumProfile(&c->profile.startup.session.base.postHandshake);
+        c->profile.detail.startup.session.base.contextReused == expectedContext &&
+        c->profile.detail.startup.session.base.sessionReused == expectedResume &&
+        SumProfile(&c->profile.detail.startup.session.base.handshake) && SumProfile(&c->profile.detail.startup.session.base.postHandshake);
 }
 
 static Boolean Reject(UInt16 tls, UInt16 net, UInt16 mode,
@@ -379,9 +399,9 @@ static Boolean Regressions(DmOpenRef db, UInt16 tls, UInt16 net)
     }
     a.check=true;
     if (a.open.status!=palmTlsStatusOk || !Finish(tls,net,&a) ||
-        a.profile.startup.session.base.sessionId == b.profile.startup.session.base.sessionId ||
-        !a.profile.startup.session.base.handshake.ticks[palmTlsHsIdle] ||
-        !SumProfile(&a.profile.startup.session.base.handshake) || !SumProfile(&b.profile.startup.session.base.handshake)) return false;
+        a.profile.detail.startup.session.base.sessionId == b.profile.detail.startup.session.base.sessionId ||
+        !a.profile.detail.startup.session.base.handshake.ticks[palmTlsHsIdle] ||
+        !SumProfile(&a.profile.detail.startup.session.base.handshake) || !SumProfile(&b.profile.detail.startup.session.base.handshake)) return false;
     if (!Emit(db,"# regression,cooperative_slot_isolation,passed\n")) return false;
     if (!CheckedConnect(tls,net,&a,BENCH_TLS12|PALM_TLS_SESSION_ALLOW_RESUME,
         palmTlsVerifyCaStore,"localhost",kHandshakeTrust,sizeof(kHandshakeTrust),false,false)) return false;
@@ -420,12 +440,12 @@ static Boolean Run(DmOpenRef db, UInt16 tls, UInt16 net)
                     return false;
                 }
                 if (!Finish(tls, net, &c)) { Emit(db, "# finish_failed\n"); return false; }
-                if (c.profile.startup.session.base.contextReused != (cache && kind != 0) ||
-                    c.profile.startup.session.base.sessionReused != (kind == 2) ||
-                    (kind != 1 && !c.profile.startup.session.base.ticketReady)) {
+                if (c.profile.detail.startup.session.base.contextReused != (cache && kind != 0) ||
+                    c.profile.detail.startup.session.base.sessionReused != (kind == 2) ||
+                    (kind != 1 && !c.profile.detail.startup.session.base.ticketReady)) {
                     char row[100];
                     StrPrintF(row, "# flags_failed,%s,%u,%u,%u\n", names[cache][kind],
-                        c.profile.startup.session.base.contextReused, c.profile.startup.session.base.sessionReused, c.profile.startup.session.base.ticketReady);
+                        c.profile.detail.startup.session.base.contextReused, c.profile.detail.startup.session.base.sessionReused, c.profile.detail.startup.session.base.ticketReady);
                     Emit(db, row);
                     return false;
                 }
@@ -459,9 +479,9 @@ static Boolean Run68K(DmOpenRef db, UInt16 tls, UInt16 net)
                 return false;
             }
             if (!Finish(tls, net, &c) ||
-                c.profile.startup.session.base.contextReused != kind ||
-                c.profile.startup.session.base.sessionReused ||
-                c.profile.startup.session.base.ticketReady ||
+                c.profile.detail.startup.session.base.contextReused != kind ||
+                c.profile.detail.startup.session.base.sessionReused ||
+                c.profile.detail.startup.session.base.ticketReady ||
                 !EmitProfile(db, names[kind], sample, &c.profile, &c.open))
                 return false;
         }

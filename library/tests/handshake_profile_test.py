@@ -45,7 +45,7 @@ int main(void) {
     clockTick=101; PalmTlsHandshakeProfileEnter(palmTlsHsContext);
     clockTick=104; PalmTlsHandshakeProfileLeave();
     PalmTlsHandshakeProfileEnter(palmTlsHsTrust);
-    clockTick=106; PalmTlsHandshakeProfileEnter(palmTlsHsSignature);
+    clockTick=106; PalmTlsSignatureSourceEnter(palmTlsSignatureSourceCertificate);
     clockTick=107; PalmTlsSignatureProfileEnter(palmTlsSignatureDouble);
     clockTick=109; PalmTlsSignatureProfileLeave();
     clockTick=110; PalmTlsHandshakeProfileLeave();
@@ -67,6 +67,9 @@ int main(void) {
     assert(a.signature.ticks[palmTlsSignatureDouble]==2);
     assert(a.signature.ticks[palmTlsSignatureOther]==2);
     assert(a.signature.calls[palmTlsSignatureDouble]==1);
+    assert(a.signatureSources.ticks[palmTlsSignatureSourceCertificate]==4);
+    assert(a.signatureSources.calls[palmTlsSignatureSourceCertificate]==1);
+    assert(!b.signatureSources.ticks[palmTlsSignatureSourceCertificate]);
     assert(!b.signature.elapsedTicks);
     assert(a.result.handshake.ticks[palmTlsHsIdle]==95);
     assert(a.result.handshake.ticks[palmTlsHsKeyShare]==8);
@@ -162,6 +165,20 @@ int main(void) {
     i=reads; PalmTlsTrustProfileEnter(palmTlsTrustDecode);
     PalmTlsTrustProfileLeave(); assert(reads==i);
     clockTick=116; PalmTlsHandshakeProfileClose();
+    PalmTlsHandshakeProfileStart(&a,10,100,1);
+    clockTick=101; PalmTlsSignatureSourceEnter(palmTlsSignatureSourceCertificate);
+    clockTick=103; PalmTlsHandshakeProfileEnter(palmTlsHsNetwork);
+    clockTick=105; PalmTlsHandshakeProfileLeave();
+    clockTick=107; PalmTlsSignatureSourceEnter(palmTlsSignatureSourceLive);
+    clockTick=111; PalmTlsHandshakeProfileLeave();
+    clockTick=114; PalmTlsHandshakeProfileLeave();
+    PalmTlsHandshakeProfileFinish(116);
+    assert(a.result.handshake.complete && a.signature.complete);
+    assert(a.result.handshake.ticks[palmTlsHsSignature]==11);
+    assert(a.signatureSources.ticks[palmTlsSignatureSourceCertificate]==7);
+    assert(a.signatureSources.ticks[palmTlsSignatureSourceLive]==4);
+    assert(a.signatureSources.calls[palmTlsSignatureSourceCertificate]==1);
+    assert(a.signatureSources.calls[palmTlsSignatureSourceLive]==1);
     return 0;
 }
 ''')

@@ -80,6 +80,10 @@ python3 library/bench/handshake_results.py --dragonball --signature \
 [68K signature profile and optimization](baselines/2026-11-20-dragonball-signature-profile) ·
 [Public P-256 field kernels](baselines/2026-11-20-dragonball-p256-field-kernels)
 
+For certificate signature and live TLS `CertificateVerify` timings, use
+`--signature-sources` with the same results file.
+[m515 signature timings by source](baselines/2026-11-20-dragonball-signature-sources)
+
 ## DragonBall X25519 and P-256 key exchange
 
 The standalone 68K app times public-key generation and shared-secret

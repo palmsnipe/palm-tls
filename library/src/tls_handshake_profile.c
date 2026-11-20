@@ -22,6 +22,7 @@ static void Charge(PalmTlsHandshakeProfiler *p, UInt32 now)
     if (!p->finished && p->phase == palmTlsHsSignature) {
         p->signature.ticks[p->signaturePhase] += elapsed;
         p->signature.elapsedTicks += elapsed;
+        p->signatureSources.ticks[p->signatureSource] += elapsed;
     }
     p->lastTick = now;
     Bucket(p)->elapsedTicks = (UInt32)(now - p->periodStart);
@@ -52,17 +53,20 @@ void PalmTlsHandshakeProfileBind(PalmTlsHandshakeProfiler *p)
     p->running = true;
     gCurrent = p;
 }
-void PalmTlsHandshakeProfileEnter(unsigned short phase)
+static void EnterPhase(unsigned short phase, unsigned short signatureSource)
 {
     PalmTlsHandshakeProfiler *p = gCurrent;
     if (!p || p->broken) return;
-    if (phase >= palmTlsHsPhaseCount || p->depth == 16) {
+    if (phase >= palmTlsHsPhaseCount || signatureSource >= palmTlsSignatureSourceCount ||
+        p->depth == 16) {
         p->broken = true;
         return;
     }
     Charge(p, TimGetTicks());
-    p->stack[p->depth++] = p->phase;
+    p->stack[p->depth].phase = p->phase;
+    p->stack[p->depth++].signatureSource = p->signatureSource;
     p->phase = phase;
+    p->signatureSource = signatureSource;
     Bucket(p)->calls[phase]++;
     if (phase == palmTlsHsTrust && !p->finished) {
         p->trust.complete = 0;
@@ -75,7 +79,16 @@ void PalmTlsHandshakeProfileEnter(unsigned short phase)
     if (phase == palmTlsHsSignature && !p->finished) {
         p->signature.complete = 0;
         p->signature.calls[palmTlsSignatureOther]++;
+        p->signatureSources.calls[signatureSource]++;
     }
+}
+void PalmTlsHandshakeProfileEnter(unsigned short phase)
+{
+    EnterPhase(phase, palmTlsSignatureSourceOther);
+}
+void PalmTlsSignatureSourceEnter(unsigned short source)
+{
+    EnterPhase(palmTlsHsSignature, source);
 }
 void PalmTlsHandshakeProfileLeave(void)
 {
@@ -90,7 +103,8 @@ void PalmTlsHandshakeProfileLeave(void)
     if (p->phase == palmTlsHsSignature && !p->finished)
         p->signature.complete = !p->signatureBroken &&
             p->signaturePhase == palmTlsSignatureOther;
-    p->phase = p->stack[--p->depth];
+    p->phase = p->stack[--p->depth].phase;
+    p->signatureSource = p->stack[p->depth].signatureSource;
 }
 /* Share the enclosing phase's clock and charge function, so detailed ticks
  * sum exactly to the exclusive key-agreement phase, including nested scopes. */

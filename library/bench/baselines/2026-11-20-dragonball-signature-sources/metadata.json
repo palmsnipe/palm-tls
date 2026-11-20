@@ -1,0 +1,39 @@
+{
+  "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+  "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+  "git_revision": "81baebe9a233dc3217f43bd658010d6158bfcf20",
+  "prc_sha256": "09a69a8beface04839909249e0a91c0dbdfb884de2f0cbf623f0bba2006d8c13",
+  "library_sha256": "93ceba5f69c17f2b3f876b793be4dfb97d272d9a39b90f71099e1d7768d1063b",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "8d2afbc6246e856ac7474e02da57bbb6b966d4a5745dd88ce6587fdf4b2d9021"
+  },
+  "platform": "Palm m515, Palm OS 4.1, CloudpilotEmu DragonBall CLI",
+  "toolchain": "m68k-none-elf-gcc 16.1.0, -m68000 -mshort -Os",
+  "palm_ticks_per_second": 100,
+  "samples_per_case": 5,
+  "dragonball_overclocks": [
+    1,
+    16
+  ],
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "956bd2d265a0c780fbe255835dbf6c437b6bed2e6aeb5c6dee799c58fa0673aa",
+    "leaf_sha256": "aea233816457e554350bbd55c4e553891e0a0a553b3fd52ac8458c40b4fe8d8b",
+    "port": 23443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "tls13_group": "x25519"
+  },
+  "fixture_cipher": "TLS_AES_128_GCM_SHA256",
+  "source_sha256": {
+    "library/src/tls_handshake_profile.c": "1bf43da4c9031ad921b91a3d304a1ac785b7e182bf1cbe81139bf03f42149101",
+    "library/src/tls_handshake_profile.h": "6c5a2cc9ec2f1ba73ecbe2ba0c4f9dec9ca9f62b191ce3400292a6bf677d97d7",
+    "library/src/tls_engine.c": "b2d6b93f2f48de2f63eaf1540c94c5c67281e4092686040c3a2a7da8355dfc4b",
+    "library/include/palm_tls.h": "46a992eb9cd3373543be36138911fb785050ead2c98f25ea9ee57d7241a4c6fe",
+    "library/bench/handshake.c": "3278e68c152122ea069dbe35a1b5a931275a77eca96abf6cb7e28579a8e38343",
+    "patches/wolfssl/wolfssl-palm-signature-source-profile.patch": "f8383fd06bbb865ccac8f38962686e11890fe01f820f781bbbeaf9d221eff2ab"
+  }
+}

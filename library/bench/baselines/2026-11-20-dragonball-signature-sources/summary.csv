@@ -1,0 +1,5 @@
+cpu_multiplier,case,median_handshake_ms,min_handshake_ms,max_handshake_ms,median_certificate_signature_ms,min_certificate_signature_ms,max_certificate_signature_ms,median_live_certificate_verify_ms,min_live_certificate_verify_ms,max_live_certificate_verify_ms,median_total_signature_ms,projected_warm_cache_hit_ms,projected_warm_time_saved_percent
+1,cache_full_cold,12010,11980,12040,3330,3320,3330,3300,3260,3320,6630,,
+1,cache_full_warm,11740,11670,11790,3320,3320,3330,3280,3230,3330,6600,8420,28.3
+16,cache_full_cold,750,740,760,210,200,210,200,200,210,410,,
+16,cache_full_warm,730,730,740,210,200,210,210,200,210,420,520,28.8

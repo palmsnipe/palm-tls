@@ -29,6 +29,7 @@ patches=(
   wolfssl-palm-verify-profile.patch
   wolfssl-palm-16bit-hex.patch
   wolfssl-palm-handshake-profile.patch
+  wolfssl-palm-signature-source-profile.patch
   wolfssl-palm-ecdhe-profile.patch
   wolfssl-palm-p256-validation.patch
   wolfssl-palm-trust-profile.patch

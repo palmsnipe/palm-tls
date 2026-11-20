@@ -41,6 +41,7 @@ extern void PalmTlsVerifyProfileEnter(unsigned short phase);
 extern void PalmTlsVerifyProfileLeave(void);
 extern void PalmTlsHandshakeProfileEnter(unsigned short phase);
 extern void PalmTlsHandshakeProfileLeave(void);
+extern void PalmTlsSignatureSourceEnter(unsigned short source);
 extern void PalmTlsEcdheProfileEnter(unsigned short phase);
 extern void PalmTlsEcdheProfileLeave(void);
 extern void PalmTlsTrustProfileEnter(unsigned short phase);

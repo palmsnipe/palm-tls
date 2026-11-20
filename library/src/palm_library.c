@@ -51,6 +51,8 @@ typedef char PalmTlsAssertTrustProfile[sizeof(PalmTlsTrustProfile) == PALM_TLS_T
 typedef char PalmTlsAssertStartupProfile[sizeof(PalmTlsSessionStartupProfile) == PALM_TLS_SESSION_STARTUP_PROFILE_SIZE ? 1 : -1];
 typedef char PalmTlsAssertSignatureProfile[sizeof(PalmTlsSessionSignatureProfile) ==
     PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE ? 1 : -1];
+typedef char PalmTlsAssertSignatureSourceProfile[sizeof(PalmTlsSessionSignatureSourceProfile) ==
+    PALM_TLS_SESSION_SIGNATURE_SOURCE_PROFILE_SIZE ? 1 : -1];
 _Static_assert(sizeof(PalmTlsIdentityParams) == PALM_TLS_IDENTITY_PARAMS_SIZE,
     "Identity parameter ABI changed");
 _Static_assert(sizeof(PalmTlsIdentityResult) == PALM_TLS_IDENTITY_RESULT_SIZE,
@@ -1070,7 +1072,8 @@ Err PalmTlsLibGetSessionProfile(UInt16 refNum, unsigned long sessionId,
     if (!resultP || (resultP->structSize != PALM_TLS_SESSION_PROFILE_SIZE &&
         resultP->structSize != PALM_TLS_SESSION_ECDHE_PROFILE_SIZE &&
         resultP->structSize != PALM_TLS_SESSION_STARTUP_PROFILE_SIZE &&
-        resultP->structSize != PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE))
+        resultP->structSize != PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE &&
+        resultP->structSize != PALM_TLS_SESSION_SIGNATURE_SOURCE_PROFILE_SIZE))
         return sysErrParamErr;
     size = resultP->structSize;
     MemSet(resultP, size, 0);

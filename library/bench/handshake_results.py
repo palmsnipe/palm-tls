@@ -13,6 +13,7 @@ ECDHE_PHASES=('other','import','validate','multiply','map')
 LOAD_PHASES=('setup','copy','relocate','native','wolf','qualify','other')
 TRUST_PHASES=('other','pem','decode','store','cache')
 SIGNATURE_PHASES=('other','peer_validation','peer_table','recode','double','add','compare')
+SIGNATURE_SOURCES=('other','certificate','certificate_verify')
 CASES={f'{cache}_{kind}' for cache in ('nocache','cache')
        for kind in ('full_cold','full_warm','resumed')}
 REGRESSIONS={'owned_exact_trust','hostname_mode_and_bad_ca','purge',
@@ -102,25 +103,38 @@ def load(text, dragonball=False):
     load_ecdhe(text, grouped, profiles)
     load_startup(text, grouped, profiles)
     load_signature(text, grouped, profiles)
+    load_signature_sources(text, grouped, profiles)
     return grouped,profiles
 
 
 def load_signature(text, rows, profiles):
+    return load_signature_detail(text, rows, profiles, 'signature', SIGNATURE_PHASES)
+
+
+def load_signature_sources(text, rows, profiles):
+    return load_signature_detail(text, rows, profiles, 'signature_source', SIGNATURE_SOURCES)
+
+
+def load_signature_detail(text, rows, profiles, tag, labels):
     details={}
     for line in text.splitlines():
-        if not line.startswith('# signature,'): continue
+        if not line.startswith('# ' + tag + ','): continue
         _,name,sample,phase,ticks,calls=line.split(',')
         key=(name,int(sample),phase)
         value=(int(ticks),int(calls))
-        if key in details or phase not in SIGNATURE_PHASES or min(value)<0:
-            raise ValueError('invalid/duplicate signature phase')
+        if key in details or phase not in labels or min(value)<0:
+            raise ValueError(f'invalid/duplicate {tag} row')
         details[key]=value
     if details:
-        if set(details)!={(name,sample,phase) for name,sample in rows for phase in SIGNATURE_PHASES}:
-            raise ValueError('incomplete signature profile')
+        if set(details)!={(name,sample,phase) for name,sample in rows for phase in labels}:
+            raise ValueError(f'incomplete {tag} profile')
         for name,sample in rows:
-            if sum(details[name,sample,phase][0] for phase in SIGNATURE_PHASES)!=profiles[name,sample,0,'signature'][0]:
-                raise ValueError('signature phases do not partition verification')
+            entries=[details[name,sample,phase] for phase in labels]
+            ticks,calls=profiles[name,sample,0,'signature']
+            if sum(elapsed for elapsed,_ in entries)!=ticks:
+                raise ValueError(f'{tag} ticks do not partition verification')
+            if tag=='signature_source' and sum(count for _,count in entries)!=calls:
+                raise ValueError('signature source calls do not match verification')
     return details
 
 
@@ -203,18 +217,22 @@ def main():
     p.add_argument('--dragonball',action='store_true')
     p.add_argument('--group',choices=('p256','x25519'))
     p.add_argument('--client-hellos',type=int,choices=(1,2),default=1)
-    p.add_argument('--signature',action='store_true',help='summarize the detailed signature profile')
+    profile=p.add_mutually_exclusive_group()
+    profile.add_argument('--signature',action='store_true',help='summarize the detailed signature profile')
+    profile.add_argument('--signature-sources',action='store_true',help='summarize certificate and live signature time')
     args=p.parse_args()
     raw=args.input.read_text()
     rows,profiles=load(raw,args.dragonball)
     cases=sorted(CASES_68K if args.dragonball else CASES)
-    if args.signature:
-        detail=load_signature(raw,rows,profiles)
+    if args.signature or args.signature_sources:
+        reader,labels=(load_signature_sources,SIGNATURE_SOURCES) if args.signature_sources else (
+            load_signature,SIGNATURE_PHASES)
+        detail=reader(raw,rows,profiles)
         if not detail:
             p.error('input has no detailed signature profile')
         print('case,phase,median_ms,median_calls')
         for case in cases:
-            for phase in SIGNATURE_PHASES:
+            for phase in labels:
                 samples=[(detail[name,i,phase], row['frequency'])
                          for (name,i),row in rows.items() if name==case]
                 times=[ticks*1000/frequency for (ticks,_),frequency in samples]

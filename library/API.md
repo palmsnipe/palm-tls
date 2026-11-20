@@ -395,6 +395,26 @@ point addition, final comparison, and other work. Other includes signature
 processing outside the native verifier. Call counts distinguish operations
 that took less than a Palm clock tick from phases that were skipped.
 
+The optional 488-byte result embeds the 464-byte profile and adds
+`sources` for certificate signature time, live TLS 1.3
+`CertificateVerify` time, and other signature work. Source ticks and calls
+partition the main handshake's exclusive Signature phase.
+
+```c
+PalmTlsSessionSignatureSourceProfile profile;
+MemSet(&profile, sizeof(profile), 0);
+PalmTlsSessionProfile *base = &profile.detail.startup.session.base;
+base->structSize = PALM_TLS_SESSION_SIGNATURE_SOURCE_PROFILE_SIZE;
+Err error = PalmTlsLibGetSessionProfile(refNum, sessionId, base);
+if (error == sysErrParamErr) {
+    base->structSize = PALM_TLS_SESSION_SIGNATURE_PROFILE_SIZE;
+    error = PalmTlsLibGetSessionProfile(refNum, sessionId, base);
+}
+```
+
+Check `PALM_TLS_CAP_SIGNATURE_PROFILE` before requesting either size.
+Read `sources` after a successful 488-byte response.
+
 ## Offline ARM self-test
 
 Zero a `PalmTlsSelfTestResult`, set `structSize`, and call

@@ -1,0 +1,24 @@
+diff --git a/wolfcrypt/src/asn.c b/wolfcrypt/src/asn.c
+--- a/wolfcrypt/src/asn.c
++++ b/wolfcrypt/src/asn.c
+@@ -18823,7 +18823,7 @@
+ {
+     int result;
+ #ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+-    PalmTlsHandshakeProfileEnter(palmTlsHsSignature);
++    PalmTlsSignatureSourceEnter(palmTlsSignatureSourceCertificate);
+ #endif
+     result = PalmRaw_ConfirmSignature(sigCtx, buf, bufSz, key, keySz, keyOID, sig, sigSz, sigOID, sigParams, sigParamsSz, rsaKeyIdx);
+ #ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+diff --git a/src/tls13.c b/src/tls13.c
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -13592,7 +13592,7 @@
+ {
+     int result;
+ #ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
+-    PalmTlsHandshakeProfileEnter(palmTlsHsSignature);
++    PalmTlsSignatureSourceEnter(palmTlsSignatureSourceLive);
+ #endif
+     result = PalmRaw_DoTls13CertificateVerify(ssl, input, inOutIdx, totalSz);
+ #ifdef PALM_WOLFSSL_HANDSHAKE_PROFILE
