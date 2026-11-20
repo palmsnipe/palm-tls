@@ -20,29 +20,33 @@ GENERATOR_CASES = {'p256_mul2add_generator', 'p256_mul2add_generator_right'}
 FIELD_CASES = {'p256_field_multiply', 'p256_field_square', 'p256_field_reduce'}
 
 
-def extract(archive):
+def extract_records(archive, database, creator):
     with zipfile.ZipFile(archive) as backup:
         matches = []
         for name in backup.namelist():
             if name.endswith('/'):
                 continue
             data = backup.read(name)
-            if len(data) >= 78 and data[:32].split(b'\0')[0] == b'PalmTLS Bench Results':
+            if len(data) >= 78 and data[:32].split(b'\0')[0] == database.encode('ascii'):
                 matches.append(data)
     if len(matches) != 1:
-        raise ValueError('expected exactly one PalmTLS Bench Results database')
+        raise ValueError(f'expected exactly one {database} database')
     data = matches[0]
-    if data[60:68] != b'DATATbch' or struct.unpack_from('>H', data, 32)[0] & 1:
+    if data[60:68] != b'DATA' + creator or struct.unpack_from('>H', data, 32)[0] & 1:
         raise ValueError('unexpected results database identity or format')
     count = struct.unpack_from('>H', data, 76)[0]
     table_end = 78 + count * 8
     if table_end > len(data):
         raise ValueError('truncated record table')
     offsets = [struct.unpack_from('>I', data, 78 + i * 8)[0] for i in range(count)]
-    if not offsets or offsets[0] < table_end or offsets != sorted(set(offsets)):
+    if not offsets or offsets[0] < table_end or offsets[-1] >= len(data) or offsets != sorted(set(offsets)):
         raise ValueError('invalid record offsets')
     offsets.append(len(data))
-    text = b''.join(data[a:b] for a, b in zip(offsets, offsets[1:])).decode('ascii')
+    return b''.join(data[a:b] for a, b in zip(offsets, offsets[1:])).decode('ascii')
+
+
+def extract(archive):
+    text = extract_records(archive, 'PalmTLS Bench Results', b'Tbch')
     if not text.endswith('# complete v1\n') or '# FAILED' in text:
         raise ValueError('benchmark is incomplete or failed')
     return text

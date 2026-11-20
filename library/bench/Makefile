@@ -100,3 +100,38 @@ $(BUILD)/PalmTLSReleaseBench.prc: $(BUILD)/release-code0001.bin $(BUILD)/armc000
 release-bench: $(BUILD)/PalmTLSReleaseBench.prc
 	node $(TOOLCHAIN_ROOT)/tools/validate-prc.mjs $< 'PalmTLS HS Bench' appl Thsb
 	node validate-armlet.mjs $< $(ROOT)/build/palm/armc0001.bin
+
+# Standalone 68K comparison using the production P-256 object and the pinned
+# wolfSSL portable X25519 backend. The X25519 object only goes into this PRC.
+DEPS_PREFIX := $(if $(PALM_TLS_DEPS_PREFIX),$(PALM_TLS_DEPS_PREFIX),$(REPO)/.palm-tls/prefix)
+WOLFSSL_SRC ?= $(REPO)/.palm-tls/src/wolfssl
+KX_FLAGS := $(filter-out -mpcrel -fpic,$(CFLAGS)) -DWOLFSSL_USER_SETTINGS \
+    -DWOLFSSL_NO_TLS12 -DHAVE_CURVE25519 -I$(REPO)/wolfssl -I$(DEPS_PREFIX)/include
+P256_68K := $(ROOT)/build/palm/tls_p256_68k.o
+KX_ARCHIVE := $(DEPS_PREFIX)/lib/libwolfssl-tls13.a
+KX_OBJECTS := $(BUILD)/key-exchange.o $(BUILD)/x25519-portable.o $(P256_68K) $(BUILD)/startup.o
+
+.PHONY: key-exchange
+$(P256_68K): FORCE
+	$(MAKE) -C $(ROOT) $@
+$(BUILD)/key_exchange_vectors.inc: generate-key-exchange-vectors.mjs | $(BUILD)
+	node $< $@
+$(BUILD)/key-exchange.o: key-exchange.c $(BUILD)/key_exchange_vectors.inc \
+        $(ROOT)/src/tls_handshake_profile.h $(REPO)/wolfssl/user_settings.h Makefile
+	$(CC) $(KX_FLAGS) -c $< -o $@
+$(BUILD)/x25519-portable.o: $(WOLFSSL_SRC)/wolfcrypt/src/fe_operations.c \
+        $(REPO)/wolfssl/user_settings.h $(KX_ARCHIVE) Makefile | $(BUILD)
+	$(CC) $(KX_FLAGS) -Wno-sign-compare -Wno-unused-parameter -I$(WOLFSSL_SRC) -c $< -o $@
+$(BUILD)/key-exchange.elf: $(KX_OBJECTS) $(KX_ARCHIVE) $(LINKER)
+	$(CC) $(LDFLAGS) -Wl,--emit-relocs $(KX_OBJECTS) $(KX_ARCHIVE) -o $@.stage1
+	node $(TOOLCHAIN_ROOT)/tools/generate-m68k-relocs.mjs $@.stage1 $(BUILD)/kx-relocs.s $(PREFIX)/bin/m68k-none-elf-readelf
+	$(CC) $(ABI) -c $(BUILD)/kx-relocs.s -o $(BUILD)/kx-relocs.o
+	$(CC) $(LDFLAGS) $(KX_OBJECTS) $(BUILD)/kx-relocs.o $(KX_ARCHIVE) -o $@
+	rm $@.stage1
+$(BUILD)/key-exchange-code0001.bin: $(BUILD)/key-exchange.elf
+	$(PREFIX)/bin/m68k-none-elf-objcopy -O binary $< $@ -j .vec -j .text
+$(BUILD)/PalmTLSKeyExchangeBench.prc: $(BUILD)/key-exchange-code0001.bin key-exchange.rcp
+	cd $(BUILD) && $(PREFIX)/bin/pilrc -ro -o key-exchange.ro $(ROOT)/bench/key-exchange.rcp
+	$(PREFIX)/bin/build-prc --no-check -o $@ -n 'PalmTLS KX Bench' -c Tkxb -t appl $(BUILD)/key-exchange.ro
+key-exchange: $(BUILD)/PalmTLSKeyExchangeBench.prc
+	node $(TOOLCHAIN_ROOT)/tools/validate-prc.mjs $< 'PalmTLS KX Bench' appl Tkxb

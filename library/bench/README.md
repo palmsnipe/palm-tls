@@ -59,6 +59,28 @@ clock at 10 ms resolution and exclude socket setup. See the
 [variable-base key agreement comparison](baselines/2026-11-20-dragonball-variable-base),
 and [fixed-width verification comparison](baselines/2026-11-20-dragonball-field-ecdsa).
 
+## DragonBall X25519 and P-256 key exchange
+
+The standalone 68K app times public-key generation and shared-secret
+calculation with five known-answer fixtures per curve. It links the optimized
+PalmTLS P-256 code and the pinned wolfSSL portable, blinded X25519 backend.
+Both clocks use the same PRC and a private copy of the same m515 session.
+
+```sh
+make bootstrap
+make -C library/bench key-exchange
+for clock in 1 16; do
+  out="library/build/bench/key-exchange-${clock}x"
+  python3 library/bench/run-emulator.py --key-exchange \
+    --emulator ../cloudpilot-emu/src/cloudpilot/cloudpilot-emu \
+    --session ../cloudpilot-emu/web/embedded/public/m515.img \
+    --dragonball-overclock "$clock" --output "$out"
+  python3 library/bench/key_exchange_results.py "$out/results.csv"
+done
+```
+
+See the [m515 timings and measurement boundaries](baselines/2026-11-20-dragonball-x25519).
+
 ## Full and resumed TLS 1.3 handshakes
 
 This suite measures actual TLS connections through the public PalmTLS session

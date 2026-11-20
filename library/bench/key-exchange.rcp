@@ -1,0 +1,9 @@
+DATA "code" ID 1 "key-exchange-code0001.bin"
+VERSION 1 "1.0"
+HEX "pref" ID 0 0x00 0x1e 0x00 0x00 0x80 0x00 0x00 0x00 0x10 0x00
+FORM ID 1000 AT (0 0 160 160)
+BEGIN
+    TITLE "PalmTLS 68K Key Exchange"
+END
+APPLICATIONICONNAME ID 1000 "PalmTLS KX Bench"
+STRING ID 1000 "PalmTLS 68K key exchange benchmark"

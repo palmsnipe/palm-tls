@@ -1,0 +1,22 @@
+case,sample,ticks,frequency
+p256_keygen,0,17,100
+p256_agreement,0,45,100
+x25519_keygen,0,51,100
+x25519_agreement,0,51,100
+x25519_keygen,1,51,100
+x25519_agreement,1,51,100
+p256_keygen,1,17,100
+p256_agreement,1,45,100
+p256_keygen,2,16,100
+p256_agreement,2,46,100
+x25519_keygen,2,51,100
+x25519_agreement,2,51,100
+x25519_keygen,3,51,100
+x25519_agreement,3,51,100
+p256_keygen,3,16,100
+p256_agreement,3,46,100
+p256_keygen,4,16,100
+p256_agreement,4,46,100
+x25519_keygen,4,51,100
+x25519_agreement,4,51,100
+# complete key-exchange-v1

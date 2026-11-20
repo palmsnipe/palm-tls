@@ -32,17 +32,26 @@ def native_image(path):
 
 def run(args):
     release = getattr(args, "release", False)
+    key_exchange = getattr(args, "key_exchange", False)
     overclock = getattr(args, "dragonball_overclock", None)
     if release: args.handshake = True
-    if overclock is not None and (release or not args.handshake or not args.library):
+    if key_exchange and (not overclock or args.library or args.handshake_fixture or args.network):
+        raise ValueError('standalone key exchange requires DragonBall mode')
+    if not key_exchange and overclock is not None and (release or not args.handshake or not args.library):
         raise ValueError('DragonBall mode requires the handshake app and 68K library')
+    if key_exchange:
+        app_name, prc_name = 'PalmTLS KX Bench', 'PalmTLSKeyExchangeBench.prc'
+    elif args.handshake:
+        app_name, prc_name = 'PalmTLS HS Bench', 'PalmTLSHandshakeBench.prc'
+    else:
+        app_name, prc_name = 'PalmTLS Bench', 'PalmTLSBench.prc'
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     session = output / 'session.img'
     shutil.copyfile(args.session, session)
     # Freeze the inputs before booting. A later build must not replace a PRC
     # between hashing it and installing it into the emulator.
-    prc = output / ('PalmTLSHandshakeBench.prc' if args.handshake else 'PalmTLSBench.prc')
+    prc = output / prc_name
     shutil.copyfile(args.prc, prc)
     library = output / ('PalmTLS68K.prc' if overclock else 'PalmTLSArm.prc') if args.library else None
     if library:
@@ -57,11 +66,11 @@ def run(args):
         server_log_start = (fixture / 'connections.jsonl').stat().st_size if (fixture / 'connections.jsonl').exists() else 0
     if overclock:
         try:
-            native_image(library)
+            native_image(prc if key_exchange else library)
         except ValueError:
             pass
         else:
-            raise ValueError('DragonBall mode requires a library without an ARM image')
+            raise ValueError('DragonBall mode requires a binary without an ARM image')
         native = b''
         command = [str(args.emulator.resolve()), '--overclock', str(overclock), str(session)]
     else:
@@ -73,7 +82,8 @@ def run(args):
     if args.network: command.insert(1, '--net-native')
     repo = Path(__file__).resolve().parents[2]
     metadata = {'benchmark_version': 1,
-                'benchmark_type': 'tls_release' if release else 'tls13_handshake' if args.handshake else 'native',
+                'benchmark_type': 'tls_release' if release else 'tls13_handshake' if args.handshake
+                else 'key_exchange' if key_exchange else 'native',
                 'mips': args.mips if not overclock else None, 'device': args.device,
                 'dragonball_overclock': overclock,
                 'session_sha256': sha256(args.session),
@@ -161,7 +171,7 @@ def run(args):
         install(prc)
         while True:
             try:
-                send('launch "' + ('PalmTLS HS Bench' if args.handshake else 'PalmTLS Bench') + '"',
+                send(f'launch "{app_name}"',
                      'app launched successfully' if overclock else 'launch successful')
                 break
             except RuntimeError as error:
@@ -185,7 +195,10 @@ def run(args):
                 # The CLI announces the path before writing it. The next
                 # command cannot be processed until the backup has closed.
                 send('automation-status', 'automation ready')
-            if args.handshake:
+            if key_exchange:
+                from key_exchange_results import extract as kx_extract, load as kx_load
+                text = kx_extract(archive)
+            elif args.handshake:
                 from handshake_results import extract as hs_extract, load as hs_load
                 if release:
                     from release_results import extract as hs_extract, load as hs_load
@@ -195,7 +208,8 @@ def run(args):
             if state is False:
                 (output / 'results.csv').write_text(text)
                 raise RuntimeError('benchmark failed; see progress.png and results.csv')
-            if overclock: hs_load(text, dragonball=True)
+            if key_exchange: kx_load(text)
+            elif overclock: hs_load(text, dragonball=True)
             elif args.handshake: hs_load(text)
             else: load(text)
             (output / 'results.csv').write_text(text)
@@ -229,10 +243,12 @@ def main():
     parser.add_argument('--emulator', type=Path, required=True)
     parser.add_argument('--session', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True, help='new directory for this run')
-    parser.add_argument('--prc', type=Path, default=root / 'build/bench/PalmTLSBench.prc')
+    parser.add_argument('--prc', type=Path)
     parser.add_argument('--library', type=Path, help='optional ARM library to install for engine timings')
-    parser.add_argument('--release', action='store_true', help='run common-ABI release comparison')
-    parser.add_argument('--handshake', action='store_true', help='run and validate the TLS 1.3 handshake app')
+    suite = parser.add_mutually_exclusive_group()
+    suite.add_argument('--release', action='store_true', help='run common-ABI release comparison')
+    suite.add_argument('--handshake', action='store_true', help='run and validate the TLS 1.3 handshake app')
+    suite.add_argument('--key-exchange', action='store_true', help='compare 68K X25519 and P-256')
     parser.add_argument('--handshake-fixture', type=Path, help='live local TLS fixture directory; verify its trust bundle')
     parser.add_argument('--network', action='store_true', help='enable native NetLib redirection')
     parser.add_argument('--mips', type=int, default=100)
@@ -241,6 +257,8 @@ def main():
     parser.add_argument('--device', choices=['auto', 'e2', 'zire72', 'tx'], default='auto')
     parser.add_argument('--timeout', type=int, default=600)
     args = parser.parse_args()
+    if args.prc is None:
+        args.prc = root / 'build/bench' / ('PalmTLSKeyExchangeBench.prc' if args.key_exchange else 'PalmTLSBench.prc')
     if args.mips <= 0 or args.timeout <= 0:
         parser.error('--mips and --timeout must be positive')
     run(args)
