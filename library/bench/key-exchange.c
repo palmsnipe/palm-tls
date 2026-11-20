@@ -3,6 +3,7 @@
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/fe_operations.h>
 #include "../src/tls_handshake_profile.h"
+#include "x25519-fixed-base.h"
 
 #define RESULT_NAME "PalmTLS KX Results"
 #define BENCH_CREATOR 'Tkxb'
@@ -174,12 +175,25 @@ static Boolean X25519(DmOpenRef db, UInt16 sample)
         Sample(db, "x25519_agreement", sample, elapsed);
 }
 
+static Boolean X25519Fixed(DmOpenRef db, UInt16 sample)
+{
+    const X25519Fixture *fixture = &kX25519Fixtures[sample];
+    UInt8 output[32];
+    Show("X25519 fixed-base public key");
+    EvtResetAutoOffTimer();
+    UInt32 start = TimGetTicks();
+    PalmTlsX25519FixedBase(output, fixture->scalar, fixture->keygenScale);
+    UInt32 elapsed = TimGetTicks() - start;
+    return MemCmp(output, fixture->publicKey, sizeof(output)) == 0 &&
+        Sample(db, "x25519_fixed_keygen", sample, elapsed);
+}
+
 static Boolean Run(DmOpenRef db)
 {
     if (!Emit(db, "case,sample,ticks,frequency\n")) return false;
     for (UInt16 sample = 0; sample < SAMPLES; sample++) {
-        Boolean ok = sample & 1 ? X25519(db, sample) && P256(db, sample) :
-            P256(db, sample) && X25519(db, sample);
+        Boolean ok = sample & 1 ? X25519Fixed(db, sample) && X25519(db, sample) && P256(db, sample) :
+            P256(db, sample) && X25519(db, sample) && X25519Fixed(db, sample);
         if (!ok) return false;
     }
     return true;
@@ -197,7 +211,7 @@ UInt32 PilotMain(UInt16 command, void *parameters, UInt16 flags)
     DmOpenRef db = OpenResults();
     Boolean success = db && Run(db);
     if (db) {
-        success = Emit(db, success ? "# complete key-exchange-v1\n" : "# FAILED\n") && success;
+        success = Emit(db, success ? "# complete key-exchange-v2\n" : "# FAILED\n") && success;
         if (DmCloseDatabase(db) != errNone) success = false;
     }
     Show(success ? "Done: results saved" : "FAILED: see results");

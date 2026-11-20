@@ -63,8 +63,9 @@ and [fixed-width verification comparison](baselines/2026-11-20-dragonball-field-
 
 The standalone 68K app times public-key generation and shared-secret
 calculation with five known-answer fixtures per curve. It links the optimized
-PalmTLS P-256 code and the pinned wolfSSL portable, blinded X25519 backend.
-Both clocks use the same PRC and a private copy of the same m515 session.
+PalmTLS P-256 code, the pinned wolfSSL portable, blinded X25519 backend, and
+the benchmark's 16-bit fixed-base X25519 key generator. Both clocks use the
+same PRC and a private copy of the same m515 session.
 
 ```sh
 make bootstrap
@@ -79,7 +80,15 @@ for clock in 1 16; do
 done
 ```
 
-See the [m515 timings and measurement boundaries](baselines/2026-11-20-dragonball-x25519).
+The host differential test compares the comb with the RFC 7748 Montgomery
+ladder using 134 scalars and three projective scales each.
+
+```sh
+python3 library/bench/check-x25519-fixed-base.py
+```
+
+[Fixed-base results](baselines/2026-11-20-dragonball-x25519-fixed-base) ·
+[Original portable comparison](baselines/2026-11-20-dragonball-x25519)
 
 ## Full and resumed TLS 1.3 handshakes
 
