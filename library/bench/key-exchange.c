@@ -3,7 +3,7 @@
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/fe_operations.h>
 #include "../src/tls_handshake_profile.h"
-#include "x25519-fixed-base.h"
+#include "x25519-68k.h"
 
 #define RESULT_NAME "PalmTLS KX Results"
 #define BENCH_CREATOR 'Tkxb'
@@ -175,7 +175,7 @@ static Boolean X25519(DmOpenRef db, UInt16 sample)
         Sample(db, "x25519_agreement", sample, elapsed);
 }
 
-static Boolean X25519Fixed(DmOpenRef db, UInt16 sample)
+static Boolean X25519Native(DmOpenRef db, UInt16 sample)
 {
     const X25519Fixture *fixture = &kX25519Fixtures[sample];
     UInt8 output[32];
@@ -184,19 +184,48 @@ static Boolean X25519Fixed(DmOpenRef db, UInt16 sample)
     UInt32 start = TimGetTicks();
     PalmTlsX25519FixedBase(output, fixture->scalar, fixture->keygenScale);
     UInt32 elapsed = TimGetTicks() - start;
-    return MemCmp(output, fixture->publicKey, sizeof(output)) == 0 &&
-        Sample(db, "x25519_fixed_keygen", sample, elapsed);
+    if (MemCmp(output, fixture->publicKey, sizeof(output)) != 0 ||
+        !Sample(db, "x25519_fixed_keygen", sample, elapsed)) return false;
+
+    Show("X25519 68K agreement");
+    EvtResetAutoOffTimer();
+    start = TimGetTicks();
+    Boolean ok = PalmTlsX25519Agree(output, fixture->scalar, fixture->peer,
+        fixture->agreeScale, fixture->agreeMask);
+    elapsed = TimGetTicks() - start;
+    return ok && MemCmp(output, fixture->shared, sizeof(output)) == 0 &&
+        Sample(db, "x25519_native_agreement", sample, elapsed);
+}
+
+static Boolean X25519InputChecks(void)
+{
+    static const UInt8 zero[32] = {0};
+    const X25519Fixture *fixture = &kX25519Fixtures[0];
+    UInt8 peer[32], output[32];
+    Show("X25519 input checks");
+    EvtResetAutoOffTimer();
+    /* Top bit set and u = p + 9 once masked, an alias of the base point. */
+    MemSet(peer, sizeof(peer), 0xff);
+    peer[0] = 0xf6;
+    if (!PalmTlsX25519Agree(output, fixture->scalar, peer, fixture->agreeScale, fixture->agreeMask) ||
+        MemCmp(output, fixture->publicKey, sizeof(output)) != 0) return false;
+
+    EvtResetAutoOffTimer();
+    /* Top bit set and u = p + 1 once masked, a low-order input. */
+    peer[0] = 0xee;
+    return !PalmTlsX25519Agree(output, fixture->scalar, peer, fixture->agreeScale, fixture->agreeMask) &&
+        MemCmp(output, zero, sizeof(output)) == 0;
 }
 
 static Boolean Run(DmOpenRef db)
 {
     if (!Emit(db, "case,sample,ticks,frequency\n")) return false;
     for (UInt16 sample = 0; sample < SAMPLES; sample++) {
-        Boolean ok = sample & 1 ? X25519Fixed(db, sample) && X25519(db, sample) && P256(db, sample) :
-            P256(db, sample) && X25519(db, sample) && X25519Fixed(db, sample);
+        Boolean ok = sample & 1 ? X25519Native(db, sample) && X25519(db, sample) && P256(db, sample) :
+            P256(db, sample) && X25519(db, sample) && X25519Native(db, sample);
         if (!ok) return false;
     }
-    return true;
+    return X25519InputChecks();
 }
 
 UInt32 PilotMain(UInt16 command, void *parameters, UInt16 flags)
@@ -211,7 +240,7 @@ UInt32 PilotMain(UInt16 command, void *parameters, UInt16 flags)
     DmOpenRef db = OpenResults();
     Boolean success = db && Run(db);
     if (db) {
-        success = Emit(db, success ? "# complete key-exchange-v2\n" : "# FAILED\n") && success;
+        success = Emit(db, success ? "# complete key-exchange-v3\n" : "# FAILED\n") && success;
         if (DmCloseDatabase(db) != errNone) success = false;
     }
     Show(success ? "Done: results saved" : "FAILED: see results");

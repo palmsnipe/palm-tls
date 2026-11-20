@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-#include "x25519-fixed-base.h"
+#include "x25519-68k.h"
 #include <string.h>
 
 typedef uint16_t u16;
@@ -29,6 +29,18 @@ static inline __attribute__((always_inline)) u32 MultiplyWord(u16 left, u16 righ
         "mulu.w %[complement],%[padding]"
         : [result] "+&d"(result), [padding] "+&d"(padding)
         : [right] "d"(right), [complement] "d"(complement) : "cc");
+    return result;
+#else
+    return (u32)left * right;
+#endif
+}
+
+/* MULU timing depends on the source word. Use the public operand there. */
+static inline __attribute__((always_inline)) u32 MultiplyPublicWord(u16 left, u16 right)
+{
+#ifdef __m68k__
+    u32 result = left;
+    __asm__("mulu.w %1,%0" : "+d"(result) : "d"(right) : "cc");
     return result;
 #else
     return (u32)left * right;
@@ -112,19 +124,32 @@ static void ReduceProduct(Field *out, const u16 product[2 * LIMBS])
     FoldCarry(out, (u16)carry);
 }
 
-static void FieldMultiply(Field *out, const Field *left, const Field *right)
+static inline __attribute__((always_inline)) void MultiplyField(Field *out,
+    const Field *left, const Field *right, bool publicRight)
 {
     u16 product[2 * LIMBS] = {0};
     for (unsigned i = 0; i < LIMBS; i++) {
         u32 carry = 0;
         for (unsigned j = 0; j < LIMBS; j++) {
-            u32 word = MultiplyWord(left->limb[i], right->limb[j]) + product[i + j] + carry;
+            u32 term = publicRight ? MultiplyPublicWord(left->limb[i], right->limb[j]) :
+                MultiplyWord(left->limb[i], right->limb[j]);
+            u32 word = term + product[i + j] + carry;
             product[i + j] = (u16)word;
             carry = word >> 16;
         }
         product[i + LIMBS] = (u16)carry;
     }
     ReduceProduct(out, product);
+}
+
+static void FieldMultiply(Field *out, const Field *left, const Field *right)
+{
+    MultiplyField(out, left, right, false);
+}
+
+static void FieldMultiplyByPublic(Field *out, const Field *left, const Field *right)
+{
+    MultiplyField(out, left, right, true);
 }
 
 static void FieldSquare(Field *out, const Field *value)
@@ -212,6 +237,19 @@ static void EncodeField(uint8_t output[32], Field *value)
     }
 }
 
+static void ClampScalar(uint8_t output[32], const uint8_t input[32])
+{
+    memcpy(output, input, 32);
+    output[0] &= 248;
+    output[31] = (output[31] & 127) | 64;
+}
+
+static void ClearWork(void *work, unsigned size)
+{
+    volatile uint8_t *bytes = work;
+    for (unsigned i = 0; i < size; i++) bytes[i] = 0;
+}
+
 /* RFC 8032 §5.1.4 doubling for a = -1. */
 static void Double(EdwardsPoint *point)
 {
@@ -279,9 +317,7 @@ void PalmTlsX25519FixedBase(uint8_t output[32], const uint8_t scalar[32],
         AffineNiels addend;
     } work = {0};
 
-    memcpy(work.scalar, scalar, sizeof(work.scalar));
-    work.scalar[0] &= 248;
-    work.scalar[31] = (work.scalar[31] & 127) | 64;
+    ClampScalar(work.scalar, scalar);
     /* Start at the Edwards identity scaled by the supplied randomizer. */
     DecodeField(&work.point.z, projectiveScale);
     work.point.y = work.point.z;
@@ -304,6 +340,121 @@ void PalmTlsX25519FixedBase(uint8_t output[32], const uint8_t scalar[32],
     FieldMultiply(&work.point.y, &work.point.y, &work.point.x);
     EncodeField(output, &work.point.y);
 
-    volatile uint8_t *bytes = (volatile uint8_t *)&work;
-    for (unsigned i = 0; i < sizeof(work); i++) bytes[i] = 0;
+    ClearWork(&work, sizeof(work));
+}
+
+typedef struct { Field x, z; } MontgomeryPoint;
+
+/* a24 = 121665 = 2^16 + 56129. The shifted term requires just the
+ * previous limb. The final carry can occupy 17 bits. */
+static void FieldMultiplyA24(Field *out, const Field *input)
+{
+    u32 carry = 0;
+    u16 previous = 0;
+    for (unsigned i = 0; i < LIMBS; i++) {
+        u16 limb = input->limb[i];
+        u32 word = (u32)limb * 56129U + previous + carry;
+        out->limb[i] = (u16)word;
+        carry = word >> 16;
+        previous = limb;
+    }
+    u16 overflow = AddWord(out, (carry + previous) * 38UL);
+    AddWord(out, 38U * overflow);
+}
+
+static void SwapPoints(MontgomeryPoint *left, MontgomeryPoint *right, u16 bit)
+{
+    u16 mask = (u16)(0U - bit);
+#ifdef __m68k__
+    /* Keep GCC from recognizing the all-zero/all-one mask as a conditional
+     * assignment and introducing a branch on the swap bit. */
+    __asm__("" : "+d"(mask));
+#endif
+    for (unsigned i = 0; i < LIMBS; i++) {
+        u16 x = (left->x.limb[i] ^ right->x.limb[i]) & mask;
+        u16 z = (left->z.limb[i] ^ right->z.limb[i]) & mask;
+        left->x.limb[i] ^= x;
+        right->x.limb[i] ^= x;
+        left->z.limb[i] ^= z;
+        right->z.limb[i] ^= z;
+    }
+}
+
+/* RFC 7748 §5 differential addition and doubling. The peer coordinate
+ * is the fixed difference of the two ladder points throughout. */
+static void LadderStep(MontgomeryPoint *left, MontgomeryPoint *right, const Field *peer)
+{
+    Field a, b, c, d;
+    FieldAdd(&a, &left->x, &left->z);
+    FieldSubtract(&b, &left->x, &left->z);
+    FieldAdd(&c, &right->x, &right->z);
+    FieldSubtract(&d, &right->x, &right->z);
+    FieldMultiply(&d, &d, &a);                      /* DA */
+    FieldMultiply(&c, &c, &b);                      /* CB */
+    FieldAdd(&right->x, &d, &c);
+    FieldSubtract(&right->z, &d, &c);
+    FieldSquare(&right->x, &right->x);
+    FieldSquare(&right->z, &right->z);
+    FieldMultiplyByPublic(&right->z, &right->z, peer);
+    FieldSquare(&a, &a);                            /* AA */
+    FieldSquare(&b, &b);                            /* BB */
+    FieldMultiply(&left->x, &a, &b);
+    FieldSubtract(&b, &a, &b);                      /* E */
+    FieldMultiplyA24(&d, &b);
+    FieldAdd(&d, &a, &d);
+    FieldMultiply(&left->z, &b, &d);
+}
+
+/* As in the portable ladder, store k XOR (2*k) XOR mask. The transitions
+ * between scalar bits are masked, and each iteration ends with the mask
+ * used by the following iteration already applied to the point order. */
+static void MaskTransitions(uint8_t scalar[32], const uint8_t mask[32])
+{
+    u16 carry = 0;
+    for (unsigned i = 0; i < 32; i++) {
+        uint8_t byte = scalar[i];
+        scalar[i] = byte ^ (uint8_t)((byte << 1) | carry) ^ mask[i];
+        carry = byte >> 7;
+    }
+}
+
+static u16 ScalarBit(const uint8_t bytes[32], unsigned bit)
+{
+    return (bytes[bit >> 3] >> (bit & 7U)) & 1U;
+}
+
+bool PalmTlsX25519Agree(uint8_t output[32], const uint8_t scalar[32],
+    const uint8_t peer[32], const uint8_t projectiveScale[32], const uint8_t swapMask[32])
+{
+    struct {
+        uint8_t scalar[32];
+        MontgomeryPoint left, right;
+        Field peer;
+    } work;
+
+    ClampScalar(work.scalar, scalar);
+    MaskTransitions(work.scalar, swapMask);
+    DecodeField(&work.peer, peer);
+    work.peer.limb[LIMBS - 1] &= 0x7fff;
+
+    /* Scaled infinity (1:0) and scaled peer (u:1). */
+    memset(&work.left.z, 0, sizeof(work.left.z));
+    DecodeField(&work.right.z, projectiveScale);
+    work.left.x = work.right.z;
+    FieldMultiplyByPublic(&work.right.x, &work.right.z, &work.peer);
+    SwapPoints(&work.left, &work.right, ScalarBit(swapMask, 255));
+    for (unsigned bit = 255; bit != 0; bit--) {
+        SwapPoints(&work.left, &work.right, ScalarBit(work.scalar, bit));
+        LadderStep(&work.left, &work.right, &work.peer);
+        SwapPoints(&work.left, &work.right, ScalarBit(swapMask, bit - 1));
+    }
+    SwapPoints(&work.left, &work.right, ScalarBit(work.scalar, 0));
+    FieldInvert(&work.left.z, &work.left.z);
+    FieldMultiply(&work.left.x, &work.left.x, &work.left.z);
+    EncodeField(output, &work.left.x);
+    ClearWork(&work, sizeof(work));
+
+    uint8_t nonzero = 0;
+    for (unsigned i = 0; i < 32; i++) nonzero |= output[i];
+    return nonzero != 0;
 }

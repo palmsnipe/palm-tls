@@ -101,7 +101,7 @@ release-bench: $(BUILD)/PalmTLSReleaseBench.prc
 	node $(TOOLCHAIN_ROOT)/tools/validate-prc.mjs $< 'PalmTLS HS Bench' appl Thsb
 	node validate-armlet.mjs $< $(ROOT)/build/palm/armc0001.bin
 
-# Standalone 68K comparison using production P-256 and two X25519 keygen paths.
+# Standalone 68K comparison using production P-256 and two X25519 backends.
 # The X25519 objects only go into this PRC.
 DEPS_PREFIX := $(if $(PALM_TLS_DEPS_PREFIX),$(PALM_TLS_DEPS_PREFIX),$(REPO)/.palm-tls/prefix)
 WOLFSSL_SRC ?= $(REPO)/.palm-tls/src/wolfssl
@@ -109,7 +109,7 @@ KX_FLAGS := $(filter-out -mpcrel -fpic,$(CFLAGS)) -DWOLFSSL_USER_SETTINGS \
     -DWOLFSSL_NO_TLS12 -DHAVE_CURVE25519 -I$(REPO)/wolfssl -I$(DEPS_PREFIX)/include
 P256_68K := $(ROOT)/build/palm/tls_p256_68k.o
 KX_ARCHIVE := $(DEPS_PREFIX)/lib/libwolfssl-tls13.a
-KX_OBJECTS := $(BUILD)/key-exchange.o $(BUILD)/x25519-portable.o $(BUILD)/x25519-fixed-base.o \
+KX_OBJECTS := $(BUILD)/key-exchange.o $(BUILD)/x25519-portable.o $(BUILD)/x25519-68k.o \
     $(P256_68K) $(BUILD)/startup.o
 
 .PHONY: key-exchange
@@ -117,12 +117,12 @@ $(P256_68K): FORCE
 	$(MAKE) -C $(ROOT) $@
 $(BUILD)/key_exchange_vectors.inc: generate-key-exchange-vectors.mjs | $(BUILD)
 	node $< $@
-$(BUILD)/key-exchange.o: key-exchange.c $(BUILD)/key_exchange_vectors.inc x25519-fixed-base.h \
+$(BUILD)/key-exchange.o: key-exchange.c $(BUILD)/key_exchange_vectors.inc x25519-68k.h \
         $(ROOT)/src/tls_handshake_profile.h $(REPO)/wolfssl/user_settings.h Makefile
 	$(CC) $(KX_FLAGS) -c $< -o $@
 $(BUILD)/x25519_comb.inc: generate-x25519-comb.mjs | $(BUILD)
 	node $< $@
-$(BUILD)/x25519-fixed-base.o: x25519-fixed-base.c x25519-fixed-base.h $(BUILD)/x25519_comb.inc Makefile
+$(BUILD)/x25519-68k.o: x25519-68k.c x25519-68k.h $(BUILD)/x25519_comb.inc Makefile
 	$(CC) $(filter-out -mpcrel -fpic,$(CFLAGS)) -c $< -o $@
 $(BUILD)/x25519-portable.o: $(WOLFSSL_SRC)/wolfcrypt/src/fe_operations.c \
         $(REPO)/wolfssl/user_settings.h $(KX_ARCHIVE) Makefile | $(BUILD)

@@ -8,10 +8,12 @@ from results import extract_records
 
 CASES = ('p256_keygen', 'p256_agreement', 'x25519_keygen', 'x25519_agreement')
 FIXED_CASE = 'x25519_fixed_keygen'
+NATIVE_AGREEMENT = 'x25519_native_agreement'
 COLUMNS = ('case', 'sample', 'ticks', 'frequency')
 VERSIONS = {
     '# complete key-exchange-v1': CASES,
     '# complete key-exchange-v2': CASES + (FIXED_CASE,),
+    '# complete key-exchange-v3': CASES + (FIXED_CASE, NATIVE_AGREEMENT),
 }
 
 

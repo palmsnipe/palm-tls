@@ -1,0 +1,32 @@
+{
+  "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+  "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+  "prc_sha256": "babd2b65227d3ebd4b90dbfecdc25e846b69b8ae922a9180aef5fcf4eb45402f",
+  "git_revision": "0151fdd1c650f3ccb754c55873f29044b1f02faa",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "01e5f2da3cd0e47e55eb579d59873ee4500902252dc7dcbec7004b3822647b25"
+  },
+  "platform": "Palm m515, Palm OS 4.1, CloudpilotEmu DragonBall CLI",
+  "toolchain": "m68k-none-elf-gcc 16.1.0, -m68000 -mshort -Os",
+  "palm_ticks_per_second": 100,
+  "dragonball_overclocks": [
+    1,
+    16
+  ],
+  "samples_per_operation": 5,
+  "native_object_text_bytes": 9640,
+  "generated_table_sha256": "7b1eac24047c5392f4cf12a9a0437d0a5210cc7e9d27c1973528df316b9a8e0f",
+  "source_sha256": {
+    "library/bench/Makefile": "52b4eccaabf36f65dc7c4e222726d60a0702d8d603f848d29d7cb8b703b66e19",
+    "library/bench/key-exchange.c": "4e397c86631abc680f2d374c48c2a9360ffa55beb049fdf115f1c3dd4fd38178",
+    "library/bench/x25519-68k.c": "fd7369d89ff6c87ff95fcbff1c2df76699c1c312d9640f27e6aab2f32caef5dc",
+    "library/bench/x25519-68k.h": "bf26ce580eae73c4575f337ebb195ea766037d628690982c30470d27ceda069b",
+    "library/bench/generate-x25519-comb.mjs": "2e9cd47eb85a7b5fb48280a37a80b67c0ea44aabeb60387c1f30a014fd0c8bc1",
+    "library/bench/generate-key-exchange-vectors.mjs": "5e6d5a1974030388f42c1c20061c6de77c0de15946fcd36f3e716519edae7544",
+    "library/src/tls_p256_68k.c": "854d0b9f5b457af6fa90c80f6938f90631eca392846f978fff4391306567b9d2",
+    ".palm-tls/src/wolfssl/wolfcrypt/src/fe_operations.c": "fef462c43a433c4aeb7b2aca34da67ea6e43695c6c7065994abfd56e62065c32"
+  }
+}
