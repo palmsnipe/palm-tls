@@ -1,0 +1,40 @@
+{
+  "session_sha256": "5f208009b2a26a044961a876b7461155916446ada671670d8eac0d996c175bb6",
+  "emulator_sha256": "6894c538666df16dfce41b26704a6eb274fad1d621163a961fb8f17d68a7027e",
+  "prc_sha256": "3bffb1fdf0840efe4fd03f3c42a4fb10c27b03352842964578b0b6047929c6c0",
+  "git_revision": "399a550e5d23dd8162833590ad80c3d28258c698",
+  "wolfssl": {
+    "version": "5.9.4",
+    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+    "fast_hex": 1,
+    "fingerprint": "bfd7da532abcfdfbaa880bf82b24b866f2d0c5f05e0d9f7ff5884fd714658b0c"
+  },
+  "platform": "Palm m515, Palm OS 4.1, CloudpilotEmu DragonBall CLI",
+  "toolchain": "m68k-none-elf-gcc 16.1.0, -m68000 -mshort -Os",
+  "palm_ticks_per_second": 100,
+  "samples_per_case": 5,
+  "fixture": {
+    "trust_anchor_count": 8,
+    "trust_bytes": 4560,
+    "trust_sha256": "956bd2d265a0c780fbe255835dbf6c437b6bed2e6aeb5c6dee799c58fa0673aa",
+    "leaf_sha256": "aea233816457e554350bbd55c4e553891e0a0a553b3fd52ac8458c40b4fe8d8b",
+    "port": 23443,
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "tls13_group": "x25519"
+  },
+  "fixture_cipher": "TLS_AES_128_GCM_SHA256",
+  "field_instruction_count_platform": "Unicorn 2.1.4 M68000",
+  "field_instruction_samples": 32,
+  "library_sha256": {
+    "baseline": "a2bab648a0e0d2ec20d5515810fbe066fdb0ca12c4459bb3cc97505416af7a63",
+    "candidate": "606d63bc51a07e8ee7976f1a5ecb1ad7f39728fc935dc5fc68fd7681f2d7cab5"
+  },
+  "oracle_elf_sha256": {
+    "baseline": "6af49baf21be4d265613db57b2b7aa462343d5da955edf30623ecd563d3a5202",
+    "candidate": "9be0bc0335c41db2ec52cad8ecd9fa4085a72a0175e0673151ff5af7f1b29e7d"
+  },
+  "candidate_source_sha256": {
+    "library/src/tls_p256_68k.c": "00d9b7143b9d4195c893eddc2963e1383c899c2fb85736b1a3005cbefc97b23a",
+    "library/tests/p256_field_68k_test.py": "a93268f2301fbd56525a42eb29fe74e95f24250b9c4b7cb6bbe0be2ea2607236"
+  }
+}

@@ -77,7 +77,8 @@ python3 library/bench/handshake_results.py --dragonball --signature \
   library/build/bench/dragonball/run/results.csv
 ```
 
-[68K signature profile and optimization](baselines/2026-11-20-dragonball-signature-profile)
+[68K signature profile and optimization](baselines/2026-11-20-dragonball-signature-profile) ·
+[Public P-256 field kernels](baselines/2026-11-20-dragonball-p256-field-kernels)
 
 ## DragonBall X25519 and P-256 key exchange
 

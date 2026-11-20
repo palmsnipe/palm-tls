@@ -267,79 +267,155 @@ static void FeMontgomeryReducePublic(Fe256 *out, u16 *product)
     FeReduce(out, product + FIELD_LIMBS, product[2 * FIELD_LIMBS]);
 }
 
-/* Accumulate one Comba column in 48 bits. The pointers move toward each
- * other, and squaring reads each off-diagonal product only once. */
-static inline __attribute__((always_inline)) void PublicColumn(const u16 *left,
-    const u16 *right, u16 count, u32 *low, u16 *high, bool twice)
+enum { HALF_LIMBS = FIELD_LIMBS / 2, HALF_PRODUCT_LIMBS = 2 * HALF_LIMBS };
+_Static_assert(HALF_LIMBS == 8, "public Comba kernels use eight-word halves");
+
+/* Expand the constant bounds in the assembler. Each column has a 32-bit
+ * accumulator and a separate carry word. */
+#define HALF_COMBA_START \
+    ".set .Lcolumn%=,0\n\t" \
+    ".rept 15\n\t" \
+    ".set .Lfirst%=,0\n\t" \
+    ".if .Lcolumn%= > 7\n\t" \
+    ".set .Lfirst%=,.Lcolumn%= - 7\n\t" \
+    ".endif\n\t" \
+    ".set .Lword%=,.Lfirst%=\n\t" \
+    "moveq #0,%[high]\n\t"
+#define HALF_ADD_PRODUCT \
+    "move.w (2*.Lword%=)(%[left]),%[term]\n\t" \
+    "mulu.w (2*(.Lcolumn%= - .Lword%=))(%[right]),%[term]\n\t" \
+    "add.l %[term],%[low]\n\taddx.w %[zero],%[high]\n\t" \
+    ".set .Lword%=,.Lword%= + 1\n\t"
+#define HALF_COMBA_NEXT \
+    "move.w %[low],(%[out])+\n\t" \
+    "move.w %[high],%[low]\n\tswap %[low]\n\t"
+
+static void MultiplyHalf(u16 *out, const u16 *left, const u16 *right)
 {
-    u32 product;
-    if (count == 0)
-        return;
-    --count;
-    ++right;
-#define ADD_PRODUCT "add.l %[product],%[low]\n\taddx.w %[zero],%[high]\n\t"
-#define PUBLIC_COLUMN(add) \
-    __asm__("1: move.w (%[left])+,%[product]\n\t" \
-        "mulu.w -(%[right]),%[product]\n\t" add "dbra %[count],1b" \
-        : [left] "+&a"(left), [right] "+&a"(right), [count] "+&d"(count), \
-          [low] "+&d"(*low), [high] "+&d"(*high), [product] "=&d"(product) \
-        : [zero] "d"((u16)0) : "cc", "memory")
-    if (twice) {
-        PUBLIC_COLUMN(ADD_PRODUCT ADD_PRODUCT);
-    }
-    else {
-        PUBLIC_COLUMN(ADD_PRODUCT);
-    }
-#undef PUBLIC_COLUMN
-#undef ADD_PRODUCT
+    u32 low = 0, term;
+    u16 high;
+    __asm__ volatile(
+        HALF_COMBA_START
+        ".rept .Lcolumn%= - 2*.Lfirst%= + 1\n\t"
+        HALF_ADD_PRODUCT
+        ".endr\n\t"
+        HALF_COMBA_NEXT
+        ".set .Lcolumn%=,.Lcolumn%= + 1\n\t"
+        ".endr\n\t"
+        "move.w %[low],(%[out])"
+        : [out] "+&a"(out), [low] "+&d"(low), [high] "=&d"(high), [term] "=&d"(term)
+        : [left] "a"(left), [right] "a"(right), [zero] "d"((u16)0) : "cc", "memory");
 }
 
-static inline __attribute__((always_inline)) u32 ForwardColumn(u32 low, u16 high)
+static void SquareHalf(u16 *out, const u16 *value)
 {
-    __asm__("move.w %1,%0\n\tswap %0" : "+d"(low) : "d"(high) : "cc");
-    return low;
+    u32 low, carry = 0, term;
+    u16 high;
+    __asm__ volatile(
+        HALF_COMBA_START
+        "moveq #0,%[low]\n\t"
+        ".rept (.Lcolumn%= + 1)/2 - .Lfirst%=\n\t"
+        HALF_ADD_PRODUCT
+        ".endr\n\t"
+        /* Double the sum of the off-diagonal terms once per column. */
+        ".if (.Lcolumn%= + 1)/2 > .Lfirst%=\n\t"
+        "add.l %[low],%[low]\n\taddx.w %[high],%[high]\n\t"
+        ".endif\n\t"
+        "add.l %[carry],%[low]\n\taddx.w %[zero],%[high]\n\t"
+        ".if (.Lcolumn%= & 1) == 0\n\t"
+        HALF_ADD_PRODUCT
+        ".endif\n\t"
+        HALF_COMBA_NEXT
+        "move.l %[low],%[carry]\n\t"
+        ".set .Lcolumn%=,.Lcolumn%= + 1\n\t"
+        ".endr\n\t"
+        "move.w %[carry],(%[out])"
+        : [out] "+&a"(out), [carry] "+&d"(carry), [low] "=&d"(low),
+          [high] "=&d"(high), [term] "=&d"(term)
+        : [left] "a"(value), [right] "a"(value), [zero] "d"((u16)0) : "cc", "memory");
+}
+
+#undef HALF_COMBA_START
+#undef HALF_ADD_PRODUCT
+#undef HALF_COMBA_NEXT
+
+/* Return the sign of low - high and write its magnitude. The caller
+ * only supplies public coordinates or verification intermediates. */
+static bool HalfDifference(u16 *out, const Fe256 *value)
+{
+    const u16 *low = value->v;
+    const u16 *high = low + HALF_LIMBS;
+    bool negative = false;
+    for (unsigned i = HALF_LIMBS; i > 0; --i) {
+        if (low[i - 1] != high[i - 1]) {
+            negative = low[i - 1] < high[i - 1];
+            break;
+        }
+    }
+    const u16 *larger = negative ? high : low;
+    const u16 *smaller = negative ? low : high;
+    u32 borrow = 0;
+    for (unsigned i = 0; i < HALF_LIMBS; ++i) {
+        u32 word = (u32)larger[i] - smaller[i] - borrow;
+        out[i] = (u16)word;
+        borrow = word >> 31;
+    }
+    return negative;
+}
+
+/* Reassemble the exact 512-bit product. With B = 2^128, the coefficient of
+ * B is lowProduct + highProduct - (aLow - aHigh)*(bLow - bHigh).
+ * Its magnitude can occupy 257 bits, so keep the extra carry word. */
+static void CombineHalfProducts(u16 *product, u16 *middle, bool subtract)
+{
+    u16 mask = subtract ? 0xffff : 0;
+    int32_t carry = 0;
+    for (unsigned i = 0; i < HALF_PRODUCT_LIMBS; ++i) {
+        int32_t term = (int32_t)(middle[i] ^ mask) - mask;
+        int32_t word = (int32_t)product[i] + product[i + HALF_PRODUCT_LIMBS] + term + carry;
+        middle[i] = (u16)word;
+        carry = word >> 16;
+    }
+    middle[HALF_PRODUCT_LIMBS] = (u16)carry;
+
+    u32 carryWord = 0;
+    u16 *dest = product + HALF_LIMBS;
+    for (unsigned i = 0; i <= HALF_PRODUCT_LIMBS; ++i) {
+        u32 word = (u32)*dest + middle[i] + carryWord;
+        *dest++ = (u16)word;
+        carryWord = word >> 16;
+    }
+    while (carryWord) {
+        u32 word = (u32)*dest + carryWord;
+        *dest++ = (u16)word;
+        carryWord = word >> 16;
+    }
 }
 
 static void FeMultiplyPublic(Fe256 *out, const Fe256 *left, const Fe256 *right)
 {
-    u16 product[2 * FIELD_LIMBS + 1];
-    u32 low = 0;
-    for (unsigned column = 0; column < 2 * FIELD_LIMBS - 1; ++column) {
-        unsigned first = column < FIELD_LIMBS ? 0 : column - (FIELD_LIMBS - 1);
-        unsigned last = column - first;
-        u16 high = 0;
-        PublicColumn(left->v + first, right->v + last, last - first + 1,
-            &low, &high, false);
-        product[column] = (u16)low;
-        low = ForwardColumn(low, high);
-    }
-    product[2 * FIELD_LIMBS - 1] = (u16)low;
+    u16 product[2 * FIELD_LIMBS + 1], middle[HALF_PRODUCT_LIMBS + 1];
+    u16 leftDiff[HALF_LIMBS], rightDiff[HALF_LIMBS];
+    bool leftNegative = HalfDifference(leftDiff, left);
+    bool rightNegative = HalfDifference(rightDiff, right);
+    MultiplyHalf(product, left->v, right->v);
+    MultiplyHalf(product + HALF_PRODUCT_LIMBS, left->v + HALF_LIMBS, right->v + HALF_LIMBS);
+    MultiplyHalf(middle, leftDiff, rightDiff);
     product[2 * FIELD_LIMBS] = 0;
+    CombineHalfProducts(product, middle, leftNegative == rightNegative);
     FeMontgomeryReducePublic(out, product);
 }
 
 static void FeSquarePublic(Fe256 *out, const Fe256 *value)
 {
-    u16 product[2 * FIELD_LIMBS + 1];
-    u32 low = 0;
-    for (unsigned column = 0; column < 2 * FIELD_LIMBS - 1; ++column) {
-        unsigned first = column < FIELD_LIMBS ? 0 : column - (FIELD_LIMBS - 1);
-        u16 high = 0;
-        PublicColumn(value->v + first, value->v + (column - first),
-            (column + 1) / 2 - first, &low, &high, true);
-        if ((column & 1U) == 0) {
-            u16 limb = value->v[column / 2];
-            u32 diagonal = limb;
-            __asm__("mulu.w %[limb],%[diagonal]\n\t"
-                "add.l %[diagonal],%[low]\n\taddx.w %[zero],%[high]"
-                : [low] "+&d"(low), [high] "+&d"(high), [diagonal] "+&d"(diagonal)
-                : [limb] "d"(limb), [zero] "d"((u16)0) : "cc");
-        }
-        product[column] = (u16)low;
-        low = ForwardColumn(low, high);
-    }
-    product[2 * FIELD_LIMBS - 1] = (u16)low;
+    u16 product[2 * FIELD_LIMBS + 1], middle[HALF_PRODUCT_LIMBS + 1];
+    u16 difference[HALF_LIMBS];
+    HalfDifference(difference, value);
+    SquareHalf(product, value->v);
+    SquareHalf(product + HALF_PRODUCT_LIMBS, value->v + HALF_LIMBS);
+    SquareHalf(middle, difference);
     product[2 * FIELD_LIMBS] = 0;
+    CombineHalfProducts(product, middle, true);
     FeMontgomeryReducePublic(out, product);
 }
 

@@ -1,0 +1,6 @@
+# 897 linked field cases passed
+variant,operation,median_instructions,min_instructions,max_instructions
+baseline,multiply,3371,3325,3411
+baseline,square,3295.5,3259,3347
+candidate,multiply,2967.5,2918,3010
+candidate,square,2725.5,2689,2774
