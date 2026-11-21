@@ -25,6 +25,10 @@ typedef uint8_t UInt8;
 typedef uint16_t UInt16;
 typedef uint32_t UInt32 __attribute__((aligned(2)));
 typedef int Boolean;
+typedef int Err;
+typedef void *MemHandle;
+typedef struct { UInt16 status, platformError; } PalmTlsEngineResult;
+enum { palmTlsStatusResourceMissing = 1, palmTlsStatusNoMemory = 2 };
 #define false 0
 #define true 1
 #define errNone 0
@@ -32,7 +36,10 @@ typedef int Boolean;
 #pragma pack(push,2)
 typedef struct { UInt16 sourceSegment; UInt32 sourceOffset; } PalmTlsRelocation;
 #pragma pack(pop)
-static int live, failAlloc, failWrite;
+static int live, failAlloc, failWrite, failLock, writes;
+static void *MemHandleLock(MemHandle handle) { return failLock ? NULL : handle; }
+static void MemHandleUnlock(MemHandle handle) { assert(handle); }
+static void DmReleaseResource(MemHandle handle) { assert(handle); }
 static void *MemPtrNew(UInt32 size) {
     void *p;
     if(failAlloc) return 0;
@@ -40,6 +47,7 @@ static void *MemPtrNew(UInt32 size) {
 }
 static void MemPtrFree(void *p) { assert(p);live--;free(p); }
 static int DmWrite(void *p, UInt32 offset, const void *value, UInt32 size) {
+    writes++;
     if(failWrite) return 1;
     memcpy((UInt8 *)p+offset,value,size);return 0;
 }
@@ -55,8 +63,17 @@ static UInt32 ReferenceAddress(UInt32 linked, UInt8 **segments) {
         return (UInt32)(uintptr_t)segments[i]+linked-bases[i];
     return linked;
 }
+static Boolean TestApply(Table *table, UInt32 size, UInt8 **segments,
+                         const UInt32 *sizes, const MemHandle *sourceHandles)
+{
+    MemHandle handles[PALM_TLS_SEGMENT_COUNT];
+    PalmTlsEngineResult result = {0};
+    memcpy(handles, sourceHandles, sizeof(handles));
+    return ApplyRelocations((UInt8 *)table,size,segments,sizes,handles,&result);
+}
 int main(void) {
-    UInt32 words[5][16];
+    UInt32 words[5][16], input[5][16] = {0};
+    MemHandle sources[5]={input[0],input[1],input[2],input[3],input[4]};
     UInt8 *segments[5]={0}; UInt32 sizes[5]={64,64,64,64,64};
     Table table={1,5,{{3,14},{0,2},{2,10},{1,6},{0,60}}};
     UInt32 links[5]={PALM_TLS5_LINK_BASE+20,PALM_TLS2_LINK_BASE+8,
@@ -65,8 +82,8 @@ int main(void) {
     assert(sizeof(PalmTlsRelocation)==6);
     memset(words,0,sizeof(words));
     for(i=0;i<4;i++) segments[i]=(UInt8 *)words[i];
-    for(i=0;i<5;i++) memcpy(segments[table.entries[i].sourceSegment]+table.entries[i].sourceOffset,&links[i],4);
-    assert(ApplyRelocations((UInt8 *)&table,34,segments,sizes));
+    for(i=0;i<5;i++) memcpy((UInt8 *)sources[table.entries[i].sourceSegment]+table.entries[i].sourceOffset,&links[i],4);
+    assert(TestApply(&table,34,segments,sizes,sources));
     assert(!live);
     for(i=0;i<5;i++) {
         memcpy(&actual,segments[table.entries[i].sourceSegment]+table.entries[i].sourceOffset,4);
@@ -82,39 +99,54 @@ int main(void) {
         }
     }
     table.version=2;
-    assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));table.version=1;
-    assert(!ApplyRelocations((UInt8 *)&table,33,segments,sizes));
-    assert(!ApplyRelocations((UInt8 *)&table,3,segments,sizes));
+    assert(!TestApply(&table,34,segments,sizes,sources));table.version=1;
+    assert(!TestApply(&table,33,segments,sizes,sources));
+    assert(!TestApply(&table,3,segments,sizes,sources));
     table.entries[0].sourceOffset=1;
-    assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));
+    assert(!TestApply(&table,34,segments,sizes,sources));
     table.entries[0].sourceOffset=62;
-    assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));
+    assert(!TestApply(&table,34,segments,sizes,sources));
     table.entries[0].sourceOffset=0xfffffffe;
-    assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));
+    assert(!TestApply(&table,34,segments,sizes,sources));
     table.entries[0].sourceOffset=0;sizes[3]=2;
-    assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));sizes[3]=64;
+    assert(!TestApply(&table,34,segments,sizes,sources));sizes[3]=64;
     table.entries[0].sourceSegment=4;
-    assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));table.entries[0].sourceSegment=3;
+    assert(!TestApply(&table,34,segments,sizes,sources));table.entries[0].sourceSegment=3;
     failAlloc=1;
-    assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));failAlloc=0;
+    assert(!TestApply(&table,34,segments,sizes,sources));failAlloc=0;
     failWrite=1;
-    assert(!ApplyRelocations((UInt8 *)&table,34,segments,sizes));
+    assert(!TestApply(&table,34,segments,sizes,sources));
     failWrite=0;
     segments[4]=(UInt8 *)words[4];
     table.count=1;
     table.entries[0].sourceSegment=4;
     actual=PALM_TLS6_LINK_BASE+12;
-    memcpy(segments[4],&actual,4);
-    assert(ApplyRelocations((UInt8 *)&table,10,segments,sizes));
+    memcpy(sources[4],&actual,4);
+    assert(TestApply(&table,10,segments,sizes,sources));
     memcpy(&actual,segments[4],4);
     assert(actual==(UInt32)(uintptr_t)segments[4]+12);
     table.entries[0].sourceSegment=PALM_TLS_WRITABLE_SEGMENT;
     actual=PALM_TLS5_LINK_BASE+12;
-    memcpy(segments[PALM_TLS_WRITABLE_SEGMENT],&actual,4);
+    memcpy(sources[PALM_TLS_WRITABLE_SEGMENT],&actual,4);
     failAlloc=failWrite=1;
-    assert(ApplyRelocations((UInt8 *)&table,10,segments,sizes));
+    for (i=0; i<5; i++)
+        if (i != PALM_TLS_WRITABLE_SEGMENT) segments[i]=NULL;
+    assert(TestApply(&table,10,segments,sizes,sources));
     memcpy(&actual,segments[PALM_TLS_WRITABLE_SEGMENT],4);
     assert(actual==(UInt32)(uintptr_t)segments[PALM_TLS_WRITABLE_SEGMENT]+12);
+    failAlloc=failWrite=0;
+    for(i=0;i<5;i++) segments[i]=(UInt8 *)words[i];
+    /* Two entries in one run produce one write for bank 0. The three
+       other storage banks have no entries and still get copied once. */
+    table.count=2;
+    table.entries[0]=(PalmTlsRelocation){0,2};
+    table.entries[1]=(PalmTlsRelocation){0,60};
+    writes=0;
+    assert(TestApply(&table,16,segments,sizes,sources));
+    assert(writes==4);
+    for (i=1;i<5;i++) assert(memcmp(words[i],input[i],64)==0);
+    failLock=1;
+    assert(!TestApply(&table,16,segments,sizes,sources));
     assert(!live);
     return 0;
 }

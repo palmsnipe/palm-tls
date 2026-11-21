@@ -68,12 +68,39 @@ static UInt32 RuntimeAddress(UInt32 linkedAddress, const UInt32 *deltas)
     return linkedAddress;
 }
 
+static Boolean CopySegment(MemHandle *sourceHP, UInt8 *destP, UInt32 size,
+                           Boolean storage, PalmTlsEngineResult *resultP)
+{
+    MemHandle sourceH = *sourceHP;
+    const void *sourceP = MemHandleLock(sourceH);
+    if (sourceP == 0) {
+        resultP->status = palmTlsStatusResourceMissing;
+        return false;
+    }
+    Err error = errNone;
+    if (storage)
+        error = DmWrite(destP, 0, sourceP, size);
+    else
+        MemMove(destP, sourceP, size);
+    MemHandleUnlock(sourceH);
+    DmReleaseResource(sourceH);
+    *sourceHP = 0;
+    if (error != errNone) {
+        resultP->status = palmTlsStatusNoMemory;
+        resultP->platformError = error;
+        return false;
+    }
+    return true;
+}
+
 static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
-                                UInt8 **segments, UInt32 *segmentSizes)
+                                UInt8 **segments, const UInt32 *segmentSizes,
+                                MemHandle *sourceHandles,
+                                PalmTlsEngineResult *resultP)
 {
     const UInt16 *headerP = (const UInt16 *)relocationsP;
     const PalmTlsRelocation *entryP, *endP;
-    UInt16 count;
+    UInt16 count, initialized = 0;
     UInt32 deltas[8];
 
     if (relocSize < 4 || headerP[0] != PALM_TLS_RELOC_VERSION) return false;
@@ -84,8 +111,8 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
     endP = entryP + count;
     RuntimeDeltas(deltas, segments);
 
-    /* Generated tables group entries by segment. Process each run once.
-     * Ungrouped tables still work, in their original order. */
+    /* Relocate the source in scratch before the first storage write.
+     * For an ungrouped table, later runs start with the relocated copy. */
     while (entryP != endP) {
         UInt16 segment = entryP->sourceSegment;
         if (segment >= PALM_TLS_SEGMENT_COUNT || !segments[segment])
@@ -98,6 +125,15 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
         if (storage) {
             scratchP = (UInt8 *)MemPtrNew(size);
             if (!scratchP) return false;
+        }
+        UInt16 bit = 1U << segment;
+        if (!(initialized & bit)) {
+            if (!CopySegment(&sourceHandles[segment], scratchP, size, false, resultP)) {
+                if (storage) MemPtrFree(scratchP);
+                return false;
+            }
+            initialized |= bit;
+        } else if (storage) {
             MemMove(scratchP, segments[segment], size);
         }
         do {
@@ -117,6 +153,12 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
             MemPtrFree(scratchP);
             if (!written) return false;
         }
+    }
+    for (UInt16 segment = 0; segment < PALM_TLS_SEGMENT_COUNT; segment++) {
+        if (segments[segment] && !(initialized & (1U << segment)) &&
+            !CopySegment(&sourceHandles[segment], segments[segment], segmentSizes[segment],
+                         segment != PALM_TLS_WRITABLE_SEGMENT, resultP))
+            return false;
     }
     return true;
 }
@@ -230,7 +272,6 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
         engineP->loadProfile.calls[palmTlsLoadSetup] = 1; cursor = now;
     }
     for (index = 0; index < segmentCount; index++) {
-        const UInt8 *resourceP;
         resourceHandles[index] = GetLibraryResource(libraryDbP,
             PALM_TLS_SEGMENT_TYPE,
             (DmResID)(firstSegmentId + index));
@@ -239,17 +280,11 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
             goto cleanup;
         }
         engineP->sizes[index] = MemHandleSize(resourceHandles[index]);
-        resourceP = (const UInt8 *)MemHandleLock(resourceHandles[index]);
-        if (resourceP == 0) {
-            resultP->status = palmTlsStatusResourceMissing;
-            goto cleanup;
-        }
         engineP->segmentHandles[index] = index != PALM_TLS_WRITABLE_SEGMENT
             ? DmNewResource(engineP->workDbP, PALM_TLS_WORK_TYPE, index,
                 engineP->sizes[index])
             : MemHandleNew(engineP->sizes[index]);
         if (engineP->segmentHandles[index] == 0) {
-            MemHandleUnlock(resourceHandles[index]);
             resultP->status = palmTlsStatusNoMemory;
             resultP->platformError = DmGetLastErr();
             goto cleanup;
@@ -257,7 +292,6 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
         if (index == PALM_TLS_WRITABLE_SEGMENT) {
             Err error = MemHandleSetOwner(engineP->segmentHandles[index], 0);
             if (error != errNone) {
-                MemHandleUnlock(resourceHandles[index]);
                 resultP->status = palmTlsStatusNoMemory;
                 resultP->platformError = error;
                 goto cleanup;
@@ -266,25 +300,9 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
         engineP->segments[index] = (UInt8 *)MemHandleLock(
             engineP->segmentHandles[index]);
         if (engineP->segments[index] == 0) {
-            MemHandleUnlock(resourceHandles[index]);
             resultP->status = palmTlsStatusNoMemory;
             goto cleanup;
         }
-        if (index != PALM_TLS_WRITABLE_SEGMENT) {
-            if (DmWrite(engineP->segments[index], 0, resourceP,
-                    engineP->sizes[index]) != errNone) {
-                MemHandleUnlock(resourceHandles[index]);
-                resultP->status = palmTlsStatusNoMemory;
-                resultP->platformError = DmGetLastErr();
-                goto cleanup;
-            }
-        } else {
-            MemMove(engineP->segments[index], resourceP,
-                engineP->sizes[index]);
-        }
-        MemHandleUnlock(resourceHandles[index]);
-        DmReleaseResource(resourceHandles[index]);
-        resourceHandles[index] = 0;
     }
 
     if (profile) {
@@ -300,8 +318,10 @@ static Boolean LoadEngine(PalmTlsLibraryState *stateP, UInt16 protocol,
     }
     relocationsP = (const UInt8 *)MemHandleLock(relocH);
     if (relocationsP == 0 || !ApplyRelocations(relocationsP,
-            MemHandleSize(relocH), engineP->segments, engineP->sizes)) {
-        resultP->status = palmTlsStatusRelocationFailed;
+            MemHandleSize(relocH), engineP->segments, engineP->sizes,
+            resourceHandles, resultP)) {
+        if (resultP->status == palmTlsStatusOk)
+            resultP->status = palmTlsStatusRelocationFailed;
         goto cleanup;
     }
 

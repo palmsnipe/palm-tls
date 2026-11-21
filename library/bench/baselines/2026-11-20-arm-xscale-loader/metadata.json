@@ -1,0 +1,162 @@
+{
+  "baseline": "c3eb3bf",
+  "anchor_count": 8,
+  "batches": {
+    "e2-base": {
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "791c9dca3a14166482375476dffcf98e3e805c38efd36753117b50b6f1c16f6f",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Tungsten E2",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-base-profile": {
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "791c9dca3a14166482375476dffcf98e3e805c38efd36753117b50b6f1c16f6f",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Tungsten E2",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-heap": {
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "0e3c3c007f2e4de8506ac1b02a010f43029b18f3788a0f472d63cc26a1714422",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Tungsten E2",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-heap-profile": {
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "0e3c3c007f2e4de8506ac1b02a010f43029b18f3788a0f472d63cc26a1714422",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Tungsten E2",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-storage-final": {
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "85c3eb6fce37a7b823a3907445eeee96f1d22d78e0338ff928a8231f59a6fb4f",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Tungsten E2",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "e2-storage-final-profile": {
+      "mips": 100,
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "85c3eb6fce37a7b823a3907445eeee96f1d22d78e0338ff928a8231f59a6fb4f",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Tungsten E2",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-base": {
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "791c9dca3a14166482375476dffcf98e3e805c38efd36753117b50b6f1c16f6f",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Palm TX",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-base-profile": {
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "791c9dca3a14166482375476dffcf98e3e805c38efd36753117b50b6f1c16f6f",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Palm TX",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-heap": {
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "0e3c3c007f2e4de8506ac1b02a010f43029b18f3788a0f472d63cc26a1714422",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Palm TX",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-heap-profile": {
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "0e3c3c007f2e4de8506ac1b02a010f43029b18f3788a0f472d63cc26a1714422",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Palm TX",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-storage-final": {
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+      "library_sha256": "85c3eb6fce37a7b823a3907445eeee96f1d22d78e0338ff928a8231f59a6fb4f",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Palm TX",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    },
+    "tx-storage-final-profile": {
+      "mips": 100,
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374",
+      "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce",
+      "prc_sha256": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+      "library_sha256": "85c3eb6fce37a7b823a3907445eeee96f1d22d78e0338ff928a8231f59a6fb4f",
+      "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+      "arm_image_bytes": 63420,
+      "device": "Palm TX",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "group": "p256"
+    }
+  },
+  "trust.pem_sha256": "8cbf846c6f56a1c84bfe1bdfa6ed449e1102a608a4722a5ea7bfd2005ce8381a",
+  "server.der_sha256": "89938ee3285702303239ea68297a822f3798a0fc1346bc9aabc6718adfc0a7b4",
+  "storage_pressure_checks": {
+    "pxa255": {
+      "free_bytes_before_run": 539992,
+      "cold_storage_opens": 5
+    },
+    "pxa270": {
+      "free_bytes_before_run": 539992,
+      "cold_storage_opens": 5
+    }
+  }
+}
