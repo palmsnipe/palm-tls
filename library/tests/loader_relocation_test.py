@@ -36,14 +36,18 @@ enum { palmTlsStatusResourceMissing = 1, palmTlsStatusNoMemory = 2 };
 #pragma pack(push,2)
 typedef struct { UInt16 sourceSegment; UInt32 sourceOffset; } PalmTlsRelocation;
 #pragma pack(pop)
-static int live, failAlloc, failWrite, failLock, writes;
+static int live, allocations, failAlloc, failWrite, failLock, writes;
+static UInt32 peakScratch;
 static void *MemHandleLock(MemHandle handle) { return failLock ? NULL : handle; }
 static void MemHandleUnlock(MemHandle handle) { assert(handle); }
 static void DmReleaseResource(MemHandle handle) { assert(handle); }
 static void *MemPtrNew(UInt32 size) {
     void *p;
     if(failAlloc) return 0;
-    p=malloc(size);if(p) live++;return p;
+    assert(live == 0); /* At most one segment of scratch at a time. */
+    p=malloc(size);
+    if (p) { live++; allocations++; if (size > peakScratch) peakScratch=size; }
+    return p;
 }
 static void MemPtrFree(void *p) { assert(p);live--;free(p); }
 static int DmWrite(void *p, UInt32 offset, const void *value, UInt32 size) {
@@ -63,13 +67,15 @@ static UInt32 ReferenceAddress(UInt32 linked, UInt8 **segments) {
         return (UInt32)(uintptr_t)segments[i]+linked-bases[i];
     return linked;
 }
-static Boolean TestApply(Table *table, UInt32 size, UInt8 **segments,
+static Boolean TestApply(const void *table, UInt32 size, UInt8 **segments,
                          const UInt32 *sizes, const MemHandle *sourceHandles)
 {
     MemHandle handles[PALM_TLS_SEGMENT_COUNT];
     PalmTlsEngineResult result = {0};
     memcpy(handles, sourceHandles, sizeof(handles));
-    return ApplyRelocations((UInt8 *)table,size,segments,sizes,handles,&result);
+    Boolean ok = ApplyRelocations(table,size,segments,sizes,handles,&result);
+    assert(!live);
+    return ok;
 }
 int main(void) {
     UInt32 words[5][16], input[5][16] = {0};
@@ -98,7 +104,7 @@ int main(void) {
             assert(RuntimeAddress(address,deltas)==ReferenceAddress(address,segments));
         }
     }
-    table.version=2;
+    table.version=3;
     assert(!TestApply(&table,34,segments,sizes,sources));table.version=1;
     assert(!TestApply(&table,33,segments,sizes,sources));
     assert(!TestApply(&table,3,segments,sizes,sources));
@@ -148,6 +154,62 @@ int main(void) {
     failLock=1;
     assert(!TestApply(&table,16,segments,sizes,sources));
     assert(!live);
+    failLock=0;
+
+    /* Compare the complete relocated images including untouched bytes.
+       Source 0 has two target groups, source 3 is writable, and three
+       storage banks have no relocations. */
+    Table legacy = {1,4,{{0,2},{0,12},{0,60},{3,4}}};
+    UInt16 grouped[] = {2,14, 0,7, 0,1,6, 4,2,1,30, 3,3, 0,1,2};
+    UInt32 sampleLinks[] = {PALM_TLS6_LINK_BASE+38, PALM_TLS2_LINK_BASE+10,
+                            PALM_TLS6_LINK_BASE+62, PALM_TLS2_LINK_BASE+4};
+    UInt32 expected[5][16];
+    for (i=0;i<4;i++) {
+        PalmTlsRelocation entry=legacy.entries[i];
+        memcpy((UInt8 *)sources[entry.sourceSegment]+entry.sourceOffset,&sampleLinks[i],4);
+    }
+    allocations=writes=0; peakScratch=0;
+    assert(TestApply(&legacy,28,segments,sizes,sources));
+    assert(allocations==1 && peakScratch==64 && writes==4);
+    memcpy(expected,words,sizeof(words));
+    memset(words,0xda,sizeof(words));
+    allocations=writes=0; peakScratch=0;
+    assert(TestApply(grouped,sizeof(grouped),segments,sizes,sources));
+    assert(allocations==1 && peakScratch==64 && writes==4);
+    assert(!memcmp(words,expected,sizeof(words)));
+
+    /* All truncations must fail, including with a matching top-level size. */
+    for (i=0;i<sizeof(grouped);i++)
+        assert(!TestApply(grouped,i,segments,sizes,sources));
+    UInt16 malformed[] = {2,5, 0,3, 1,1,30};
+    for (i=1;i<5;i++) {
+        malformed[1]=i;
+        if (i>1) malformed[3]=i-2;
+        assert(!TestApply(malformed,4+i*2,segments,sizes,sources));
+    }
+    malformed[1]=5; malformed[3]=3;
+    malformed[2]=5;
+    assert(!TestApply(malformed,sizeof(malformed),segments,sizes,sources));
+    malformed[2]=0; malformed[4]=5;
+    assert(!TestApply(malformed,sizeof(malformed),segments,sizes,sources));
+    malformed[4]=1; segments[1]=NULL;
+    assert(!TestApply(malformed,sizeof(malformed),segments,sizes,sources));
+    segments[1]=(UInt8 *)words[1];
+    malformed[5]=0;
+    assert(!TestApply(malformed,sizeof(malformed),segments,sizes,sources));
+    malformed[5]=2;
+    assert(!TestApply(malformed,sizeof(malformed),segments,sizes,sources));
+    malformed[5]=1; malformed[6]=31;
+    assert(!TestApply(malformed,sizeof(malformed),segments,sizes,sources));
+    malformed[6]=0xffff;
+    assert(!TestApply(malformed,sizeof(malformed),segments,sizes,sources));
+    UInt16 empty[]={2,0};
+    assert(TestApply(empty,sizeof(empty),segments,sizes,sources));
+    assert(!memcmp(words,input,sizeof(words)));
+    failWrite=1;
+    assert(!TestApply(grouped,sizeof(grouped),segments,sizes,sources));
+    failWrite=0; failAlloc=1;
+    assert(!TestApply(grouped,sizeof(grouped),segments,sizes,sources));
     return 0;
 }
 ''')

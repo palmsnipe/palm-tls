@@ -121,24 +121,47 @@ for (const engine of [
 ].filter(({ protocol }) => selectedProtocols.includes(protocol))) {
   const reloc = resource('TlsR', engine.reloc);
   const body = data.subarray(reloc.offset, reloc.offset + reloc.size);
-  if (body.length < 4 || body.readUInt16BE(0) !== 1)
-    throw new Error(`invalid relocation header TlsR:${engine.reloc}`);
-  const relocCount = body.readUInt16BE(2);
-  if (body.length !== 4 + relocCount * 6)
-    throw new Error(`invalid relocation length TlsR:${engine.reloc}`);
+  const invalid = message => { throw new Error(`${message} in TlsR:${engine.reloc}`); };
+  if (body.length < 4) invalid('missing relocation header');
+  const version = body.readUInt16BE(0);
+  const count = body.readUInt16BE(2);
   const seen = new Set();
-  for (let index = 0; index < relocCount; index += 1) {
-    const entryOffset = 4 + index * 6;
-    const segment = body.readUInt16BE(entryOffset);
-    const sourceOffset = body.readUInt32BE(entryOffset + 2);
-    if (segment >= engine.segments.length)
-      throw new Error(`invalid source segment ${segment} in TlsR:${engine.reloc}`);
-    const key = `${segment}:${sourceOffset}`;
-    if (seen.has(key)) throw new Error(`duplicate relocation ${key} in TlsR:${engine.reloc}`);
-    seen.add(key);
-    const code = resource('TlsC', engine.segments[segment]);
-    if (sourceOffset + 4 > code.size)
-      throw new Error(`relocation ${key} exceeds TlsC:${code.id}`);
+  function checkOffset(source, offset, target) {
+    const code = resource('TlsC', engine.segments[source]);
+    if (!code || (offset & 1) || offset + 4 > code.size)
+      invalid(`invalid source ${source}:${offset}`);
+    if (seen.has(`${source}:${offset}`) || seen.has(`${source}:${offset - 2}`) ||
+        seen.has(`${source}:${offset + 2}`)) invalid(`overlapping relocation ${source}:${offset}`);
+    seen.add(`${source}:${offset}`);
+    if (target !== undefined && data.readUInt16BE(code.offset + offset) !== (0x11 + target) * 256)
+      invalid(`linked word at ${source}:${offset} does not address bank ${target}`);
+  }
+  if (version === 1) {
+    if (body.length !== 4 + count * 6) invalid('invalid legacy relocation length');
+    for (let i = 4; i < body.length; i += 6)
+      checkOffset(body.readUInt16BE(i), body.readUInt32BE(i + 2));
+  } else if (version === 2) {
+    if (body.length !== 4 + count * 2) invalid('invalid grouped relocation length');
+    let cursor = 4;
+    while (cursor < body.length) {
+      if (body.length - cursor < 4) invalid('truncated source header');
+      const source = body.readUInt16BE(cursor);
+      const end = cursor + 4 + 2 * body.readUInt16BE(cursor + 2);
+      if (source >= engine.segments.length || end === cursor + 4 || end > body.length) invalid('invalid source block');
+      cursor += 4;
+      while (cursor < end) {
+        if (end - cursor < 4) invalid('truncated target header');
+        const target = body.readUInt16BE(cursor);
+        const entries = body.readUInt16BE(cursor + 2);
+        cursor += 4;
+        if (target >= engine.segments.length || !entries || cursor + 2 * entries > end)
+          invalid('invalid target group');
+        for (let i = 0; i < entries; i++, cursor += 2)
+          checkOffset(source, 2 * body.readUInt16BE(cursor), target);
+      }
+    }
+  } else {
+    invalid(`unsupported version ${version}`);
   }
 }
 console.log(`Validated ${file}: ${name}, ${type}/${creator}, ${count} resources, ${profile} profile`);

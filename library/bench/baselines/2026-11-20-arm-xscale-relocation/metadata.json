@@ -1,0 +1,86 @@
+{
+  "baseline_commit": "84c45a335f8a87cdbf77d8eac5092e5d4e4441fd",
+  "mips": 100,
+  "anchor_count": 8,
+  "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+  "group": "p256",
+  "timer_hz": 100,
+  "boards": {
+    "pxa255": {
+      "device": "Tungsten E2",
+      "session_sha256": "60d220b75df935d8b5c11829f190982fffe815cad668c048e7c05545461a8181"
+    },
+    "pxa270": {
+      "device": "Palm TX",
+      "session_sha256": "e24cacfa7fc3d2fb2bc43d9370a7e2e8e40c698dd0b626879abc1419e40c1374"
+    }
+  },
+  "library_sha256": {
+    "base": "85c3eb6fce37a7b823a3907445eeee96f1d22d78e0338ff928a8231f59a6fb4f",
+    "compact": "a20ea870e233d1a1e4535d67e2970123d67872378bdddf41b2135aa3df1d6e02"
+  },
+  "app_sha256": {
+    "release": "a495be84ced9b8795607b99dcbee9d779252ab5b2b87cdd5e11ff8498447b9b1",
+    "profile": "b73170e1548ca0010aa55d300d598ec22411fa689a025fba53ff11ec61682044",
+    "pressure": "11ceaec32a69fe179de977773a0853a86bef14e70ffa191df638f855765944a1"
+  },
+  "build_sizes": {
+    "base": 746909,
+    "compact": 710183
+  },
+  "relocation_table_check": {
+    "68k-library-tls11": {
+      "sites": 2155,
+      "target_groups": 16,
+      "legacy_bytes": 12934,
+      "compact_bytes": 4394,
+      "max_scratch_bytes": 46700
+    },
+    "68k-library-tls13": {
+      "sites": 3916,
+      "target_groups": 22,
+      "legacy_bytes": 23500,
+      "compact_bytes": 7944,
+      "max_scratch_bytes": 64798
+    },
+    "68k-library": {
+      "sites": 2884,
+      "target_groups": 15,
+      "legacy_bytes": 17308,
+      "compact_bytes": 5848,
+      "max_scratch_bytes": 58094
+    },
+    "arm-library-browser": {
+      "sites": 4448,
+      "target_groups": 25,
+      "legacy_bytes": 26692,
+      "compact_bytes": 9020,
+      "max_scratch_bytes": 64944
+    },
+    "arm-library-tls11": {
+      "sites": 2276,
+      "target_groups": 16,
+      "legacy_bytes": 13660,
+      "compact_bytes": 4636,
+      "max_scratch_bytes": 46700
+    },
+    "arm-library-tls13": {
+      "sites": 4136,
+      "target_groups": 25,
+      "legacy_bytes": 24820,
+      "compact_bytes": 8396,
+      "max_scratch_bytes": 63052
+    },
+    "arm-library": {
+      "sites": 2889,
+      "target_groups": 16,
+      "legacy_bytes": 17338,
+      "compact_bytes": 5862,
+      "max_scratch_bytes": 58260
+    }
+  },
+  "server.der_sha256": "89938ee3285702303239ea68297a822f3798a0fc1346bc9aabc6718adfc0a7b4",
+  "trust.pem_sha256": "8cbf846c6f56a1c84bfe1bdfa6ed449e1102a608a4722a5ea7bfd2005ce8381a",
+  "arm_image_sha256": "7cf9f9471491a0c18bcbfd361c3aabaf641e37046b24b3f23a834c04eb68fde2",
+  "emulator_sha256": "f720b17f1abefbf0d65494b6463da33976cfbf244937ab6eb3ccfe4288990fce"
+}

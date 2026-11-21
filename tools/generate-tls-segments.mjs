@@ -1,19 +1,21 @@
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const [elf, output, readelf = "m68k-none-elf-readelf"] = process.argv.slice(2);
 if (!elf || !output) {
   throw new Error("usage: generate-tls-segments.mjs ELF OUTPUT [READELF]");
 }
 
+const image = readFileSync(elf);
 const sectionText = execFileSync(readelf, ["-SW", elf], { encoding: "utf8" });
 const sections = new Map();
 for (const line of sectionText.split("\n")) {
-  const match = line.match(/^\s*\[\s*\d+\]\s+(\.tls(?:2|3|4a?|5|6))\s+\S+\s+([0-9a-fA-F]+)\s+\S+\s+([0-9a-fA-F]+)/);
+  const match = line.match(/^\s*\[\s*\d+\]\s+(\.tls(?:2|3|4a?|5|6))\s+\S+\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)/);
   if (match) {
     sections.set(match[1], {
       address: Number.parseInt(match[2], 16),
-      size: Number.parseInt(match[3], 16),
+      fileOffset: Number.parseInt(match[3], 16),
+      size: Number.parseInt(match[4], 16),
     });
   }
 }
@@ -75,20 +77,38 @@ for (const line of relocText.split("\n")) {
     throw new Error(`relocation outside ${current}: ${line.trim()}`);
   }
   const segment = segmentForSection(current);
-  entries.push({ segment, offset: address - segmentBases[segment] });
+  const offset = address - segmentBases[segment];
+  if (offset & 1) throw new Error(`unaligned relocation in ${current}: ${offset}`);
+  // The final linked word includes the ELF addend. The symbol alone can
+  // identify a different bank or an absolute value that needs no relocation.
+  const linked = image.readUInt32BE(section.fileOffset + address - section.address);
+  const targetBank = segmentBases.findIndex(base => linked >= base && linked - base < 0x10000);
+  if (targetBank >= 0) entries.push({ segment, offset, targetBank });
 }
 
-const unique = [...new Map(entries.map((entry) => [`${entry.segment}:${entry.offset}`, entry])).values()]
+const unique = [...new Map(entries.map(entry => [`${entry.segment}:${entry.offset}`, entry])).values()]
   .sort((a, b) => a.segment - b.segment || a.offset - b.offset);
-if (unique.length > 0xffff) throw new Error("too many TLS relocations");
-
-const data = Buffer.alloc(4 + unique.length * 6);
-data.writeUInt16BE(1, 0);
-data.writeUInt16BE(unique.length, 2);
-unique.forEach((entry, index) => {
-  const offset = 4 + index * 6;
-  data.writeUInt16BE(entry.segment, offset);
-  data.writeUInt32BE(entry.offset, offset + 2);
-});
+// V2 stores a word count, followed by [source, payload words] blocks.
+// Each payload holds [target, count, halfword offsets...] groups.
+const words = [];
+for (let source = 0; source < segmentCount; source++) {
+  const offsets = Array.from({ length: segmentCount }, () => []);
+  let last = -4;
+  for (const entry of unique.filter(entry => entry.segment === source)) {
+    if (entry.offset < last + 4) throw new Error(`overlapping relocation in bank ${source}`);
+    offsets[entry.targetBank].push(entry.offset / 2);
+    last = entry.offset;
+  }
+  const payload = [];
+  offsets.forEach((group, target) => {
+    if (group.length) payload.push(target, group.length, ...group);
+  });
+  if (payload.length) words.push(source, payload.length, ...payload);
+}
+if (words.length > 0xffff) throw new Error("relocation table too large");
+const data = Buffer.alloc(4 + 2 * words.length);
+data.writeUInt16BE(2, 0);
+data.writeUInt16BE(words.length, 2);
+words.forEach((word, i) => data.writeUInt16BE(word, 4 + 2 * i));
 writeFileSync(output, data);
 console.log(`Generated ${unique.length} relocations for ${segmentCount} TLS resources`);

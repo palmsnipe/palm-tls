@@ -36,7 +36,8 @@ These comparisons cover cold, warm and resumed connections on cp-uarm at
 [Cold loading and resumed key derivation](baselines/2026-11-20-arm-cold-resume) ·
 [Five XScale rounds on PXA255 and PXA270](baselines/2026-11-20-arm-xscale) ·
 [XScale cold trust setup profile](baselines/2026-11-20-arm-xscale-trust) ·
-[XScale cold engine loading](baselines/2026-11-20-arm-xscale-loader)
+[XScale cold engine loading](baselines/2026-11-20-arm-xscale-loader) ·
+[Storage-backed engine relocation](baselines/2026-11-20-arm-xscale-relocation)
 
 ## DragonBall TLS 1.3 handshakes
 

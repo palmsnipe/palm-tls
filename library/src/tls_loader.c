@@ -93,61 +93,105 @@ static Boolean CopySegment(MemHandle *sourceHP, UInt8 *destP, UInt32 size,
     return true;
 }
 
+static const UInt8 *RelocateLegacyRun(const UInt8 *cursorP, const UInt8 *endP,
+                                      UInt8 *scratchP, UInt32 size,
+                                      const UInt32 *deltas)
+{
+    const PalmTlsRelocation *entryP = (const PalmTlsRelocation *)cursorP;
+    UInt16 segment = entryP->sourceSegment;
+    do {
+        UInt32 offset = entryP->sourceOffset;
+        if ((offset & 1U) || offset > size - sizeof(UInt32)) return 0;
+        UInt32 *wordP = (UInt32 *)(scratchP + offset);
+        *wordP = RuntimeAddress(*wordP, deltas);
+        entryP++;
+    } while ((const UInt8 *)entryP < endP && entryP->sourceSegment == segment);
+    return (const UInt8 *)entryP;
+}
+
+/* V2 groups source offsets by target bank at build time. Each offset is
+ * in halfwords, so a single bounds check also guarantees Palm alignment. */
+static const UInt8 *RelocateBank(const UInt8 *cursorP, const UInt8 *endP,
+                                 UInt8 *scratchP, UInt32 size, UInt8 **segments)
+{
+    if (endP - cursorP < 4) return 0;
+    const UInt16 *blockP = (const UInt16 *)cursorP;
+    UInt16 words = blockP[1];
+    if (!words || 2UL * words > (UInt32)(endP - cursorP - 4)) return 0;
+    const UInt16 *groupP = blockP + 2;
+    const UInt16 *blockEndP = groupP + words;
+    UInt32 lastHalfword = (size - sizeof(UInt32)) / 2;
+    while (groupP < blockEndP) {
+        if (blockEndP - groupP < 2) return 0;
+        UInt16 target = *groupP++;
+        UInt16 count = *groupP++;
+        if (target >= PALM_TLS_SEGMENT_COUNT || !segments[target] ||
+            !count || count > blockEndP - groupP) return 0;
+        UInt32 base = (UInt32)segments[target];
+        do {
+            UInt16 offset = *groupP++;
+            if (offset > lastHalfword) return 0;
+            UInt32 *wordP = (UInt32 *)(scratchP + 2UL * offset);
+            *wordP = base + (UInt16)*wordP;
+        } while (--count);
+    }
+    return (const UInt8 *)blockEndP;
+}
+
 static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
                                 UInt8 **segments, const UInt32 *segmentSizes,
                                 MemHandle *sourceHandles,
                                 PalmTlsEngineResult *resultP)
 {
     const UInt16 *headerP = (const UInt16 *)relocationsP;
-    const PalmTlsRelocation *entryP, *endP;
-    UInt16 count, initialized = 0;
     UInt32 deltas[8];
 
-    if (relocSize < 4 || headerP[0] != PALM_TLS_RELOC_VERSION) return false;
-    count = headerP[1];
-    if (4UL + (UInt32)count * sizeof(PalmTlsRelocation) > relocSize)
+    if (relocSize < 4) return false;
+    UInt16 version = headerP[0];
+    UInt32 payloadSize = (UInt32)headerP[1];
+    if (version == PALM_TLS_RELOC_LEGACY_VERSION)
+        payloadSize *= sizeof(PalmTlsRelocation);
+    else if (version == PALM_TLS_RELOC_VERSION)
+        payloadSize *= sizeof(UInt16);
+    else
         return false;
-    entryP = (const PalmTlsRelocation *)(relocationsP + 4);
-    endP = entryP + count;
-    RuntimeDeltas(deltas, segments);
+    if (payloadSize > relocSize - 4 ||
+        (version == PALM_TLS_RELOC_VERSION && payloadSize != relocSize - 4))
+        return false;
+    const UInt8 *cursorP = relocationsP + 4;
+    const UInt8 *endP = cursorP + payloadSize;
+    if (version == PALM_TLS_RELOC_LEGACY_VERSION) RuntimeDeltas(deltas, segments);
 
     /* Relocate the source in scratch before the first storage write.
      * For an ungrouped table, later runs start with the relocated copy. */
-    while (entryP != endP) {
-        UInt16 segment = entryP->sourceSegment;
+    while (cursorP < endP) {
+        UInt16 segment = *(const UInt16 *)cursorP;
         if (segment >= PALM_TLS_SEGMENT_COUNT || !segments[segment])
             return false;
         UInt32 size = segmentSizes[segment];
         if (size < sizeof(UInt32)) return false;
-        UInt32 maxOffset = size - sizeof(UInt32);
         Boolean storage = segment != PALM_TLS_WRITABLE_SEGMENT;
         UInt8 *scratchP = segments[segment];
         if (storage) {
             scratchP = (UInt8 *)MemPtrNew(size);
             if (!scratchP) return false;
         }
-        UInt16 bit = 1U << segment;
-        if (!(initialized & bit)) {
+        if (sourceHandles[segment]) {
             if (!CopySegment(&sourceHandles[segment], scratchP, size, false, resultP)) {
                 if (storage) MemPtrFree(scratchP);
                 return false;
             }
-            initialized |= bit;
         } else if (storage) {
             MemMove(scratchP, segments[segment], size);
         }
-        do {
-            UInt32 offset = entryP->sourceOffset;
-            if ((offset & 1U) || offset > maxOffset) {
-                if (storage) MemPtrFree(scratchP);
-                return false;
-            }
-            /* The Palm ABI permits 32-bit values at two-byte alignment.
-             * The writable segment already lives in dynamic memory. */
-            UInt32 *wordP = (UInt32 *)(scratchP + offset);
-            *wordP = RuntimeAddress(*wordP, deltas);
-            entryP++;
-        } while (entryP != endP && entryP->sourceSegment == segment);
+        if (version == PALM_TLS_RELOC_VERSION)
+            cursorP = RelocateBank(cursorP, endP, scratchP, size, segments);
+        else
+            cursorP = RelocateLegacyRun(cursorP, endP, scratchP, size, deltas);
+        if (!cursorP) {
+            if (storage) MemPtrFree(scratchP);
+            return false;
+        }
         if (storage) {
             Boolean written = DmWrite(segments[segment], 0, scratchP, size) == errNone;
             MemPtrFree(scratchP);
@@ -155,7 +199,7 @@ static Boolean ApplyRelocations(const UInt8 *relocationsP, UInt32 relocSize,
         }
     }
     for (UInt16 segment = 0; segment < PALM_TLS_SEGMENT_COUNT; segment++) {
-        if (segments[segment] && !(initialized & (1U << segment)) &&
+        if (segments[segment] && sourceHandles[segment] &&
             !CopySegment(&sourceHandles[segment], segments[segment], segmentSizes[segment],
                          segment != PALM_TLS_WRITABLE_SEGMENT, resultP))
             return false;
